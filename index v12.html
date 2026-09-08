@@ -1,0 +1,2475 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KPI Karyawan</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='18' y1='14' x2='78' y2='84' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23fff0a7'/%3E%3Cstop offset='.48' stop-color='%23d1a23e'/%3E%3Cstop offset='1' stop-color='%238c6722'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='9' y='9' width='78' height='78' rx='18' fill='url(%23g)' stroke='%23b38225' stroke-width='4'/%3E%3Crect x='15' y='15' width='66' height='66' rx='14' fill='%23f5d06a' opacity='.25'/%3E%3Cg fill='none' stroke='%23ffefae' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M31 52l11 11 27-31'/%3E%3Cpath d='M55 34h14v14'/%3E%3Cpath d='M24 52a26 26 0 0 1 43-23'/%3E%3Cpath d='M27 66a26 26 0 0 0 28 8'/%3E%3C/g%3E%3Cg fill='%23ffefae'%3E%3Crect x='58' y='58' width='7' height='16' rx='2'/%3E%3Crect x='69' y='48' width='7' height='26' rx='2'/%3E%3Cpath d='M73 33l4 8 8 1-6 6 2 8-8-4-8 4 2-8-6-6 8-1z'/%3E%3C/g%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #f0f4f2;
+      --ink: #17201c;
+      --muted: #66736d;
+      --line: #dde4e0;
+      --green: #276749;
+      --green-dark: #1f5139;
+      --gold: #b7791f;
+      --red: #b42318;
+      --blue: #245a8d;
+      --menu-text: #DFFFDF;
+      --shadow: 0 18px 48px rgba(22, 32, 28, .10);
+      --radius: 8px;
+      --sidebar: 164px;
+      --menu-button: 136px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .auth-shell {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        linear-gradient(125deg, rgba(39, 103, 73, .10), transparent 38%),
+        linear-gradient(300deg, rgba(183, 121, 31, .13), transparent 36%),
+        var(--bg);
+    }
+
+    .auth-card {
+      width: min(440px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 30px;
+    }
+
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 26px;
+    }
+
+    .brand-mark {
+      width: 58px;
+      height: 58px;
+      border-radius: 8px;
+      background: transparent;
+      color: #d4a72c;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      border: 0;
+    }
+
+    .brand-mark svg {
+      width: 50px;
+      height: 50px;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    .auth-card h1 {
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .form-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .field label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #394640;
+    }
+
+    .field small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 11px 12px;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 96px;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: rgba(39, 103, 73, .55);
+      box-shadow: 0 0 0 3px rgba(39, 103, 73, .12);
+    }
+
+    .btn {
+      min-height: 42px;
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 800;
+      color: var(--ink);
+      background: #e8eeeb;
+      transition: transform .12s ease, background .12s ease, opacity .12s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary {
+      background: var(--green);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: var(--green-dark);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--line);
+    }
+
+    .btn-danger {
+      background: #fee4e2;
+      color: var(--red);
+    }
+
+    .btn-mini {
+      min-height: 32px;
+      padding: 6px 9px;
+      font-size: 12px;
+      border-radius: 7px;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: var(--sidebar) 1fr;
+    }
+
+    .sidebar {
+      background: #ffffff;
+      color: var(--ink);
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      border-right: 1px solid var(--line);
+      box-shadow: 8px 0 24px rgba(22, 32, 28, .04);
+    }
+
+    .sidebar .brand-mark {
+      width: 78px;
+      height: 78px;
+      background: transparent;
+      color: #d4a72c;
+      margin: 0 auto;
+    }
+
+    .sidebar .brand-mark svg {
+      width: 68px;
+      height: 68px;
+    }
+
+    .sidebar .brand-row {
+      width: var(--menu-button);
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+      text-align: center;
+    }
+
+    .sidebar .brand-row strong {
+      display: block;
+      font-size: 14px;
+      line-height: 1.2;
+    }
+
+    .user-pill {
+      border: 0;
+      border-radius: 0;
+      padding: 3px 0 0;
+      display: block;
+      background: transparent;
+      width: var(--menu-button);
+      min-width: 0;
+      color: var(--muted);
+      box-shadow: none;
+      text-align: center;
+    }
+
+    .user-pill:hover {
+      transform: none;
+      text-decoration: underline;
+    }
+
+    .user-pill span {
+      display: block;
+      color: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .nav {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      width: var(--menu-button);
+    }
+
+    .nav button {
+      width: var(--menu-button);
+      min-height: 36px;
+      text-align: left;
+      justify-content: flex-start;
+      background: #1f5139;
+      color: var(--menu-text);
+      border-radius: 8px;
+      padding: 8px 11px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-weight: 800;
+      border: 1px solid rgba(31, 81, 57, .12);
+      box-shadow: 0 8px 18px rgba(31, 81, 57, .10);
+    }
+
+    .nav button.active,
+    .nav button:hover {
+      color: var(--menu-text);
+      background: var(--green);
+      transform: translateX(2px);
+    }
+
+    .nav svg {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      stroke-width: 2.25;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: 0 0 auto;
+    }
+
+    .logout-button {
+      margin-top: auto;
+      color: var(--green);
+      background: #f1f6f3;
+      border-color: #cfe0d6;
+      width: var(--menu-button);
+    }
+
+    .main {
+      padding: 24px;
+      min-width: 0;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .topbar h2 {
+      font-size: clamp(22px, 3vw, 32px);
+      letter-spacing: 0;
+    }
+
+    .page {
+      display: grid;
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 30px rgba(22, 32, 28, .06);
+      padding: 18px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .panel-head h3 {
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    .notes-layout {
+      display: grid;
+      grid-template-columns: minmax(260px, 420px) 1fr;
+      gap: 16px;
+    }
+
+    .note-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .notes-list {
+      display: grid;
+      gap: 10px;
+      max-height: 390px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .note-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      background: #fff;
+    }
+
+    .note-item.done .note-text {
+      text-decoration: line-through;
+      color: var(--muted);
+    }
+
+    .note-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .note-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .attachment-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-width: 260px;
+    }
+
+    .attachment-button {
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+      gap: 10px;
+    }
+
+    .kpi-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      text-align: left;
+      min-height: 138px;
+      transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease;
+    }
+
+    .kpi-card:hover,
+    .kpi-card.active {
+      border-color: rgba(39, 103, 73, .55);
+      box-shadow: 0 14px 34px rgba(39, 103, 73, .10);
+      transform: translateY(-1px);
+    }
+
+    .kpi-card h3 {
+      font-size: 15px;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .metric {
+      background: var(--panel-soft);
+      border-radius: 8px;
+      padding: 8px;
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .metric strong {
+      font-size: 20px;
+    }
+
+    .progress {
+      height: 9px;
+      border-radius: 999px;
+      background: #e5ebe8;
+      overflow: hidden;
+    }
+
+    .progress i {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--green), var(--gold));
+      border-radius: inherit;
+      width: 0;
+    }
+
+    .filters {
+      display: flex;
+      gap: 10px;
+      flex-wrap: nowrap;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .filters select {
+      width: auto;
+      min-width: 152px;
+      max-width: 240px;
+      flex: 0 0 auto;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      min-width: 920px;
+      background: #fff;
+    }
+
+    .owner-task-table {
+      min-width: 980px;
+    }
+
+    th,
+    td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    th {
+      background: #f2f5f3;
+      color: #3f4b45;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+    }
+
+    .owner-task-table .id-col,
+    .owner-task-table .id-cell {
+      width: 76px;
+      max-width: 76px;
+      word-break: break-all;
+    }
+
+    .owner-task-table .action-col,
+    .owner-task-table .action-cell {
+      width: 178px;
+      white-space: nowrap;
+    }
+
+    .owner-task-table .action-cell .inline-actions {
+      flex-wrap: nowrap;
+      gap: 6px;
+    }
+
+    .owner-task-table .action-select {
+      width: 108px;
+      min-width: 108px;
+      max-width: 108px;
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .status.berjalan {
+      background: #e8f1ff;
+      color: var(--blue);
+    }
+
+    .status.tepat_waktu {
+      background: #e7f6ee;
+      color: var(--green);
+    }
+
+    .status.meleset {
+      background: #fee4e2;
+      color: var(--red);
+    }
+
+    .status.pause {
+      background: #fff3cd;
+      color: var(--gold);
+    }
+
+    .task-detail {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: pre-line;
+      max-width: 420px;
+    }
+
+    .timer {
+      color: var(--blue);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .timer.overdue {
+      color: var(--red);
+    }
+
+    .timer.paused {
+      color: var(--gold);
+    }
+
+    .report-grid {
+      display: grid;
+      grid-template-columns: minmax(260px, 340px) 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .report-grid > .panel {
+      height: min(760px, calc(100vh - 140px));
+      min-height: 560px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .task-list {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
+      overflow: auto;
+    }
+
+    #reportForm {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 3px;
+    }
+
+    .task-chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      display: grid;
+      gap: 4px;
+      font-size: 12px;
+    }
+
+    .task-chip strong {
+      font-size: 13px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .file-hint {
+      padding: 10px;
+      border-radius: 8px;
+      background: #f6f8f7;
+      color: var(--muted);
+      font-size: 12px;
+      border: 1px dashed var(--line);
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 50;
+      display: grid;
+      gap: 8px;
+    }
+
+    .toast div {
+      background: #111a16;
+      color: #fff;
+      padding: 11px 14px;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      max-width: 360px;
+      font-size: 13px;
+    }
+
+    .empty {
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 24px;
+      color: var(--muted);
+      text-align: center;
+      background: #fbfcfb;
+    }
+
+    .skeleton-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .skeleton {
+      min-height: 46px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #edf2ef 0%, #f8faf9 48%, #edf2ef 100%);
+      background-size: 220% 100%;
+      animation: shimmer 1.2s ease-in-out infinite;
+    }
+
+    .skeleton.card {
+      min-height: 130px;
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: 120% 0;
+      }
+      100% {
+        background-position: -120% 0;
+      }
+    }
+
+    .inline-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .mobile-top {
+      display: none;
+    }
+
+    @media (max-width: 940px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+        height: auto;
+        padding: 14px;
+      }
+
+      .mobile-top {
+        display: flex;
+      }
+
+      .notes-layout,
+      .report-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .report-grid > .panel {
+        height: auto;
+        min-height: 0;
+        overflow: visible;
+      }
+
+      #reportForm {
+        overflow: visible;
+      }
+
+      .kpi-grid,
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .filters {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+      }
+
+      .filters select {
+        flex: 1 1 160px;
+        min-width: 0;
+        max-width: none;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .main {
+        padding: 16px;
+      }
+
+      .auth-card,
+      .panel {
+        padding: 15px;
+      }
+
+      .metric-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <section id="loginView" class="auth-shell">
+    <form id="loginForm" class="auth-card">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 96 96">
+            <defs>
+              <linearGradient id="logoGoldA" x1="18" y1="14" x2="78" y2="84" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#fff0a7"></stop>
+                <stop offset=".48" stop-color="#d1a23e"></stop>
+                <stop offset="1" stop-color="#8c6722"></stop>
+              </linearGradient>
+            </defs>
+            <rect x="9" y="9" width="78" height="78" rx="18" fill="url(#logoGoldA)" stroke="#b38225" stroke-width="4"></rect>
+            <rect x="15" y="15" width="66" height="66" rx="14" fill="#f5d06a" opacity=".25"></rect>
+            <g fill="none" stroke="#ffefae" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M31 52l11 11 27-31"></path>
+              <path d="M55 34h14v14"></path>
+              <path d="M24 52a26 26 0 0 1 43-23"></path>
+              <path d="M27 66a26 26 0 0 0 28 8"></path>
+            </g>
+            <g fill="#ffefae">
+              <rect x="58" y="58" width="7" height="16" rx="2"></rect>
+              <rect x="69" y="48" width="7" height="26" rx="2"></rect>
+              <path d="M73 33l4 8 8 1-6 6 2 8-8-4-8 4 2-8-6-6 8-1z"></path>
+            </g>
+          </svg>
+        </div>
+        <div>
+          <h1>KPI Karyawan</h1>
+          <p class="muted">Dashboard penilaian dan pelaporan operasional</p>
+        </div>
+      </div>
+      <div class="form-stack">
+        <div class="field">
+          <label for="loginUsername">Username atau email</label>
+          <input id="loginUsername" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </div>
+        <button id="loginButton" class="btn btn-primary" type="submit">Masuk</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="appView" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 96 96">
+            <defs>
+              <linearGradient id="logoGoldB" x1="18" y1="14" x2="78" y2="84" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#fff0a7"></stop>
+                <stop offset=".48" stop-color="#d1a23e"></stop>
+                <stop offset="1" stop-color="#8c6722"></stop>
+              </linearGradient>
+            </defs>
+            <rect x="9" y="9" width="78" height="78" rx="18" fill="url(#logoGoldB)" stroke="#b38225" stroke-width="4"></rect>
+            <rect x="15" y="15" width="66" height="66" rx="14" fill="#f5d06a" opacity=".25"></rect>
+            <g fill="none" stroke="#ffefae" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M31 52l11 11 27-31"></path>
+              <path d="M55 34h14v14"></path>
+              <path d="M24 52a26 26 0 0 1 43-23"></path>
+              <path d="M27 66a26 26 0 0 0 28 8"></path>
+            </g>
+            <g fill="#ffefae">
+              <rect x="58" y="58" width="7" height="16" rx="2"></rect>
+              <rect x="69" y="48" width="7" height="26" rx="2"></rect>
+              <path d="M73 33l4 8 8 1-6 6 2 8-8-4-8 4 2-8-6-6 8-1z"></path>
+            </g>
+          </svg>
+        </div>
+        <div>
+          <strong>KPI Karyawan</strong>
+          <button id="userPill" class="user-pill" type="button"></button>
+        </div>
+      </div>
+      <nav id="nav" class="nav"></nav>
+      <button id="logoutButton" class="btn btn-ghost logout-button" type="button">Keluar</button>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h2 id="pageTitle">Dashboard</h2>
+          <p id="pageSubtitle" class="muted"></p>
+        </div>
+        <button id="refreshButton" class="btn btn-ghost" type="button">Refresh</button>
+      </div>
+
+      <section id="dashboardPage" class="page">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Notes</h3>
+            <div class="filters">
+              <select id="noteCreatorFilter"></select>
+            </div>
+          </div>
+          <div class="notes-layout">
+            <div class="form-stack">
+              <div class="field">
+                <label for="noteInput">Catatan cepat</label>
+                <textarea id="noteInput" placeholder="Tulis note atau gunakan rekam suara..."></textarea>
+              </div>
+              <div class="field">
+                <label for="noteAssigneeSelect">Jadikan tugas untuk</label>
+                <select id="noteAssigneeSelect"></select>
+              </div>
+              <div class="field">
+                <label for="notePhotos">Foto opsional</label>
+                <input id="notePhotos" type="file" accept="image/*" multiple>
+                <div class="file-hint">Opsional, maksimal 20 foto.</div>
+              </div>
+              <div class="note-actions">
+                <button id="voiceButton" class="btn btn-ghost" type="button">Rekam suara</button>
+                <button id="saveNoteButton" class="btn btn-primary" type="button">Simpan note</button>
+              </div>
+            </div>
+            <div id="notesList" class="notes-list"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Info KPI</h3>
+          </div>
+          <div id="kpiCards" class="kpi-grid"></div>
+        </div>
+
+        <div id="taskPanel" class="panel hidden">
+          <div class="panel-head">
+            <h3 id="taskPanelTitle">Rincian tugas</h3>
+            <div class="filters">
+              <select id="taskTypeFilter"></select>
+              <select id="kpiStatusFilter"></select>
+              <select id="auditStatusFilter" class="hidden">
+                <option value="">Semua audit</option>
+                <option value="aman">Aman</option>
+                <option value="kendala">Kendala</option>
+              </select>
+            </div>
+          </div>
+          <div id="tasksTable"></div>
+        </div>
+      </section>
+
+      <section id="laporanPage" class="page hidden">
+        <div class="report-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Tugas Berjalan</h3>
+            </div>
+            <div id="openTasksList" class="task-list"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Form Laporan</h3>
+            </div>
+            <form id="reportForm" class="form-stack">
+              <div class="field">
+                <label for="reportType">Pilih tugas</label>
+                <select id="reportType"></select>
+              </div>
+              <div id="dynamicReportFields" class="form-grid"></div>
+              <div class="inline-actions">
+                <button id="submitReportButton" class="btn btn-primary" type="submit">Kirim laporan</button>
+                <button id="resetReportButton" class="btn btn-ghost" type="button">Reset</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section id="profilPage" class="page hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Profil</h3>
+          </div>
+          <form id="profileForm" class="form-stack">
+            <div class="form-grid">
+              <div class="field">
+                <label for="profileName">Nama</label>
+                <input id="profileName" required>
+              </div>
+              <div class="field">
+                <label for="profileEmail">Email</label>
+                <input id="profileEmail" type="email">
+              </div>
+              <div class="field">
+                <label for="profilePhone">No. HP</label>
+                <input id="profilePhone">
+              </div>
+              <div class="field">
+                <label for="profileRole">Role</label>
+                <input id="profileRole" disabled>
+              </div>
+              <div class="field">
+                <label for="currentPassword">Password lama</label>
+                <input id="currentPassword" type="password" autocomplete="current-password">
+              </div>
+              <div class="field">
+                <label for="newPassword">Password baru</label>
+                <input id="newPassword" type="password" autocomplete="new-password">
+              </div>
+            </div>
+            <button id="saveProfileButton" class="btn btn-primary" type="submit">Simpan profil</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <script>
+    const state = {
+      token: localStorage.getItem('kpi_token') || '',
+      user: null,
+      menus: [],
+      page: 'dashboard',
+      dashboard: null,
+      reportMeta: null,
+      selectedCard: '',
+      noteCreatorId: '',
+      noteAssigneeId: '',
+      taskType: '',
+      kpiStatus: '',
+      auditStatus: '',
+      timerInterval: null,
+      speech: null,
+      authVersion: 0,
+      requestSeq: 0
+    };
+
+    const PAGE_LABELS = {
+      dashboard: ['Dashboard', 'Ringkasan KPI, notes, dan tugas berjalan'],
+      laporan: ['Laporan', 'Input laporan sesuai tugas dan role'],
+      profil: ['Profil', 'Data akun dan password']
+    };
+
+    const CLIENT_CACHE_VERSION = '2026-09-07-upload-lazy-workhours-notes';
+
+    const MENU_ICONS = {
+      dashboard: '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9z"></path><path d="M14 20h6V4h-6v16z"></path><path d="M4 20h6v-3H4v3z"></path></svg>',
+      laporan: '<svg viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7V3z"></path><path d="M15 3v5h4"></path><path d="M10 12h6"></path><path d="M10 16h6"></path></svg>',
+      profil: '<svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4z"></path><path d="M4 21a8 8 0 0 1 16 0"></path></svg>'
+    };
+
+    const REPORT_FORMS = {
+      pendapatan_harian: [
+        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'number', field: 'amount', label: 'Total setoran harian', required: true },
+        { kind: 'file', field: 'physicalCash', label: 'Foto uang fisik', required: true, accept: 'image/*' },
+        { kind: 'file', field: 'cashierState', label: 'Foto keadaan kas aplikasi kasir', required: true, accept: 'image/*' },
+        { kind: 'file', field: 'notaAttachments', label: 'Foto nota', required: true, multiple: true, max: 20, accept: 'image/*' },
+        { kind: 'file', field: 'bankProof', label: 'Bukti storan bank', accept: 'image/*,application/pdf', locations: ['raha'], help: 'Wajib bila setoran lebih dari 1 juta. Bisa menyusul maksimal 1x24 jam.' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      bukti_storan_bank: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', required: true, match: ['bukti_storan_bank'] },
+        { kind: 'file', field: 'bankProof', label: 'Bukti storan bank', required: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      laporan_akun_bank: [
+        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'file', field: 'bankAccountProof', label: 'Bukti akun bank', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      laporan_keadaan_kas_bank: [
+        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'file', field: 'bankCashStateProof', label: 'Bukti keadaan kas bank', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      laporan_saldo_bank_jago: [
+        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'number', field: 'amount', label: 'Nominal isi saldo Bank Jago', required: true },
+        { kind: 'file', field: 'saldoProof', label: 'Bukti isi saldo Bank Jago', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      rekap_storan_setengah_bulan: [
+        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'number', field: 'amount', label: 'Angka yang tercantum pada speedometer', required: true },
+        { kind: 'file', field: 'storanProof', label: 'Bukti laporan ganti oli', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      input_pengiriman: [
+        { kind: 'select', field: 'destination', label: 'Tujuan', required: true, options: [['', 'Pilih tujuan'], ['kendari', 'Kendari'], ['raha', 'Raha']] },
+        { kind: 'textarea', field: 'itemSummary', label: 'Rincian barang kiriman', required: true, full: true },
+        { kind: 'file', field: 'shipmentProof', label: 'Lampiran pengiriman', multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      rincian_barang_tiba: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', required: true, match: ['rincian_barang_tiba'] },
+        { kind: 'textarea', field: 'arrivedSummary', label: 'Rincian barang tiba', required: true, full: true },
+        { kind: 'file', field: 'arrivalProof', label: 'Bukti barang tiba', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      audit_harian: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_harian'] },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      audit_pekanan: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_pekanan'] },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      audit_nota_ipos: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_nota_ipos'] },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      audit_piutang: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_piutang'] },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', help: 'Piutang lebih dari satu bulan harus di-follow up.', full: true }
+      ],
+      audit_hutang: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_hutang'] },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      laporan_investor: [
+        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'file', field: 'reportProof', label: 'Bukti laporan investor', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      laporan_raport_fee_freelance: [
+        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'file', field: 'reportProof', label: 'Bukti laporan raport & fee freelance', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ]
+    };
+
+    document.addEventListener('DOMContentLoaded', init);
+
+    function init() {
+      bindEvents();
+      if (state.token) {
+        const token = state.token;
+        const authStamp = state.authVersion;
+        api('apiGetSession', token)
+          .then(function(response) {
+            if (token !== state.token || authStamp !== state.authVersion) {
+              return;
+            }
+            state.user = response.user;
+            state.menus = response.menus || [];
+            showApp();
+            logActivity('session_restore', {});
+          })
+          .catch(function() {
+            if (token === state.token && authStamp === state.authVersion) {
+              localStorage.removeItem('kpi_token');
+              state.token = '';
+              showLogin();
+            }
+          });
+      } else {
+        showLogin();
+      }
+    }
+
+    function bindEvents() {
+      byId('loginForm').addEventListener('submit', handleLogin);
+      byId('logoutButton').addEventListener('click', handleLogout);
+      byId('refreshButton').addEventListener('click', function() {
+        logActivity('refresh', { page: state.page });
+        refreshCurrentPage();
+      });
+      byId('saveNoteButton').addEventListener('click', saveNote);
+      byId('voiceButton').addEventListener('click', toggleVoice);
+      byId('noteCreatorFilter').addEventListener('change', function(event) {
+        state.noteCreatorId = event.target.value;
+        logActivity('filter_notes', { creatorId: state.noteCreatorId });
+        loadDashboard();
+      });
+      byId('noteAssigneeSelect').addEventListener('change', function(event) {
+        state.noteAssigneeId = event.target.value;
+        logActivity('select_note_assignee', { assigneeId: state.noteAssigneeId });
+      });
+      byId('taskTypeFilter').addEventListener('change', function(event) {
+        state.taskType = event.target.value;
+        logActivity('filter_task_type', { taskType: state.taskType });
+        loadDashboard();
+      });
+      byId('kpiStatusFilter').addEventListener('change', function(event) {
+        state.kpiStatus = event.target.value;
+        logActivity('filter_kpi_status', { kpiStatus: state.kpiStatus });
+        loadDashboard();
+      });
+      byId('auditStatusFilter').addEventListener('change', function(event) {
+        state.auditStatus = event.target.value;
+        logActivity('filter_audit_status', { auditStatus: state.auditStatus });
+        loadDashboard();
+      });
+      byId('reportType').addEventListener('change', function(event) {
+        logActivity('select_report_type', { type: event.target.value });
+        renderReportForm();
+      });
+      byId('reportForm').addEventListener('submit', submitReport);
+      byId('resetReportButton').addEventListener('click', function() {
+        logActivity('reset_report_form', { type: byId('reportType').value });
+        renderReportForm();
+      });
+      byId('profileForm').addEventListener('submit', saveProfile);
+    }
+
+    // Ganti dengan URL Cloudflare Worker Anda dari Langkah 2
+    const WORKER_URL = 'https://alfacom-kpi.alfacomapp.workers.dev';
+
+    function api(functionName) {
+      const args = Array.prototype.slice.call(arguments, 1);
+      
+      return fetch(WORKER_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: functionName,
+          args: args
+        })
+      })
+      .then(function(res) {
+        if (!res.ok) {
+          throw new Error('Gagal terhubung ke server (HTTP Status ' + res.status + ')');
+        }
+        return res.json();
+      })
+      .then(function(response) {
+        if (response && response.ok) {
+          return response;
+        } else {
+          throw new Error(response && response.message ? response.message : 'Permintaan gagal.');
+        }
+      });
+    }
+
+    function logActivity(action, detail) {
+      if (!state.token) {
+        return;
+      }
+
+      api('apiLogActivity', state.token, buildActivityPayload(action, detail)).catch(function() {});
+    }
+
+    function buildActivityPayload(action, detail) {
+      return {
+        action: action,
+        detail: Object.assign({ page: state.page }, detail || {}),
+        url: window.location.href,
+        userAgent: navigator.userAgent
+      };
+    }
+
+    function handleLogin(event) {
+      event.preventDefault();
+      const authStamp = ++state.authVersion;
+      state.requestSeq += 1;
+      resetViewState();
+      setBusy('loginButton', true);
+      api('apiLogin', {
+        username: byId('loginUsername').value,
+        password: byId('loginPassword').value
+      })
+        .then(function(response) {
+          if (authStamp !== state.authVersion) {
+            return;
+          }
+          state.token = response.token;
+          state.user = response.user;
+          state.menus = response.menus || [];
+          state.page = 'dashboard';
+          localStorage.setItem('kpi_token', state.token);
+          showApp();
+          logActivity('login', { username: byId('loginUsername').value });
+        })
+        .catch(showError)
+        .finally(function() {
+          setBusy('loginButton', false);
+        });
+    }
+
+    function handleLogout() {
+      const token = state.token;
+      const logoutPayload = buildActivityPayload('logout', { page: state.page });
+      state.authVersion += 1;
+      state.requestSeq += 1;
+      localStorage.removeItem('kpi_token');
+      state.token = '';
+      state.user = null;
+      state.menus = [];
+      state.page = 'dashboard';
+      resetViewState();
+      showLogin();
+
+      if (token) {
+        api('apiLogActivity', token, logoutPayload)
+          .catch(function() {})
+          .finally(function() {
+            api('apiLogout', token).catch(function() {});
+          });
+      }
+    }
+
+    function showLogin() {
+      byId('loginView').classList.remove('hidden');
+      byId('appView').classList.add('hidden');
+      byId('loginPassword').value = '';
+      stopTimers();
+    }
+
+    function showApp() {
+      byId('loginView').classList.add('hidden');
+      byId('appView').classList.remove('hidden');
+      renderShell();
+      navigate(state.menus.indexOf(state.page) !== -1 ? state.page : state.menus[0] || 'dashboard');
+    }
+
+    function renderShell() {
+      const userPill = byId('userPill');
+      userPill.innerHTML = '<span title="' + escapeAttr(state.user.Name || 'User') + '">' + escapeHtml(state.user.Name || 'User') + '</span>';
+      userPill.onclick = function() {
+        navigate('profil');
+      };
+
+      const nav = byId('nav');
+      nav.innerHTML = '';
+      state.menus.filter(function(menu) {
+        return menu !== 'profil';
+      }).forEach(function(menu) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.page = menu;
+        button.innerHTML = (MENU_ICONS[menu] || '') + '<span>' + escapeHtml(PAGE_LABELS[menu] ? PAGE_LABELS[menu][0] : titleCase(menu)) + '</span>';
+        button.addEventListener('click', function() {
+          navigate(menu);
+        });
+        nav.appendChild(button);
+      });
+
+      fillProfile();
+    }
+
+    function resetViewState() {
+      state.dashboard = null;
+      state.reportMeta = null;
+      state.selectedCard = '';
+      state.noteCreatorId = '';
+      state.noteAssigneeId = '';
+      state.taskType = '';
+      state.kpiStatus = '';
+      state.auditStatus = '';
+      stopTimers();
+      clearAppContent();
+    }
+
+    function clearAppContent() {
+      byId('noteCreatorFilter').innerHTML = '<option value="">Semua pembuat</option>';
+      byId('noteAssigneeSelect').innerHTML = '<option value="">Tanpa tugas KPI</option>';
+      byId('notePhotos').value = '';
+      byId('taskTypeFilter').innerHTML = '<option value="">Semua tugas</option>';
+      byId('kpiStatusFilter').innerHTML = '';
+      byId('auditStatusFilter').value = '';
+      byId('auditStatusFilter').classList.add('hidden');
+      byId('notesList').innerHTML = '';
+      byId('kpiCards').innerHTML = '';
+      byId('tasksTable').innerHTML = '';
+      byId('taskPanel').classList.add('hidden');
+      byId('openTasksList').innerHTML = '';
+      byId('dynamicReportFields').innerHTML = '';
+      byId('reportType').innerHTML = '';
+    }
+
+    function isCurrentRequest(token, requestId) {
+      return Boolean(state.token) && token === state.token && requestId === state.requestSeq;
+    }
+
+    function clientCacheKey(scope) {
+      return state.user && state.user.Id ? 'kpi_' + CLIENT_CACHE_VERSION + '_' + scope + '_' + state.user.Id : '';
+    }
+
+    function saveClientCache(scope, data) {
+      const key = clientCacheKey(scope);
+      if (!key || !data) {
+        return;
+      }
+
+      try {
+        sessionStorage.setItem(key, JSON.stringify({
+          savedAt: Date.now(),
+          data: data
+        }));
+      } catch (error) {}
+    }
+
+    function restoreDashboardCache() {
+      const data = restoreClientCache('dashboard', 3 * 60 * 1000);
+      if (data) {
+        state.dashboard = data;
+        state.selectedCard = data.selectedCard || (data.cards && data.cards[0] && data.cards[0].key) || '';
+      }
+    }
+
+    function restoreReportCache() {
+      const data = restoreClientCache('report', 3 * 60 * 1000);
+      if (data) {
+        state.reportMeta = data;
+      }
+    }
+
+    function restoreClientCache(scope, maxAgeMs) {
+      const key = clientCacheKey(scope);
+      if (!key) {
+        return null;
+      }
+
+      try {
+        const cached = JSON.parse(sessionStorage.getItem(key) || 'null');
+        const ageMs = cached && cached.savedAt ? Date.now() - cached.savedAt : Infinity;
+        if (!cached || !cached.savedAt || ageMs > maxAgeMs) {
+          return null;
+        }
+        return adjustCachedTimers(cached.data || null, ageMs);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function adjustCachedTimers(data, ageMs) {
+      if (!data) {
+        return null;
+      }
+
+      ['tasks', 'openTasks', 'cardTasks'].forEach(function(key) {
+        (data[key] || []).forEach(function(task) {
+          if (task.status === 'berjalan' && task.timer && !task.timer.isPaused) {
+            task.timer.remainingMs = Number(task.timer.remainingMs || 0) - ageMs;
+          }
+        });
+      });
+
+      return data;
+    }
+
+    function navigate(page) {
+      state.page = page;
+      logActivity('navigate', { targetPage: page });
+      Array.prototype.forEach.call(document.querySelectorAll('.nav button'), function(button) {
+        button.classList.toggle('active', button.dataset.page === page);
+      });
+
+      ['dashboard', 'laporan', 'profil'].forEach(function(name) {
+        const panel = byId(name + 'Page');
+        if (panel) {
+          panel.classList.toggle('hidden', name !== page);
+        }
+      });
+
+      const title = PAGE_LABELS[page] || [titleCase(page), ''];
+      byId('pageTitle').textContent = title[0];
+      byId('pageSubtitle').textContent = title[1];
+
+      if (page === 'dashboard') {
+        loadDashboard();
+      }
+      if (page === 'laporan') {
+        loadReportMeta();
+      }
+      if (page === 'profil') {
+        fillProfile();
+      }
+    }
+
+    function refreshCurrentPage() {
+      if (state.page === 'dashboard') {
+        loadDashboard();
+      } else if (state.page === 'laporan') {
+        loadReportMeta();
+      } else {
+        fillProfile();
+      }
+    }
+
+    function loadDashboard() {
+      if (!state.token) {
+        return Promise.resolve();
+      }
+
+      const token = state.token;
+      const requestId = ++state.requestSeq;
+      if (!state.dashboard) {
+        restoreDashboardCache();
+      }
+      if (!state.dashboard) {
+        renderDashboardLoading();
+      } else {
+        renderDashboard();
+      }
+
+      return api('apiGetDashboard', token, {
+        creatorId: state.noteCreatorId,
+        cardKey: state.selectedCard,
+        taskType: state.taskType,
+        kpiStatus: state.kpiStatus,
+        auditStatus: state.auditStatus
+      })
+        .then(function(response) {
+          if (!isCurrentRequest(token, requestId)) {
+            return;
+          }
+          state.dashboard = response;
+          state.selectedCard = response.selectedCard || (response.cards[0] && response.cards[0].key) || '';
+          saveClientCache('dashboard', response);
+          renderDashboard();
+        })
+        .catch(function(error) {
+          if (isCurrentRequest(token, requestId)) {
+            showError(error);
+          }
+        });
+    }
+
+    function renderDashboardLoading() {
+      stopTimers();
+      byId('notesList').innerHTML = '<div class="skeleton-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
+      byId('kpiCards').innerHTML = '<div class="skeleton card"></div><div class="skeleton card"></div><div class="skeleton card"></div>';
+      byId('tasksTable').innerHTML = '';
+      byId('taskPanel').classList.add('hidden');
+    }
+
+    function renderDashboard() {
+      renderNoteFilter();
+      renderNoteAssigneeOptions();
+      renderNotes();
+      renderKpiCards();
+      renderTaskFilter();
+      renderTasksTable();
+      startTimers();
+    }
+
+    function renderNoteFilter() {
+      const select = byId('noteCreatorFilter');
+      const value = state.noteCreatorId;
+      select.innerHTML = '<option value="">Semua pembuat</option>' + (state.dashboard.noteCreators || []).map(function(creator) {
+        return `<option value="${escapeAttr(creator.id)}">${escapeHtml(creator.name)}</option>`;
+      }).join('');
+      select.value = value;
+    }
+
+    function renderNoteAssigneeOptions() {
+      const select = byId('noteAssigneeSelect');
+      const users = state.dashboard.assignableUsers || [];
+      const options = users.map(function(user) {
+        return `<option value="${escapeAttr(user.id)}">${escapeHtml(user.name)}</option>`;
+      }).join('');
+      select.innerHTML = '<option value="">Tanpa tugas KPI</option>' + options;
+      select.value = users.some(function(user) {
+        return user.id === state.noteAssigneeId;
+      }) ? state.noteAssigneeId : '';
+      state.noteAssigneeId = select.value;
+    }
+
+    function renderNotes() {
+      const notes = state.dashboard.notes || [];
+      const list = byId('notesList');
+
+      if (!notes.length) {
+        list.innerHTML = '<div class="empty">Belum ada note.</div>';
+        return;
+      }
+
+      list.innerHTML = notes.map(function(note) {
+        const assignment = note.assignedToName
+          ? `<span>Ditugaskan ke ${escapeHtml(note.assignedToName)}${note.assignedTaskId ? ' &middot; ' + escapeHtml(note.assignedTaskId) : ''}</span>`
+          : '<span>Note umum</span>';
+        const attachments = renderAttachmentButtons(note.attachments);
+        return `
+          <article class="note-item ${note.done ? 'done' : ''}">
+            <div class="note-meta">
+              <span>${escapeHtml(note.createdByName || '-')} &middot; ${formatDate(note.updatedAt || note.createdAt)}</span>
+              <input type="checkbox" ${note.done ? 'checked' : ''} aria-label="Ceklis note" onchange="toggleNote('${escapeAttr(note.id)}', this.checked)">
+            </div>
+            <div class="note-meta">${assignment}</div>
+            <div class="note-text">${escapeHtml(note.text)}</div>
+            ${attachments ? `<div>${attachments}</div>` : ''}
+            <div class="note-buttons">
+              <button class="btn btn-mini btn-ghost" type="button" onclick="editNote('${escapeAttr(note.id)}')">Edit</button>
+              <button class="btn btn-mini btn-danger" type="button" onclick="deleteNote('${escapeAttr(note.id)}')">Hapus</button>
+            </div>
+          </article>
+        `;
+      }).join('');
+    }
+
+    function saveNote() {
+      const text = byId('noteInput').value.trim();
+      if (!text) {
+        toast('Isi note dulu.');
+        return;
+      }
+      const photoInput = byId('notePhotos');
+      const photos = Array.prototype.slice.call(photoInput.files || []);
+      if (photos.length > 20) {
+        toast('Foto notes maksimal 20 lampiran.');
+        return;
+      }
+
+      setBusy('saveNoteButton', true);
+      readFiles(photos)
+        .then(function(photoPayloads) {
+          return api('apiCreateNote', state.token, {
+            text: text,
+            assigneeId: state.noteAssigneeId,
+            files: { photos: photoPayloads }
+          });
+        })
+        .then(function() {
+          logActivity('note_create', {
+            assignedToId: state.noteAssigneeId,
+            hasTask: Boolean(state.noteAssigneeId),
+            photoCount: photos.length
+          });
+          byId('noteInput').value = '';
+          byId('noteAssigneeSelect').value = '';
+          photoInput.value = '';
+          state.noteAssigneeId = '';
+          toast('Note tersimpan.');
+          loadDashboard();
+        })
+        .catch(showError)
+        .finally(function() {
+          setBusy('saveNoteButton', false);
+        });
+    }
+
+    function toggleNote(id, done) {
+      api('apiUpdateNote', state.token, id, { done: done })
+        .then(function() {
+          logActivity('note_toggle', { noteId: id, done: done });
+          loadDashboard();
+        })
+        .catch(showError);
+    }
+
+    function editNote(id) {
+      const note = (state.dashboard.notes || []).find(function(item) {
+        return item.id === id;
+      });
+      if (!note) {
+        return;
+      }
+      const text = window.prompt('Edit note', note.text);
+      if (text === null) {
+        return;
+      }
+      api('apiUpdateNote', state.token, id, { text: text })
+        .then(function() {
+          logActivity('note_edit', { noteId: id });
+          loadDashboard();
+        })
+        .catch(showError);
+    }
+
+    function deleteNote(id) {
+      if (!window.confirm('Hapus note ini?')) {
+        return;
+      }
+      api('apiDeleteNote', state.token, id)
+        .then(function() {
+          logActivity('note_delete', { noteId: id });
+          loadDashboard();
+        })
+        .catch(showError);
+    }
+
+    function toggleVoice() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        logActivity('voice_note_unsupported', {});
+        toast('Browser belum mendukung rekam suara.');
+        return;
+      }
+
+      if (state.speech) {
+        state.speech.stop();
+        state.speech = null;
+        byId('voiceButton').textContent = 'Rekam suara';
+        logActivity('voice_note_stop', {});
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'id-ID';
+      recognition.interimResults = true;
+      recognition.continuous = false;
+      let finalText = '';
+
+      recognition.onresult = function(event) {
+        let interim = '';
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const transcript = event.results[index][0].transcript;
+          if (event.results[index].isFinal) {
+            finalText += transcript + ' ';
+          } else {
+            interim += transcript;
+          }
+        }
+        byId('noteInput').value = (byId('noteInput').value.replace(/\s+\[.*$/, '') + ' ' + finalText + interim).trim();
+      };
+
+      recognition.onend = function() {
+        state.speech = null;
+        byId('voiceButton').textContent = 'Rekam suara';
+      };
+
+      recognition.onerror = function(event) {
+        logActivity('voice_note_error', { error: event.error || '' });
+        toast(event.error || 'Rekam suara gagal.');
+      };
+
+      state.speech = recognition;
+      byId('voiceButton').textContent = 'Berhenti';
+      logActivity('voice_note_start', {});
+      recognition.start();
+    }
+
+    function renderKpiCards() {
+      const cards = state.dashboard.cards || [];
+      const wrap = byId('kpiCards');
+
+      if (!cards.length) {
+        wrap.innerHTML = '<div class="empty">Belum ada info KPI.</div>';
+        byId('taskPanel').classList.add('hidden');
+        return;
+      }
+
+      wrap.innerHTML = cards.map(function(card) {
+        return `
+          <button class="kpi-card ${card.key === state.selectedCard ? 'active' : ''}" type="button" onclick="selectCard('${escapeAttr(card.key)}')">
+            <div>
+              <h3>${escapeHtml(card.label)}</h3>
+              <p class="muted">${card.performance}% performa</p>
+            </div>
+            <div class="metric-row">
+              <div class="metric"><span>Tepat</span><strong>${card.tepatWaktu}</strong></div>
+              <div class="metric"><span>Meleset</span><strong>${card.meleset}</strong></div>
+              <div class="metric"><span>Total</span><strong>${card.total}</strong></div>
+            </div>
+            <div class="progress"><i style="width:${Math.min(100, Math.max(0, card.performance))}%"></i></div>
+          </button>
+        `;
+      }).join('');
+
+      byId('taskPanel').classList.remove('hidden');
+      const selected = cards.find(function(card) {
+        return card.key === state.selectedCard;
+      }) || cards[0];
+      byId('taskPanelTitle').textContent = 'Rincian tugas ' + selected.label;
+    }
+
+    function selectCard(key) {
+      state.selectedCard = key;
+      state.taskType = '';
+      state.kpiStatus = '';
+      state.auditStatus = '';
+      if (state.dashboard) {
+        state.dashboard.cardTasks = [];
+        state.dashboard.tasks = [];
+      }
+      loadDashboard();
+    }
+
+    function renderTaskFilter() {
+      const taskSelect = byId('taskTypeFilter');
+      const options = (state.dashboard.taskTypes || []).map(function(type) {
+        return `<option value="${escapeAttr(type.value)}">${escapeHtml(type.label)}</option>`;
+      }).join('');
+
+      taskSelect.innerHTML = '<option value="">Semua tugas</option>' + options;
+      taskSelect.value = state.taskType;
+
+      const statusSelect = byId('kpiStatusFilter');
+      statusSelect.innerHTML = [
+        ['','Semua status KPI'],
+        ['berjalan','Berjalan'],
+        ['pause','Pause'],
+        ['tepat_waktu','Tepat Waktu'],
+        ['meleset','Meleset']
+      ].map(function(option) {
+        return `<option value="${escapeAttr(option[0])}">${escapeHtml(option[1])}</option>`;
+      }).join('');
+      statusSelect.value = state.kpiStatus;
+
+      const auditFilter = byId('auditStatusFilter');
+      const selectedCard = (state.dashboard.cards || []).find(function(card) {
+        return card.key === state.selectedCard;
+      });
+      const showAuditFilter = selectedCard && selectedCard.key === 'auditor';
+      auditFilter.classList.toggle('hidden', !showAuditFilter);
+      auditFilter.value = showAuditFilter ? state.auditStatus : '';
+      if (!showAuditFilter) {
+        state.auditStatus = '';
+      }
+    }
+
+    function renderTasksTable() {
+      const tasks = currentDetailTasks();
+      const wrap = byId('tasksTable');
+      if (!tasks.length) {
+        wrap.innerHTML = '<div class="empty">Belum ada tugas pada filter ini.</div>';
+        return;
+      }
+
+      wrap.innerHTML = `
+        <div class="table-wrap">
+          <table class="${state.dashboard.canEditTaskStatus ? 'owner-task-table' : ''}">
+            <thead>
+              <tr>
+                <th class="${state.dashboard.canEditTaskStatus ? 'id-col' : ''}">ID</th>
+                <th>Tugas</th>
+                <th>Penanggung Jawab</th>
+                <th>Status KPI</th>
+                <th>Timer</th>
+                <th>Dibuat</th>
+                <th>Selesai</th>
+                <th>File</th>
+                <th>Catatan</th>
+                ${state.dashboard.canEditTaskStatus ? '<th class="action-col">Aksi</th>' : ''}
+              </tr>
+            </thead>
+            <tbody>
+              ${tasks.map(renderTaskRow).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function currentDetailTasks() {
+      let tasks = (state.dashboard.cardTasks && state.dashboard.cardTasks.length ? state.dashboard.cardTasks : state.dashboard.tasks || []).slice();
+      if (state.taskType) {
+        tasks = tasks.filter(function(task) {
+          return task.taskType === state.taskType;
+        });
+      }
+      if (state.kpiStatus) {
+        tasks = tasks.filter(function(task) {
+          return state.kpiStatus === 'pause' ? task.displayKpiStatus === 'pause' : task.kpiStatus === state.kpiStatus;
+        });
+      }
+      if (state.auditStatus) {
+        const auditStatus = String(state.auditStatus || '').trim().toLowerCase();
+        tasks = tasks.filter(function(task) {
+          const taskAuditStatus = String(task.payload && (task.payload.auditStatus || task.payload.status) || '').trim().toLowerCase();
+          return taskAuditStatus === auditStatus;
+        });
+      }
+      return tasks.slice(0, 400);
+    }
+
+    function renderAttachmentButtons(attachments) {
+      const files = flattenAttachmentFiles(attachments);
+      if (!files.length) {
+        return '';
+      }
+
+      return `<div class="attachment-list">${files.map(function(file) {
+        return `<button class="btn btn-mini btn-ghost attachment-button" type="button" title="${escapeAttr(file.name || 'Buka file')}" onclick="openUploadedFile('${escapeAttr(file.id)}', this)">${escapeHtml(file.name || 'Buka file')}</button>`;
+      }).join('')}</div>`;
+    }
+
+    function flattenAttachmentFiles(attachments) {
+      const groups = attachments || {};
+      return Object.keys(groups).reduce(function(files, field) {
+        return files.concat(Array.isArray(groups[field]) ? groups[field] : []);
+      }, []);
+    }
+
+    function openUploadedFile(fileId, button) {
+      const preview = window.open('', '_blank');
+      if (preview) {
+        preview.document.write('<!doctype html><title>Memuat file</title><p style="font-family:system-ui;padding:24px">Memuat file...</p>');
+      }
+
+      if (button) {
+        button.disabled = true;
+      }
+
+      api('apiGetUploadedFile', state.token, fileId)
+        .then(function(response) {
+          const file = response.file || {};
+          const url = blobUrlFromBase64(file.data || '', file.mimeType || 'application/octet-stream');
+          if (preview) {
+            preview.location.href = url;
+          } else {
+            window.open(url, '_blank');
+          }
+          window.setTimeout(function() {
+            URL.revokeObjectURL(url);
+          }, 60000);
+        })
+        .catch(function(error) {
+          if (preview) {
+            preview.close();
+          }
+          showError(error);
+        })
+        .finally(function() {
+          if (button) {
+            button.disabled = false;
+          }
+        });
+    }
+
+    function blobUrlFromBase64(base64, mimeType) {
+      const binary = atob(base64);
+      const chunks = [];
+      for (let offset = 0; offset < binary.length; offset += 1024) {
+        const slice = binary.slice(offset, offset + 1024);
+        const bytes = new Uint8Array(slice.length);
+        for (let index = 0; index < slice.length; index += 1) {
+          bytes[index] = slice.charCodeAt(index);
+        }
+        chunks.push(bytes);
+      }
+
+      return URL.createObjectURL(new Blob(chunks, { type: mimeType }));
+    }
+
+    function renderTaskRow(task) {
+      const detail = task.detailText ? `<div class="task-detail">${escapeHtml(task.detailText)}</div>` : '';
+      const ownerAction = state.dashboard.canEditTaskStatus ? `
+        <td class="action-cell">
+          <div class="inline-actions">
+            <select id="status-${escapeAttr(task.id)}" class="action-select">
+              ${['berjalan', 'tepat_waktu', 'meleset'].map(function(status) {
+                return `<option value="${status}" ${status === task.kpiStatus ? 'selected' : ''}>${statusLabel(status)}</option>`;
+              }).join('')}
+            </select>
+            <button class="btn btn-mini btn-primary" type="button" onclick="saveTaskStatus('${escapeAttr(task.id)}')">Simpan</button>
+          </div>
+        </td>
+      ` : '';
+
+      return `
+        <tr>
+          <td class="${state.dashboard.canEditTaskStatus ? 'id-cell' : ''}"><strong>${escapeHtml(task.id)}</strong></td>
+          <td>
+            <strong>${escapeHtml(displayTaskDate(task))}</strong><br>
+            <span class="muted">${escapeHtml(task.taskLabel)}</span>
+            ${detail}
+          </td>
+          <td>${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
+          <td><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.displayKpiLabel || task.kpiLabel)}</span></td>
+          <td>${renderTimerCell(task)}</td>
+          <td>${formatDate(task.createdAt || task.startedAt)}</td>
+          <td>${task.completedAt ? formatDate(task.completedAt) : '-'}</td>
+          <td>${renderAttachmentButtons(task.attachments) || '<span class="muted">-</span>'}</td>
+          <td>${escapeHtml(task.notes || '-')}</td>
+          ${ownerAction}
+        </tr>
+      `;
+    }
+
+    function displayTaskDate(task) {
+      const titleDate = String(task.title || '').match(/\b(20\d{2})[-\/](\d{2})[-\/](\d{2})\b/);
+      if (titleDate) {
+        return titleDate[1] + '-' + titleDate[2] + '-' + titleDate[3];
+      }
+
+      const source = task.startedAt || task.createdAt || task.completedAt;
+      if (!source) {
+        return '-';
+      }
+
+      const date = new Date(source);
+      if (isNaN(date.getTime())) {
+        return '-';
+      }
+
+      return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+    }
+
+    function pad2(value) {
+      return String(value).padStart(2, '0');
+    }
+
+    function renderTimerCell(task) {
+      if (task.status !== 'berjalan') {
+        return '<span class="muted">Selesai</span>';
+      }
+
+      const timer = task.timer || {};
+      const paused = timer.isPaused ? 'true' : 'false';
+      const extraClass = timer.isPaused ? 'paused' : (timer.remainingMs < 0 ? 'overdue' : '');
+      return `
+        <span class="timer ${extraClass}"
+          data-timer
+          data-start="${Date.now()}"
+          data-paused="${paused}"
+          data-reason="${escapeAttr(timer.pauseReason || '')}"
+          data-remaining="${Number(timer.remainingMs || 0)}"></span>
+      `;
+    }
+
+    function saveTaskStatus(taskId) {
+      const select = byId('status-' + taskId);
+      api('apiUpdateTaskStatus', state.token, taskId, select.value, '')
+        .then(function() {
+          logActivity('task_status_update', { taskId: taskId, kpiStatus: select.value });
+          toast('Status diperbarui.');
+          loadDashboard();
+        })
+        .catch(showError);
+    }
+
+    function startTimers() {
+      stopTimers();
+      updateTimers();
+      state.timerInterval = window.setInterval(updateTimers, 1000);
+    }
+
+    function stopTimers() {
+      if (state.timerInterval) {
+        window.clearInterval(state.timerInterval);
+        state.timerInterval = null;
+      }
+    }
+
+    function updateTimers() {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-timer]'), function(element) {
+        const paused = element.dataset.paused === 'true';
+        const baseRemaining = Number(element.dataset.remaining || 0);
+        const started = Number(element.dataset.start || Date.now());
+        const remaining = paused ? baseRemaining : baseRemaining - (Date.now() - started);
+
+        element.classList.toggle('overdue', remaining < 0 && !paused);
+        element.classList.toggle('paused', paused);
+
+        if (remaining < 0) {
+          element.textContent = 'Lewat ' + formatDuration(Math.abs(remaining));
+        } else if (paused) {
+          element.textContent = 'Pause: ' + (element.dataset.reason || 'absen');
+        } else {
+          element.textContent = 'Sisa ' + formatDuration(remaining);
+        }
+      });
+    }
+
+    function loadReportMeta() {
+      if (!state.token) {
+        return Promise.resolve();
+      }
+
+      const token = state.token;
+      const requestId = ++state.requestSeq;
+      stopTimers();
+      if (!state.reportMeta) {
+        restoreReportCache();
+      }
+      if (!state.reportMeta) {
+        byId('openTasksList').innerHTML = '<div class="skeleton-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
+        byId('dynamicReportFields').innerHTML = '';
+      } else {
+        renderReportPage();
+      }
+
+      return api('apiGetReportMeta', token)
+        .then(function(response) {
+          if (!isCurrentRequest(token, requestId)) {
+            return;
+          }
+          state.reportMeta = response;
+          saveClientCache('report', response);
+          renderReportPage();
+        })
+        .catch(function(error) {
+          if (isCurrentRequest(token, requestId)) {
+            showError(error);
+          }
+        });
+    }
+
+    function renderReportPage() {
+      const reportTypes = state.reportMeta.reportTypes || [];
+      const select = byId('reportType');
+      select.innerHTML = reportTypes.map(function(type) {
+        return `<option value="${escapeAttr(type.value)}">${escapeHtml(type.label)}</option>`;
+      }).join('');
+
+      if (!reportTypes.length) {
+        byId('dynamicReportFields').innerHTML = '<div class="empty full">Tidak ada modul laporan untuk role ini.</div>';
+        return;
+      }
+
+      renderOpenTasks();
+      renderReportForm();
+    }
+
+    function renderOpenTasks() {
+      const tasks = state.reportMeta.openTasks || [];
+      const wrap = byId('openTasksList');
+      if (!tasks.length) {
+        wrap.innerHTML = '<div class="empty">Tidak ada tugas berjalan.</div>';
+        return;
+      }
+
+      wrap.innerHTML = tasks.slice(0, 80).map(function(task) {
+        const detail = task.detailText ? `<div class="task-detail">${escapeHtml(task.detailText)}</div>` : '';
+        const attachments = renderAttachmentButtons(task.attachments);
+        return `
+          <div class="task-chip">
+            <strong>${escapeHtml(task.title || task.taskLabel)}</strong>
+            <span>${escapeHtml(task.id)} &middot; ${escapeHtml(task.taskLabel)}</span>
+            ${detail}
+            ${attachments}
+            <div class="inline-actions">
+              <span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.displayKpiLabel || task.kpiLabel)}</span>
+              ${renderTimerCell(task)}
+            </div>
+          </div>
+        `;
+      }).join('');
+      startTimers();
+    }
+
+    function renderReportForm() {
+      const type = byId('reportType').value;
+      const config = (REPORT_FORMS[type] || []).filter(fieldVisibleForUser);
+      byId('dynamicReportFields').innerHTML = config.map(renderField).join('');
+      Array.prototype.forEach.call(document.querySelectorAll('[data-default-date]'), function(input) {
+        if (!input.value) {
+          input.value = new Date().toISOString().slice(0, 10);
+        }
+      });
+    }
+
+    function fieldVisibleForUser(field) {
+      if (!field.locations || !field.locations.length) {
+        return true;
+      }
+      return field.locations.indexOf(String(state.user.Location || '').toLowerCase()) !== -1;
+    }
+
+    function renderField(field) {
+      const required = field.required ? 'required' : '';
+      const full = field.full || field.kind === 'textarea' || field.kind === 'file' ? ' full' : '';
+      const help = field.help ? `<small>${escapeHtml(field.help)}</small>` : '';
+
+      if (field.kind === 'textarea') {
+        return `
+          <div class="field${full}">
+            <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
+            <textarea data-field="${escapeAttr(field.field)}" ${required}></textarea>
+            ${help}
+          </div>
+        `;
+      }
+
+      if (field.kind === 'select') {
+        return `
+          <div class="field${full}">
+            <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
+            <select data-field="${escapeAttr(field.field)}" ${required}>
+              ${(field.options || []).map(function(option) {
+                return `<option value="${escapeAttr(option[0])}">${escapeHtml(option[1])}</option>`;
+              }).join('')}
+            </select>
+            ${help}
+          </div>
+        `;
+      }
+
+      if (field.kind === 'taskSelect') {
+        const tasks = (state.reportMeta.openTasks || []).filter(function(task) {
+          return !field.match || field.match.indexOf(task.taskType) !== -1;
+        });
+        return `
+          <div class="field${full}">
+            <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
+            <select data-field="${escapeAttr(field.field)}" ${required}>
+              <option value="">Pilih tugas</option>
+              ${tasks.map(function(task) {
+                return `<option value="${escapeAttr(task.id)}">${escapeHtml(task.id + ' - ' + (task.title || task.taskLabel))}</option>`;
+              }).join('')}
+            </select>
+            ${help}
+          </div>
+        `;
+      }
+
+      if (field.kind === 'file') {
+        return `
+          <div class="field${full}">
+            <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
+            <input data-file-field="${escapeAttr(field.field)}" type="file" ${field.multiple ? 'multiple' : ''} ${required} accept="${escapeAttr(field.accept || '')}">
+            <div class="file-hint">${field.multiple ? 'Bisa upload lebih dari satu file' : 'Upload satu file'}${field.max ? ', maksimal ' + field.max + ' file' : ''}.</div>
+            ${help}
+          </div>
+        `;
+      }
+
+      const type = field.kind === 'number' ? 'number' : field.kind === 'date' ? 'date' : 'text';
+      return `
+        <div class="field${full}">
+          <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
+          <input data-field="${escapeAttr(field.field)}" type="${type}" ${required} ${field.kind === 'date' ? 'data-default-date="1"' : ''}>
+          ${help}
+        </div>
+      `;
+    }
+
+    function submitReport(event) {
+      event.preventDefault();
+      setBusy('submitReportButton', true);
+      collectReportPayload()
+        .then(function(payload) {
+          return api('apiSubmitReport', state.token, payload)
+            .then(function(response) {
+              logActivity('report_submit', { type: payload.type, reportId: response.reportId });
+              return response;
+            });
+        })
+        .then(function() {
+          toast('Laporan terkirim.');
+          byId('reportForm').reset();
+          return loadReportMeta();
+        })
+        .catch(showError)
+        .finally(function() {
+          setBusy('submitReportButton', false);
+        });
+    }
+
+    async function collectReportPayload() {
+      const fields = {};
+      Array.prototype.forEach.call(document.querySelectorAll('[data-field]'), function(input) {
+        fields[input.dataset.field] = input.value;
+      });
+
+      const files = {};
+      const fileInputs = Array.prototype.slice.call(document.querySelectorAll('[data-file-field]'));
+      for (const input of fileInputs) {
+        const field = input.dataset.fileField;
+        const config = findFileConfig(byId('reportType').value, field);
+        const list = Array.prototype.slice.call(input.files || []);
+        if (config && config.max && list.length > config.max) {
+          throw new Error(config.label + ' maksimal ' + config.max + ' file.');
+        }
+        files[field] = await readFiles(list);
+      }
+
+      return {
+        type: byId('reportType').value,
+        fields: fields,
+        files: files
+      };
+    }
+
+    function findFileConfig(type, fieldName) {
+      return (REPORT_FORMS[type] || []).find(function(field) {
+        return field.field === fieldName;
+      });
+    }
+
+    function readFiles(files) {
+      const maxSize = 8 * 1024 * 1024;
+      return Promise.all(files.map(function(file) {
+        if (file.size > maxSize) {
+          throw new Error(file.name + ' lebih dari 8 MB.');
+        }
+
+        return new Promise(function(resolve, reject) {
+          const reader = new FileReader();
+          reader.onload = function() {
+            resolve({
+              name: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              size: file.size,
+              data: reader.result
+            });
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }));
+    }
+
+    function fillProfile() {
+      if (!state.user) {
+        return;
+      }
+      byId('profileName').value = state.user.Name || '';
+      byId('profileEmail').value = state.user.Email || '';
+      byId('profilePhone').value = state.user.Phone || '';
+      byId('profileRole').value = state.user.RoleLabel || state.user.Role || '';
+      byId('currentPassword').value = '';
+      byId('newPassword').value = '';
+    }
+
+    function saveProfile(event) {
+      event.preventDefault();
+      setBusy('saveProfileButton', true);
+      api('apiUpdateProfile', state.token, {
+        name: byId('profileName').value,
+        email: byId('profileEmail').value,
+        phone: byId('profilePhone').value,
+        currentPassword: byId('currentPassword').value,
+        newPassword: byId('newPassword').value
+      })
+        .then(function(response) {
+          logActivity('profile_update', { changedPassword: Boolean(byId('newPassword').value) });
+          state.user = response.user;
+          state.menus = response.menus || state.menus;
+          renderShell();
+          toast('Profil tersimpan.');
+        })
+        .catch(showError)
+        .finally(function() {
+          setBusy('saveProfileButton', false);
+        });
+    }
+
+    function setBusy(id, busy) {
+      const element = byId(id);
+      if (!element) {
+        return;
+      }
+      element.disabled = busy;
+      if (!element.dataset.label) {
+        element.dataset.label = element.textContent;
+      }
+      element.textContent = busy ? 'Memproses...' : element.dataset.label;
+    }
+
+    function toast(message) {
+      const item = document.createElement('div');
+      item.textContent = message;
+      byId('toast').appendChild(item);
+      window.setTimeout(function() {
+        item.remove();
+      }, 3200);
+    }
+
+    function showError(error) {
+      toast(error && error.message ? error.message : String(error || 'Terjadi kesalahan.'));
+    }
+
+    function byId(id) {
+      return document.getElementById(id);
+    }
+
+    function statusLabel(status) {
+      return {
+        berjalan: 'Berjalan',
+        pause: 'Pause',
+        tepat_waktu: 'Tepat Waktu',
+        meleset: 'Meleset'
+      }[status] || status;
+    }
+
+    function titleCase(text) {
+      return String(text || '')
+        .replace(/_/g, ' ')
+        .replace(/\w\S*/g, function(word) {
+          return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        });
+    }
+
+    function formatDate(value) {
+      if (!value) {
+        return '-';
+      }
+      const date = new Date(value);
+      if (isNaN(date.getTime())) {
+        return '-';
+      }
+      return new Intl.DateTimeFormat('id-ID', {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      }).format(date);
+    }
+
+    function formatDuration(ms) {
+      const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      if (days > 0) {
+        return days + 'h ' + hours + 'j ' + minutes + 'm ' + seconds + 'd';
+      }
+      if (hours > 0) {
+        return hours + 'j ' + minutes + 'm ' + seconds + 'd';
+      }
+      return minutes + 'm ' + seconds + 'd';
+    }
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/`/g, '&#096;');
+    }
+  </script>
+</body>
+</html>
