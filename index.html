@@ -449,6 +449,16 @@
       white-space: nowrap;
     }
 
+    #tasksTable .attachment-list {
+      max-width: 116px;
+    }
+
+    #tasksTable .attachment-button {
+      max-width: 96px;
+      min-height: 28px;
+      padding: 5px 8px;
+    }
+
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
@@ -536,11 +546,16 @@
       justify-content: flex-end;
     }
 
+    .filters input,
     .filters select {
       width: auto;
       min-width: 152px;
       max-width: 240px;
       flex: 0 0 auto;
+    }
+
+    #taskSearchFilter {
+      flex-basis: 220px;
     }
 
     .table-wrap {
@@ -925,6 +940,7 @@
         justify-content: flex-start;
       }
 
+      .filters input,
       .filters select {
         flex: 1 1 160px;
         min-width: 0;
@@ -971,21 +987,32 @@
         gap: 8px;
       }
 
+      .filters input,
       .filters select {
         flex-basis: calc(50% - 4px);
         font-size: 12px;
         padding: 9px 10px;
       }
 
+      #taskSearchFilter {
+        flex-basis: 100%;
+      }
+
       .kpi-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        display: flex;
+        grid-template-columns: none;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        padding-bottom: 4px;
         gap: 8px;
       }
 
       .kpi-card {
+        flex: 0 0 min(340px, 86vw);
         min-height: 0;
         padding: 10px;
         gap: 8px;
+        scroll-snap-align: start;
       }
 
       .kpi-card h3 {
@@ -997,21 +1024,21 @@
       }
 
       .metric-row {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 5px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 4px;
       }
 
       .metric {
-        padding: 6px;
+        padding: 5px;
         gap: 2px;
       }
 
       .metric span {
-        font-size: 10px;
+        font-size: 9px;
       }
 
       .metric strong {
-        font-size: 17px;
+        font-size: 15px;
       }
 
       .table-wrap {
@@ -1202,12 +1229,11 @@
     </aside>
 
     <main class="main">
-      <div class="topbar">
+      <div id="topbar" class="topbar">
         <div>
           <h2 id="pageTitle">Dashboard</h2>
           <p id="pageSubtitle" class="muted"></p>
         </div>
-        <button id="refreshButton" class="btn btn-ghost" type="button">Refresh</button>
       </div>
 
       <section id="dashboardPage" class="page">
@@ -1253,6 +1279,7 @@
           <div class="panel-head">
             <h3 id="taskPanelTitle">Rincian tugas</h3>
             <div class="filters">
+              <input id="taskSearchFilter" type="search" placeholder="Cari tugas..." aria-label="Cari rincian tugas">
               <select id="taskTypeFilter"></select>
               <select id="kpiStatusFilter"></select>
               <select id="auditStatusFilter" class="hidden">
@@ -1346,6 +1373,7 @@
       taskType: '',
       kpiStatus: '',
       auditStatus: '',
+      taskSearch: '',
       timerInterval: null,
       speech: null,
       authVersion: 0,
@@ -1358,7 +1386,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-09-notes-lazy-task-feed';
+    const CLIENT_CACHE_VERSION = '2026-09-09-task-search-mobile-kpi-scroll';
 
     const MENU_ICONS = {
       dashboard: '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9z"></path><path d="M14 20h6V4h-6v16z"></path><path d="M4 20h6v-3H4v3z"></path></svg>',
@@ -1498,10 +1526,6 @@
     function bindEvents() {
       byId('loginForm').addEventListener('submit', handleLogin);
       byId('logoutButton').addEventListener('click', handleLogout);
-      byId('refreshButton').addEventListener('click', function() {
-        logActivity('refresh', { page: state.page });
-        refreshCurrentPage();
-      });
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
       byId('noteCreatorFilter').addEventListener('change', function(event) {
@@ -1530,6 +1554,10 @@
         state.auditStatus = event.target.value;
         logActivity('filter_audit_status', { auditStatus: state.auditStatus });
         loadDashboard();
+      });
+      byId('taskSearchFilter').addEventListener('input', function(event) {
+        state.taskSearch = event.target.value;
+        renderTasksTable();
       });
       byId('reportType').addEventListener('change', function(event) {
         logActivity('select_report_type', { type: event.target.value });
@@ -1695,6 +1723,7 @@
       state.taskType = '';
       state.kpiStatus = '';
       state.auditStatus = '';
+      state.taskSearch = '';
       stopTimers();
       clearAppContent();
     }
@@ -1705,6 +1734,7 @@
       byId('notePhotos').value = '';
       byId('taskTypeFilter').innerHTML = '<option value="">Semua tugas</option>';
       byId('kpiStatusFilter').innerHTML = '';
+      byId('taskSearchFilter').value = '';
       byId('auditStatusFilter').value = '';
       byId('auditStatusFilter').classList.add('hidden');
       byId('notesList').innerHTML = '';
@@ -1802,6 +1832,7 @@
       });
 
       const title = PAGE_LABELS[page] || [titleCase(page), ''];
+      byId('topbar').classList.toggle('hidden', page === 'dashboard');
       byId('pageTitle').textContent = title[0];
       byId('pageSubtitle').textContent = title[1];
 
@@ -2124,6 +2155,7 @@
       state.taskType = '';
       state.kpiStatus = '';
       state.auditStatus = '';
+      state.taskSearch = '';
       if (state.dashboard) {
         state.dashboard.cardTasks = [];
         state.dashboard.tasks = [];
@@ -2132,6 +2164,8 @@
     }
 
     function renderTaskFilter() {
+      byId('taskSearchFilter').value = state.taskSearch;
+
       const taskSelect = byId('taskTypeFilter');
       const options = (state.dashboard.taskTypes || []).map(function(type) {
         return `<option value="${escapeAttr(type.value)}">${escapeHtml(type.label)}</option>`;
@@ -2200,6 +2234,10 @@
     }
 
     function currentDetailTasks() {
+      if (!state.dashboard) {
+        return [];
+      }
+
       let tasks = (state.dashboard.cardTasks && state.dashboard.cardTasks.length ? state.dashboard.cardTasks : state.dashboard.tasks || []).slice();
       if (state.taskType) {
         tasks = tasks.filter(function(task) {
@@ -2218,7 +2256,33 @@
           return taskAuditStatus === auditStatus;
         });
       }
+      if (state.taskSearch) {
+        const query = normalizeSearchText(state.taskSearch);
+        tasks = tasks.filter(function(task) {
+          return normalizeSearchText([
+            displayTaskDate(task),
+            task.title,
+            task.taskLabel,
+            task.assigneeName,
+            titleCase(task.assigneeLocation || ''),
+            task.displayKpiLabel || task.kpiLabel,
+            task.detailText,
+            task.notes,
+            attachmentSearchText(task.attachments)
+          ].join(' ')).indexOf(query) !== -1;
+        });
+      }
       return tasks.slice(0, 400);
+    }
+
+    function attachmentSearchText(attachments) {
+      return flattenAttachmentFiles(attachments).map(function(file) {
+        return file.name || '';
+      }).join(' ');
+    }
+
+    function normalizeSearchText(value) {
+      return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
     }
 
     function renderAttachmentButtons(attachments) {
