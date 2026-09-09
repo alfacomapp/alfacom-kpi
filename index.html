@@ -925,9 +925,31 @@
         overflow: visible;
       }
 
-      .kpi-grid,
       .form-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .kpi-panel {
+        width: calc(100% + 48px);
+        margin-right: -24px;
+        margin-left: -24px;
+        border-right: 0;
+        border-left: 0;
+        border-radius: 0;
+      }
+
+      .kpi-grid {
+        display: flex;
+        grid-template-columns: none;
+        gap: 10px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+        scroll-snap-type: x mandatory;
+      }
+
+      .kpi-card {
+        flex: 0 0 calc(100vw - 36px);
+        scroll-snap-align: start;
       }
 
       .topbar {
@@ -998,21 +1020,21 @@
         flex-basis: 100%;
       }
 
+      .kpi-panel {
+        width: calc(100% + 24px);
+        margin-right: -12px;
+        margin-left: -12px;
+      }
+
       .kpi-grid {
-        display: flex;
-        grid-template-columns: none;
-        overflow-x: auto;
-        scroll-snap-type: x mandatory;
-        padding-bottom: 4px;
         gap: 8px;
       }
 
       .kpi-card {
-        flex: 0 0 min(340px, 86vw);
+        flex-basis: calc(100vw - 24px);
         min-height: 0;
         padding: 10px;
         gap: 8px;
-        scroll-snap-align: start;
       }
 
       .kpi-card h3 {
@@ -1268,7 +1290,7 @@
           </div>
         </div>
 
-        <div class="panel">
+        <div class="panel kpi-panel">
           <div class="panel-head">
             <h3>Info KPI</h3>
           </div>
