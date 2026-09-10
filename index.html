@@ -545,6 +545,27 @@
       padding-right: 8px;
     }
 
+    .attachment-text {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      max-width: 180px;
+      padding: 6px 9px;
+      border-radius: 7px;
+      background: #f6f8f7;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #tasksTable .attachment-text {
+      width: 96px;
+      max-width: 96px;
+    }
+
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
@@ -1038,8 +1059,9 @@
         grid-template-columns: none;
         gap: 10px;
         overflow-x: auto;
+        padding-top: 4px;
         padding-right: 24px;
-        padding-bottom: 6px;
+        padding-bottom: 10px;
         scroll-snap-type: x proximity;
         -webkit-overflow-scrolling: touch;
       }
@@ -1048,6 +1070,11 @@
         flex: 0 0 258px;
         min-height: 132px;
         scroll-snap-align: start;
+      }
+
+      .kpi-card:hover,
+      .kpi-card.active {
+        transform: none;
       }
 
       .topbar {
@@ -1133,6 +1160,7 @@
         display: flex;
         grid-template-columns: none;
         gap: 8px;
+        padding-top: 4px;
         padding-right: 12px;
       }
 
@@ -1551,7 +1579,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-09-notes-lazy-task-feed';
+    const CLIENT_CACHE_VERSION = '2026-09-10-one-gas-file-kpi-fit';
 
     const MENU_ICONS = {
       dashboard: '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9z"></path><path d="M14 20h6V4h-6v16z"></path><path d="M4 20h6v-3H4v3z"></path></svg>',
@@ -2481,6 +2509,31 @@
       }).join('')}</div>`;
     }
 
+    function renderTaskAttachmentCell(task) {
+      const files = flattenAttachmentFiles(task.attachments);
+      if (!files.length) {
+        return '<span class="muted">-</span>';
+      }
+
+      if (isOwnerOnlyTaskFile(task) && !isCurrentUserOwner()) {
+        return `<div class="attachment-list">${files.map(function(file) {
+          const label = file.name || 'File khusus owner';
+          return `<span class="attachment-text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
+        }).join('')}</div>`;
+      }
+
+      return renderAttachmentButtons(task.attachments);
+    }
+
+    function isOwnerOnlyTaskFile(task) {
+      const payload = task && task.payload || {};
+      return String(task && task.taskType || '') === 'laporan_keadaan_kas_bank' || payload.ownerOnly === true;
+    }
+
+    function isCurrentUserOwner() {
+      return String(state.user && state.user.Role || '').toLowerCase() === 'owner';
+    }
+
     function flattenAttachmentFiles(attachments) {
       const groups = attachments || {};
       return Object.keys(groups).reduce(function(files, field) {
@@ -2567,7 +2620,7 @@
           <td data-label="Timer">${renderTimerCell(task)}</td>
           <td data-label="Dibuat">${formatDate(task.createdAt || task.startedAt)}</td>
           <td data-label="Selesai">${task.completedAt ? formatDate(task.completedAt) : '-'}</td>
-          <td data-label="File">${renderAttachmentButtons(task.attachments) || '<span class="muted">-</span>'}</td>
+          <td data-label="File">${renderTaskAttachmentCell(task)}</td>
           <td data-label="Catatan">${escapeHtml(task.notes || '-')}</td>
           ${ownerAction}
         </tr>
