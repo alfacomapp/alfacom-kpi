@@ -391,11 +391,83 @@
       gap: 16px;
     }
 
-    .note-actions {
+    .note-composer {
+      position: relative;
+    }
+
+    .note-composer textarea {
+      min-height: 122px;
+      padding: 12px 132px 54px 12px;
+    }
+
+    .note-composer-actions {
+      position: absolute;
+      right: 8px;
+      bottom: 8px;
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
       align-items: center;
+      gap: 6px;
+    }
+
+    .composer-icon {
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--green);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      cursor: pointer;
+      transition: transform .12s ease, background .12s ease, opacity .12s ease;
+    }
+
+    .composer-icon:hover {
+      background: #f1f6f3;
+      transform: translateY(-1px);
+    }
+
+    .composer-icon svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      stroke-width: 2.25;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .composer-icon.primary {
+      color: #fff;
+      background: var(--green);
+      border-color: var(--green);
+    }
+
+    .composer-icon.primary:hover {
+      background: var(--green-dark);
+    }
+
+    .composer-icon.recording {
+      color: var(--red);
+      background: #fee4e2;
+      border-color: #f9b5ae;
+    }
+
+    .composer-icon:disabled,
+    .composer-icon.is-busy {
+      opacity: .55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .visually-hidden-file {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
     }
 
     .notes-list {
@@ -447,6 +519,30 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    #tasksTable th:nth-child(2),
+    #tasksTable td[data-label="Tugas"] {
+      min-width: 300px;
+    }
+
+    #tasksTable th:nth-child(8),
+    #tasksTable td[data-label="File"] {
+      width: 120px;
+      max-width: 120px;
+    }
+
+    #tasksTable .attachment-list {
+      max-width: 104px;
+    }
+
+    #tasksTable .attachment-button {
+      width: 96px;
+      max-width: 96px;
+      min-height: 32px;
+      justify-content: flex-start;
+      padding-left: 8px;
+      padding-right: 8px;
     }
 
     .kpi-grid {
@@ -541,6 +637,13 @@
       min-width: 152px;
       max-width: 240px;
       flex: 0 0 auto;
+    }
+
+    .filters input[type="search"] {
+      width: auto;
+      min-width: 190px;
+      max-width: 260px;
+      flex: 0 1 240px;
     }
 
     .table-wrap {
@@ -910,9 +1013,41 @@
         overflow: visible;
       }
 
-      .kpi-grid,
       .form-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .kpi-panel {
+        width: calc(100% + 48px);
+        margin-left: -24px;
+        margin-right: -24px;
+        padding-left: 24px;
+        padding-right: 0;
+        border-left: 0;
+        border-right: 0;
+        border-radius: 0;
+        overflow: hidden;
+      }
+
+      .kpi-panel .panel-head {
+        padding-right: 24px;
+      }
+
+      .kpi-grid {
+        display: flex;
+        grid-template-columns: none;
+        gap: 10px;
+        overflow-x: auto;
+        padding-right: 24px;
+        padding-bottom: 6px;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .kpi-card {
+        flex: 0 0 258px;
+        min-height: 132px;
+        scroll-snap-align: start;
       }
 
       .topbar {
@@ -927,6 +1062,12 @@
 
       .filters select {
         flex: 1 1 160px;
+        min-width: 0;
+        max-width: none;
+      }
+
+      .filters input[type="search"] {
+        flex: 1 1 190px;
         min-width: 0;
         max-width: none;
       }
@@ -977,12 +1118,26 @@
         padding: 9px 10px;
       }
 
+      .kpi-panel {
+        width: calc(100% + 24px);
+        margin-left: -12px;
+        margin-right: -12px;
+        padding-left: 12px;
+      }
+
+      .kpi-panel .panel-head {
+        padding-right: 12px;
+      }
+
       .kpi-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        display: flex;
+        grid-template-columns: none;
         gap: 8px;
+        padding-right: 12px;
       }
 
       .kpi-card {
+        flex: 0 0 min(270px, calc(100vw - 48px));
         min-height: 0;
         padding: 10px;
         gap: 8px;
@@ -997,8 +1152,8 @@
       }
 
       .metric-row {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 5px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 4px;
       }
 
       .metric {
@@ -1011,7 +1166,13 @@
       }
 
       .metric strong {
-        font-size: 17px;
+        font-size: 15px;
+      }
+
+      .filters input[type="search"] {
+        flex-basis: 100%;
+        font-size: 12px;
+        padding: 9px 10px;
       }
 
       .table-wrap {
@@ -1089,12 +1250,28 @@
         max-width: none;
       }
 
+      #tasksTable td[data-label="Tugas"] {
+        min-width: 0;
+      }
+
       #tasksTable .attachment-list {
-        max-width: 100%;
+        width: 104px;
+        max-width: 104px;
       }
 
       #tasksTable .attachment-button {
-        max-width: 100%;
+        width: 96px;
+        max-width: 96px;
+      }
+
+      .note-composer textarea {
+        min-height: 112px;
+        padding-right: 118px;
+      }
+
+      .composer-icon {
+        width: 34px;
+        height: 34px;
       }
 
       th,
@@ -1202,12 +1379,11 @@
     </aside>
 
     <main class="main">
-      <div class="topbar">
+      <div id="topbar" class="topbar">
         <div>
           <h2 id="pageTitle">Dashboard</h2>
           <p id="pageSubtitle" class="muted"></p>
         </div>
-        <button id="refreshButton" class="btn btn-ghost" type="button">Refresh</button>
       </div>
 
       <section id="dashboardPage" class="page">
@@ -1222,27 +1398,42 @@
             <div class="form-stack">
               <div class="field">
                 <label for="noteInput">Catatan cepat</label>
-                <textarea id="noteInput" placeholder="Tulis note atau gunakan rekam suara..."></textarea>
+                <div class="note-composer">
+                  <textarea id="noteInput" placeholder="Tulis note atau gunakan rekam suara..."></textarea>
+                  <input id="notePhotos" class="visually-hidden-file" type="file" accept="image/*" multiple>
+                  <div class="note-composer-actions">
+                    <label class="composer-icon" for="notePhotos" title="Lampirkan file" aria-label="Lampirkan file">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M21.4 11.6l-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path>
+                      </svg>
+                    </label>
+                    <button id="voiceButton" class="composer-icon" type="button" title="Rekam suara" aria-label="Rekam suara">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"></path>
+                        <path d="M19 11a7 7 0 0 1-14 0"></path>
+                        <path d="M12 18v4"></path>
+                        <path d="M8 22h8"></path>
+                      </svg>
+                    </button>
+                    <button id="saveNoteButton" class="composer-icon primary" type="button" title="Simpan note" aria-label="Simpan note" data-icon-button="true">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M22 2L11 13"></path>
+                        <path d="M22 2l-7 20-4-9-9-4 20-7z"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               </div>
               <div class="field">
                 <label for="noteAssigneeSelect">Jadikan tugas untuk</label>
                 <select id="noteAssigneeSelect"></select>
-              </div>
-              <div class="field">
-                <label for="notePhotos">Foto opsional</label>
-                <input id="notePhotos" type="file" accept="image/*" multiple>
-                <div class="file-hint">Opsional, maksimal 20 foto.</div>
-              </div>
-              <div class="note-actions">
-                <button id="voiceButton" class="btn btn-ghost" type="button">Rekam suara</button>
-                <button id="saveNoteButton" class="btn btn-primary" type="button">Simpan note</button>
               </div>
             </div>
             <div id="notesList" class="notes-list"></div>
           </div>
         </div>
 
-        <div class="panel">
+        <div class="panel kpi-panel">
           <div class="panel-head">
             <h3>Info KPI</h3>
           </div>
@@ -1260,6 +1451,7 @@
                 <option value="aman">Aman</option>
                 <option value="kendala">Kendala</option>
               </select>
+              <input id="taskSearchFilter" type="search" placeholder="Cari tugas..." aria-label="Cari rincian tugas">
             </div>
           </div>
           <div id="tasksTable"></div>
@@ -1346,6 +1538,7 @@
       taskType: '',
       kpiStatus: '',
       auditStatus: '',
+      taskSearch: '',
       timerInterval: null,
       speech: null,
       authVersion: 0,
@@ -1498,10 +1691,6 @@
     function bindEvents() {
       byId('loginForm').addEventListener('submit', handleLogin);
       byId('logoutButton').addEventListener('click', handleLogout);
-      byId('refreshButton').addEventListener('click', function() {
-        logActivity('refresh', { page: state.page });
-        refreshCurrentPage();
-      });
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
       byId('noteCreatorFilter').addEventListener('change', function(event) {
@@ -1530,6 +1719,10 @@
         state.auditStatus = event.target.value;
         logActivity('filter_audit_status', { auditStatus: state.auditStatus });
         loadDashboard();
+      });
+      byId('taskSearchFilter').addEventListener('input', function(event) {
+        state.taskSearch = event.target.value;
+        renderTasksTable();
       });
       byId('reportType').addEventListener('change', function(event) {
         logActivity('select_report_type', { type: event.target.value });
@@ -1566,10 +1759,22 @@
         })
       })
       .then(function(res) {
-        if (!res.ok) {
-          throw new Error('Gagal terhubung ke server (HTTP Status ' + res.status + ')');
-        }
-        return res.json();
+        return res.text().then(function(text) {
+          let response = null;
+          try {
+            response = text ? JSON.parse(text) : null;
+          } catch (error) {
+            const looksLikeHtml = /^\s*</.test(text || '');
+            throw new Error(looksLikeHtml
+              ? 'Server mengembalikan halaman HTML, bukan JSON. Coba ulangi; jika sering muncul, cek URL deployment Apps Script pada Cloudflare.'
+              : 'Jawaban server bukan JSON valid.');
+          }
+
+          if (!res.ok) {
+            throw new Error(response && response.message ? response.message : 'Gagal terhubung ke server (HTTP Status ' + res.status + ')');
+          }
+          return response;
+        });
       })
       .then(function(response) {
         if (response && response.ok) {
@@ -1695,6 +1900,7 @@
       state.taskType = '';
       state.kpiStatus = '';
       state.auditStatus = '';
+      state.taskSearch = '';
       stopTimers();
       clearAppContent();
     }
@@ -1707,6 +1913,7 @@
       byId('kpiStatusFilter').innerHTML = '';
       byId('auditStatusFilter').value = '';
       byId('auditStatusFilter').classList.add('hidden');
+      byId('taskSearchFilter').value = '';
       byId('notesList').innerHTML = '';
       byId('kpiCards').innerHTML = '';
       byId('tasksTable').innerHTML = '';
@@ -1804,6 +2011,7 @@
       const title = PAGE_LABELS[page] || [titleCase(page), ''];
       byId('pageTitle').textContent = title[0];
       byId('pageSubtitle').textContent = title[1];
+      byId('topbar').classList.toggle('hidden', page === 'dashboard');
 
       if (page === 'dashboard') {
         loadDashboard();
@@ -2044,7 +2252,7 @@
       if (state.speech) {
         state.speech.stop();
         state.speech = null;
-        byId('voiceButton').textContent = 'Rekam suara';
+        setVoiceRecording(false);
         logActivity('voice_note_stop', {});
         return;
       }
@@ -2070,7 +2278,7 @@
 
       recognition.onend = function() {
         state.speech = null;
-        byId('voiceButton').textContent = 'Rekam suara';
+        setVoiceRecording(false);
       };
 
       recognition.onerror = function(event) {
@@ -2079,9 +2287,19 @@
       };
 
       state.speech = recognition;
-      byId('voiceButton').textContent = 'Berhenti';
+      setVoiceRecording(true);
       logActivity('voice_note_start', {});
       recognition.start();
+    }
+
+    function setVoiceRecording(recording) {
+      const button = byId('voiceButton');
+      if (!button) {
+        return;
+      }
+      button.classList.toggle('recording', recording);
+      button.title = recording ? 'Berhenti rekam suara' : 'Rekam suara';
+      button.setAttribute('aria-label', recording ? 'Berhenti rekam suara' : 'Rekam suara');
     }
 
     function renderKpiCards() {
@@ -2124,6 +2342,8 @@
       state.taskType = '';
       state.kpiStatus = '';
       state.auditStatus = '';
+      state.taskSearch = '';
+      byId('taskSearchFilter').value = '';
       if (state.dashboard) {
         state.dashboard.cardTasks = [];
         state.dashboard.tasks = [];
@@ -2162,6 +2382,7 @@
       if (!showAuditFilter) {
         state.auditStatus = '';
       }
+      byId('taskSearchFilter').value = state.taskSearch;
     }
 
     function renderTasksTable() {
@@ -2218,7 +2439,35 @@
           return taskAuditStatus === auditStatus;
         });
       }
+      const query = normalizeSearchText(state.taskSearch);
+      if (query) {
+        tasks = tasks.filter(function(task) {
+          const haystack = normalizeSearchText([
+            task.id,
+            task.title,
+            task.taskLabel,
+            task.detailText,
+            task.assigneeName,
+            task.assigneeLocation,
+            task.displayKpiLabel || task.kpiLabel,
+            task.notes,
+            displayTaskDate(task),
+            attachmentSearchText(task.attachments)
+          ].join(' '));
+          return haystack.indexOf(query) !== -1;
+        });
+      }
       return tasks.slice(0, 400);
+    }
+
+    function normalizeSearchText(value) {
+      return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    function attachmentSearchText(attachments) {
+      return flattenAttachmentFiles(attachments).map(function(file) {
+        return file.name || file.id || '';
+      }).join(' ');
     }
 
     function renderAttachmentButtons(attachments) {
@@ -2690,6 +2939,10 @@
         return;
       }
       element.disabled = busy;
+      if (element.dataset.iconButton === 'true') {
+        element.classList.toggle('is-busy', busy);
+        return;
+      }
       if (!element.dataset.label) {
         element.dataset.label = element.textContent;
       }
