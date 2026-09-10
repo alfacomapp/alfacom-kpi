@@ -1018,6 +1018,85 @@
         border-radius: 8px;
       }
 
+      #tasksTable .table-wrap {
+        overflow: visible;
+        border: 0;
+        border-radius: 0;
+      }
+
+      #tasksTable table,
+      #tasksTable tbody,
+      #tasksTable tr,
+      #tasksTable td {
+        display: block;
+        width: 100%;
+      }
+
+      #tasksTable table {
+        min-width: 0;
+        background: transparent;
+      }
+
+      #tasksTable thead {
+        display: none;
+      }
+
+      #tasksTable tr {
+        margin-bottom: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        padding: 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      #tasksTable td {
+        border: 0;
+        padding: 0;
+        font-size: 12px;
+      }
+
+      #tasksTable td:not([data-label="Tugas"]):not([data-label="No"]) {
+        display: grid;
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+      }
+
+      #tasksTable td:not([data-label="Tugas"]):not([data-label="No"])::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      #tasksTable td[data-label="No"] {
+        width: max-content;
+        border-radius: 999px;
+        background: var(--panel-soft);
+        padding: 4px 8px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      #tasksTable td[data-label="No"]::before {
+        content: "No ";
+        font-weight: 800;
+      }
+
+      #tasksTable .task-detail {
+        max-width: none;
+      }
+
+      #tasksTable .attachment-list {
+        max-width: 100%;
+      }
+
+      #tasksTable .attachment-button {
+        max-width: 100%;
+      }
+
       th,
       td {
         padding: 9px 10px;
@@ -1279,7 +1358,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-09-dashboard-notes-split';
+    const CLIENT_CACHE_VERSION = '2026-09-09-notes-lazy-task-feed';
 
     const MENU_ICONS = {
       dashboard: '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9z"></path><path d="M14 20h6V4h-6v16z"></path><path d="M4 20h6v-3H4v3z"></path></svg>',
@@ -1427,6 +1506,9 @@
       byId('voiceButton').addEventListener('click', toggleVoice);
       byId('noteCreatorFilter').addEventListener('change', function(event) {
         state.noteCreatorId = event.target.value;
+        if (state.dashboard) {
+          state.dashboard.notes = [];
+        }
         logActivity('filter_notes', { creatorId: state.noteCreatorId });
         loadDashboard();
       });
@@ -1618,7 +1700,7 @@
     }
 
     function clearAppContent() {
-      byId('noteCreatorFilter').innerHTML = '<option value="">Semua pembuat</option>';
+      byId('noteCreatorFilter').innerHTML = '<option value="">Pilih pembuat</option>';
       byId('noteAssigneeSelect').innerHTML = '<option value="">Tanpa tugas KPI</option>';
       byId('notePhotos').value = '';
       byId('taskTypeFilter').innerHTML = '<option value="">Semua tugas</option>';
@@ -1785,7 +1867,10 @@
 
     function renderDashboardLoading() {
       stopTimers();
-      byId('notesList').innerHTML = '<div class="skeleton-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
+      byId('notesList').classList.toggle('hidden', !state.noteCreatorId);
+      byId('notesList').innerHTML = state.noteCreatorId
+        ? '<div class="skeleton-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>'
+        : '';
       byId('kpiCards').innerHTML = '<div class="skeleton card"></div><div class="skeleton card"></div><div class="skeleton card"></div>';
       byId('tasksTable').innerHTML = '';
       byId('taskPanel').classList.add('hidden');
@@ -1804,10 +1889,16 @@
     function renderNoteFilter() {
       const select = byId('noteCreatorFilter');
       const value = state.noteCreatorId;
-      select.innerHTML = '<option value="">Semua pembuat</option>' + (state.dashboard.noteCreators || []).map(function(creator) {
+      const creators = state.dashboard.noteCreators || [];
+      const validValues = creators.map(function(creator) {
+        return creator.id;
+      });
+
+      select.innerHTML = '<option value="">Pilih pembuat</option>' + creators.map(function(creator) {
         return `<option value="${escapeAttr(creator.id)}">${escapeHtml(creator.name)}</option>`;
       }).join('');
-      select.value = value;
+      select.value = validValues.indexOf(value) !== -1 ? value : '';
+      state.noteCreatorId = select.value;
     }
 
     function renderNoteAssigneeOptions() {
@@ -1826,6 +1917,12 @@
     function renderNotes() {
       const notes = state.dashboard.notes || [];
       const list = byId('notesList');
+
+      list.classList.toggle('hidden', !state.noteCreatorId);
+      if (!state.noteCreatorId) {
+        list.innerHTML = '';
+        return;
+      }
 
       if (!notes.length) {
         list.innerHTML = '<div class="empty">Belum ada note.</div>';
@@ -2080,7 +2177,7 @@
           <table class="${state.dashboard.canEditTaskStatus ? 'owner-task-table' : ''}">
             <thead>
               <tr>
-                <th class="${state.dashboard.canEditTaskStatus ? 'id-col' : ''}">ID</th>
+                <th class="${state.dashboard.canEditTaskStatus ? 'id-col' : ''}">No</th>
                 <th>Tugas</th>
                 <th>Penanggung Jawab</th>
                 <th>Status KPI</th>
@@ -2093,7 +2190,9 @@
               </tr>
             </thead>
             <tbody>
-              ${tasks.map(renderTaskRow).join('')}
+              ${tasks.map(function(task, index) {
+                return renderTaskRow(task, index);
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -2191,10 +2290,10 @@
       return URL.createObjectURL(new Blob(chunks, { type: mimeType }));
     }
 
-    function renderTaskRow(task) {
+    function renderTaskRow(task, index) {
       const detail = task.detailText ? `<div class="task-detail">${escapeHtml(task.detailText)}</div>` : '';
       const ownerAction = state.dashboard.canEditTaskStatus ? `
-        <td class="action-cell">
+        <td class="action-cell" data-label="Aksi">
           <div class="inline-actions">
             <select id="status-${escapeAttr(task.id)}" class="action-select">
               ${['berjalan', 'tepat_waktu', 'meleset'].map(function(status) {
@@ -2208,19 +2307,19 @@
 
       return `
         <tr>
-          <td class="${state.dashboard.canEditTaskStatus ? 'id-cell' : ''}"><strong>${escapeHtml(task.id)}</strong></td>
-          <td>
+          <td class="${state.dashboard.canEditTaskStatus ? 'id-cell' : ''}" data-label="No"><strong>${Number(index || 0) + 1}</strong></td>
+          <td data-label="Tugas">
             <strong>${escapeHtml(displayTaskDate(task))}</strong><br>
             <span class="muted">${escapeHtml(task.taskLabel)}</span>
             ${detail}
           </td>
-          <td>${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
-          <td><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.displayKpiLabel || task.kpiLabel)}</span></td>
-          <td>${renderTimerCell(task)}</td>
-          <td>${formatDate(task.createdAt || task.startedAt)}</td>
-          <td>${task.completedAt ? formatDate(task.completedAt) : '-'}</td>
-          <td>${renderAttachmentButtons(task.attachments) || '<span class="muted">-</span>'}</td>
-          <td>${escapeHtml(task.notes || '-')}</td>
+          <td data-label="Penanggung Jawab">${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
+          <td data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.displayKpiLabel || task.kpiLabel)}</span></td>
+          <td data-label="Timer">${renderTimerCell(task)}</td>
+          <td data-label="Dibuat">${formatDate(task.createdAt || task.startedAt)}</td>
+          <td data-label="Selesai">${task.completedAt ? formatDate(task.completedAt) : '-'}</td>
+          <td data-label="File">${renderAttachmentButtons(task.attachments) || '<span class="muted">-</span>'}</td>
+          <td data-label="Catatan">${escapeHtml(task.notes || '-')}</td>
           ${ownerAction}
         </tr>
       `;
