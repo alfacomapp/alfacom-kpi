@@ -1325,11 +1325,49 @@
   </div>
 
   <section id="loginView" class="auth-shell">
-    <div class="auth-card">
-      <h1>Aplikasi KPI</h1>
-      <p id="slaGatewayStatus" class="muted">Gunakan akun Manajemen SLA untuk membuka aplikasi ini.</p>
-      <a class="btn btn-primary" href="https://aplikasisla.vercel.app/">Buka Lobby SLA</a>
-    </div>
+    <form id="loginForm" class="auth-card">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 96 96">
+            <defs>
+              <linearGradient id="logoGoldA" x1="18" y1="14" x2="78" y2="84" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#fff0a7"></stop>
+                <stop offset=".48" stop-color="#d1a23e"></stop>
+                <stop offset="1" stop-color="#8c6722"></stop>
+              </linearGradient>
+            </defs>
+            <rect x="9" y="9" width="78" height="78" rx="18" fill="url(#logoGoldA)" stroke="#b38225" stroke-width="4"></rect>
+            <rect x="15" y="15" width="66" height="66" rx="14" fill="#f5d06a" opacity=".25"></rect>
+            <g fill="none" stroke="#ffefae" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M31 52l11 11 27-31"></path>
+              <path d="M55 34h14v14"></path>
+              <path d="M24 52a26 26 0 0 1 43-23"></path>
+              <path d="M27 66a26 26 0 0 0 28 8"></path>
+            </g>
+            <g fill="#ffefae">
+              <rect x="58" y="58" width="7" height="16" rx="2"></rect>
+              <rect x="69" y="48" width="7" height="26" rx="2"></rect>
+              <path d="M73 33l4 8 8 1-6 6 2 8-8-4-8 4 2-8-6-6 8-1z"></path>
+            </g>
+          </svg>
+        </div>
+        <div>
+          <h1>KPI Karyawan</h1>
+          <p class="muted">Dashboard penilaian dan pelaporan operasional</p>
+        </div>
+      </div>
+      <div class="form-stack">
+        <div class="field">
+          <label for="loginUsername">Username atau email</label>
+          <input id="loginUsername" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </div>
+        <button id="loginButton" class="btn btn-primary" type="submit">Masuk</button>
+      </div>
+    </form>
   </section>
 
   <section id="appView" class="app hidden">
@@ -1365,8 +1403,7 @@
         </div>
       </div>
       <nav id="nav" class="nav"></nav>
-      <button id="logoutButton" class="btn btn-ghost logout-button" type="button">Keluar dari KPI</button>
-      <a class="btn btn-ghost" href="https://aplikasisla.vercel.app/">Kembali ke Lobby SLA</a>
+      <button id="logoutButton" class="btn btn-ghost logout-button" type="button">Keluar</button>
     </aside>
 
     <main class="main">
@@ -1499,7 +1536,14 @@
                 <label for="profileRole">Role</label>
                 <input id="profileRole" disabled>
               </div>
-              <p class="muted">Login dan password menggunakan akun Manajemen SLA.</p>
+              <div class="field">
+                <label for="currentPassword">Password lama</label>
+                <input id="currentPassword" type="password" autocomplete="current-password">
+              </div>
+              <div class="field">
+                <label for="newPassword">Password baru</label>
+                <input id="newPassword" type="password" autocomplete="new-password">
+              </div>
             </div>
             <button id="saveProfileButton" class="btn btn-primary" type="submit">Simpan profil</button>
           </form>
@@ -1510,7 +1554,7 @@
 
   <script>
     const state = {
-      token: sessionStorage.getItem('kpi_sla_token') || '',
+      token: localStorage.getItem('kpi_token') || '',
       user: null,
       menus: [],
       page: 'dashboard',
@@ -1645,10 +1689,8 @@
 
     document.addEventListener('DOMContentLoaded', init);
 
-    async function init() {
+    function init() {
       bindEvents();
-      localStorage.removeItem('kpi_token');
-      if (await terimaSesiDariSla_()) return;
       if (state.token) {
         const token = state.token;
         const authStamp = state.authVersion;
@@ -1664,7 +1706,7 @@
           })
           .catch(function() {
             if (token === state.token && authStamp === state.authVersion) {
-              sessionStorage.removeItem('kpi_sla_token');
+              localStorage.removeItem('kpi_token');
               state.token = '';
               showLogin();
             }
@@ -1675,6 +1717,7 @@
     }
 
     function bindEvents() {
+      byId('loginForm').addEventListener('submit', handleLogin);
       byId('logoutButton').addEventListener('click', handleLogout);
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
@@ -1787,50 +1830,32 @@
       };
     }
 
-    const SLA_LOBBY_URL = 'https://aplikasisla.vercel.app/';
-    const SLA_ORIGIN = 'https://aplikasisla.vercel.app';
-
-    async function terimaSesiDariSla_() {
-      const nonce = new URLSearchParams(window.location.hash.slice(1)).get('sla-handoff');
-      if (!nonce) return false;
-      history.replaceState(null, '', window.location.pathname + window.location.search);
-      localStorage.removeItem('kpi_token');
-      sessionStorage.removeItem('kpi_sla_token');
-      state.token = '';
-      if (!/^[a-f0-9]{48}$/.test(nonce) || !window.opener) {
-        showLogin('Buka Aplikasi KPI melalui Lobby SLA.');
-        return true;
-      }
-      showLogin('Menghubungkan sesi dari SLA...');
-      const parent = window.opener;
-      let listener, timer, selesai = false;
-      const cleanup = () => { clearTimeout(timer); window.removeEventListener('message', listener); };
-      listener = async event => {
-        if (selesai || event.origin !== SLA_ORIGIN || event.source !== parent || !event.data || event.data.type !== 'sla:kpi-session' || event.data.nonce !== nonce || typeof event.data.token !== 'string' || !event.data.token || event.data.token.length > 200) return;
-        selesai = true;
-        cleanup();
-        const authStamp = ++state.authVersion;
-        try {
-          const response = await api('apiGetSession', event.data.token);
-          if (authStamp !== state.authVersion) return;
-          state.token = event.data.token;
+    function handleLogin(event) {
+      event.preventDefault();
+      const authStamp = ++state.authVersion;
+      state.requestSeq += 1;
+      resetViewState();
+      setBusy('loginButton', true);
+      api('apiLogin', {
+        username: byId('loginUsername').value,
+        password: byId('loginPassword').value
+      })
+        .then(function(response) {
+          if (authStamp !== state.authVersion) {
+            return;
+          }
+          state.token = response.token;
           state.user = response.user;
           state.menus = response.menus || [];
           state.page = 'dashboard';
-          sessionStorage.setItem('kpi_sla_token', state.token);
-          parent.postMessage({ type: 'kpi:sla-accepted', nonce: nonce }, SLA_ORIGIN);
-          window.opener = null;
+          localStorage.setItem('kpi_token', state.token);
           showApp();
-          logActivity('login_sla', {});
-        } catch (error) {
-          parent.postMessage({ type: 'kpi:sla-error', nonce: nonce }, SLA_ORIGIN);
-          showLogin(error.message || 'Sesi SLA belum dapat dibuka.');
-        }
-      };
-      window.addEventListener('message', listener);
-      timer = setTimeout(() => { selesai = true; cleanup(); showLogin('Koneksi berakhir. Silakan buka kembali KPI dari Lobby SLA.'); }, 90000);
-      parent.postMessage({ type: 'kpi:sla-ready', nonce: nonce }, SLA_ORIGIN);
-      return true;
+          logActivity('login', { username: byId('loginUsername').value });
+        })
+        .catch(showError)
+        .finally(function() {
+          setBusy('loginButton', false);
+        });
     }
 
     function handleLogout() {
@@ -1838,7 +1863,7 @@
       const logoutPayload = buildActivityPayload('logout', { page: state.page });
       state.authVersion += 1;
       state.requestSeq += 1;
-      sessionStorage.removeItem('kpi_sla_token');
+      localStorage.removeItem('kpi_token');
       state.token = '';
       state.user = null;
       state.menus = [];
@@ -1855,10 +1880,10 @@
       }
     }
 
-    function showLogin(message) {
+    function showLogin() {
       byId('loginView').classList.remove('hidden');
       byId('appView').classList.add('hidden');
-      byId('slaGatewayStatus').textContent = message || 'Buka Aplikasi KPI dari Lobby SLA sesuai hak akses akun Anda.';
+      byId('loginPassword').value = '';
       stopTimers();
     }
 
@@ -2934,6 +2959,8 @@
       byId('profileEmail').value = state.user.Email || '';
       byId('profilePhone').value = state.user.Phone || '';
       byId('profileRole').value = state.user.RoleLabel || state.user.Role || '';
+      byId('currentPassword').value = '';
+      byId('newPassword').value = '';
     }
 
     function saveProfile(event) {
@@ -2942,10 +2969,12 @@
       api('apiUpdateProfile', state.token, {
         name: byId('profileName').value,
         email: byId('profileEmail').value,
-        phone: byId('profilePhone').value
+        phone: byId('profilePhone').value,
+        currentPassword: byId('currentPassword').value,
+        newPassword: byId('newPassword').value
       })
         .then(function(response) {
-          logActivity('profile_update', {});
+          logActivity('profile_update', { changedPassword: Boolean(byId('newPassword').value) });
           state.user = response.user;
           state.menus = response.menus || state.menus;
           renderShell();
