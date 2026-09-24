@@ -137,6 +137,40 @@
       font-size: 12px;
     }
 
+    .role-login-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .role-login-card {
+      min-height: 72px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      display: grid;
+      place-items: center;
+      padding: 12px;
+      text-align: center;
+      font-weight: 900;
+      transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease, background .12s ease;
+    }
+
+    .role-login-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(39, 103, 73, .55);
+      box-shadow: 0 12px 26px rgba(39, 103, 73, .10);
+      background: #fbfdfc;
+    }
+
+    .role-login-card:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
     input,
     select,
     textarea {
@@ -1114,6 +1148,10 @@
         padding: 12px;
       }
 
+      .role-login-grid {
+        grid-template-columns: 1fr;
+      }
+
       .topbar {
         gap: 10px;
         margin-bottom: 12px;
@@ -1356,16 +1394,12 @@
           <p class="muted">Dashboard penilaian dan pelaporan operasional</p>
         </div>
       </div>
-      <div class="form-stack">
-        <div class="field">
-          <label for="loginUsername">Username atau email</label>
-          <input id="loginUsername" autocomplete="username" required>
-        </div>
-        <div class="field">
-          <label for="loginPassword">Password</label>
-          <input id="loginPassword" type="password" autocomplete="current-password" required>
-        </div>
-        <button id="loginButton" class="btn btn-primary" type="submit">Masuk</button>
+      <div class="role-login-grid" aria-label="Pilih role">
+        <button class="role-login-card" type="button" data-login-role="owner">Owner</button>
+        <button class="role-login-card" type="button" data-login-role="admin_kendari">Admin Kendari</button>
+        <button class="role-login-card" type="button" data-login-role="admin_raha">Admin Raha</button>
+        <button class="role-login-card" type="button" data-login-role="auditor">Auditor</button>
+        <button class="role-login-card" type="button" data-login-role="sales_director">Sales Director</button>
       </div>
     </form>
   </section>
@@ -1579,7 +1613,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-10-one-gas-file-kpi-fit';
+    const CLIENT_CACHE_VERSION = '2026-09-23-sales-director-role';
 
     const MENU_ICONS = {
       dashboard: '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9z"></path><path d="M14 20h6V4h-6v16z"></path><path d="M4 20h6v-3H4v3z"></path></svg>',
@@ -1622,6 +1656,21 @@
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'number', field: 'amount', label: 'Angka yang tercantum pada speedometer', required: true },
         { kind: 'file', field: 'storanProof', label: 'Bukti laporan ganti oli', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      sales_upload_harian_10: [
+        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'file', field: 'salesFiles', label: 'Lampiran minimal 10 file', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      sales_upload_harian_1_10: [
+        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'file', field: 'salesFiles', label: 'Lampiran 1-10 file', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      sales_penawaran: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas penawaran', required: true, match: ['sales_penawaran'] },
+        { kind: 'file', field: 'proposalProof', label: 'Bukti penawaran', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       input_pengiriman: [
@@ -1717,7 +1766,14 @@
     }
 
     function bindEvents() {
-      byId('loginForm').addEventListener('submit', handleLogin);
+      byId('loginForm').addEventListener('submit', function(event) {
+        event.preventDefault();
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-login-role]'), function(button) {
+        button.addEventListener('click', function() {
+          handleRoleLogin(button.dataset.loginRole, button);
+        });
+      });
       byId('logoutButton').addEventListener('click', handleLogout);
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
@@ -1830,15 +1886,13 @@
       };
     }
 
-    function handleLogin(event) {
-      event.preventDefault();
+    function handleRoleLogin(role, button) {
       const authStamp = ++state.authVersion;
       state.requestSeq += 1;
       resetViewState();
-      setBusy('loginButton', true);
+      setRoleLoginBusy(button, true);
       api('apiLogin', {
-        username: byId('loginUsername').value,
-        password: byId('loginPassword').value
+        role: role
       })
         .then(function(response) {
           if (authStamp !== state.authVersion) {
@@ -1850,11 +1904,11 @@
           state.page = 'dashboard';
           localStorage.setItem('kpi_token', state.token);
           showApp();
-          logActivity('login', { username: byId('loginUsername').value });
+          logActivity('login', { role: role });
         })
         .catch(showError)
         .finally(function() {
-          setBusy('loginButton', false);
+          setRoleLoginBusy(button, false);
         });
     }
 
@@ -1883,7 +1937,6 @@
     function showLogin() {
       byId('loginView').classList.remove('hidden');
       byId('appView').classList.add('hidden');
-      byId('loginPassword').value = '';
       stopTimers();
     }
 
@@ -3000,6 +3053,21 @@
         element.dataset.label = element.textContent;
       }
       element.textContent = busy ? 'Memproses...' : element.dataset.label;
+    }
+
+    function setRoleLoginBusy(activeButton, busy) {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-login-role]'), function(button) {
+        button.disabled = busy;
+      });
+
+      if (!activeButton) {
+        return;
+      }
+
+      if (!activeButton.dataset.label) {
+        activeButton.dataset.label = activeButton.textContent;
+      }
+      activeButton.textContent = busy ? 'Membuka...' : activeButton.dataset.label;
     }
 
     function toast(message) {
