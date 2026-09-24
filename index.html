@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KPI Karyawan</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='18' y1='14' x2='78' y2='84' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23fff0a7'/%3E%3Cstop offset='.48' stop-color='%23d1a23e'/%3E%3Cstop offset='1' stop-color='%238c6722'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='9' y='9' width='78' height='78' rx='18' fill='url(%23g)' stroke='%23b38225' stroke-width='4'/%3E%3Crect x='15' y='15' width='66' height='66' rx='14' fill='%23f5d06a' opacity='.25'/%3E%3Cg fill='none' stroke='%23ffefae' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M31 52l11 11 27-31'/%3E%3Cpath d='M55 34h14v14'/%3E%3Cpath d='M24 52a26 26 0 0 1 43-23'/%3E%3Cpath d='M27 66a26 26 0 0 0 28 8'/%3E%3C/g%3E%3Cg fill='%23ffefae'%3E%3Crect x='58' y='58' width='7' height='16' rx='2'/%3E%3Crect x='69' y='48' width='7' height='26' rx='2'/%3E%3Cpath d='M73 33l4 8 8 1-6 6 2 8-8-4-8 4 2-8-6-6 8-1z'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="icon" type="image/jpeg" href="logo.jpeg">
   <style>
     :root {
       --bg: #f6f7f9;
@@ -85,19 +85,18 @@
       width: 58px;
       height: 58px;
       border-radius: 8px;
-      background: transparent;
-      color: #d4a72c;
+      background: #fff;
       display: grid;
       place-items: center;
-      font-weight: 800;
-      border: 0;
+      border: 1px solid rgba(42, 81, 154, .16);
+      overflow: hidden;
     }
 
-    .brand-mark svg {
-      width: 50px;
-      height: 50px;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+    .brand-mark img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
     }
 
     h1,
@@ -270,14 +269,7 @@
     .sidebar .brand-mark {
       width: 78px;
       height: 78px;
-      background: transparent;
-      color: #d4a72c;
       margin: 0 auto;
-    }
-
-    .sidebar .brand-mark svg {
-      width: 68px;
-      height: 68px;
     }
 
     .sidebar .brand-row {
@@ -664,6 +656,11 @@
       line-height: 1;
     }
 
+    .metric small:empty {
+      display: none;
+      min-height: 0;
+    }
+
     .progress {
       height: 9px;
       border-radius: 999px;
@@ -699,6 +696,10 @@
       min-width: 190px;
       max-width: 260px;
       flex: 0 1 240px;
+    }
+
+    .period-filters select {
+      min-width: 112px;
     }
 
     .table-wrap {
@@ -1005,11 +1006,6 @@
       .sidebar .brand-mark {
         width: 40px;
         height: 40px;
-      }
-
-      .sidebar .brand-mark svg {
-        width: 36px;
-        height: 36px;
       }
 
       .sidebar .brand-row strong {
@@ -1366,28 +1362,7 @@
     <form id="loginForm" class="auth-card">
       <div class="brand-row">
         <div class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 96 96">
-            <defs>
-              <linearGradient id="logoGoldA" x1="18" y1="14" x2="78" y2="84" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#fff0a7"></stop>
-                <stop offset=".48" stop-color="#d1a23e"></stop>
-                <stop offset="1" stop-color="#8c6722"></stop>
-              </linearGradient>
-            </defs>
-            <rect x="9" y="9" width="78" height="78" rx="18" fill="url(#logoGoldA)" stroke="#b38225" stroke-width="4"></rect>
-            <rect x="15" y="15" width="66" height="66" rx="14" fill="#f5d06a" opacity=".25"></rect>
-            <g fill="none" stroke="#ffefae" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M31 52l11 11 27-31"></path>
-              <path d="M55 34h14v14"></path>
-              <path d="M24 52a26 26 0 0 1 43-23"></path>
-              <path d="M27 66a26 26 0 0 0 28 8"></path>
-            </g>
-            <g fill="#ffefae">
-              <rect x="58" y="58" width="7" height="16" rx="2"></rect>
-              <rect x="69" y="48" width="7" height="26" rx="2"></rect>
-              <path d="M73 33l4 8 8 1-6 6 2 8-8-4-8 4 2-8-6-6 8-1z"></path>
-            </g>
-          </svg>
+          <img src="logo.jpeg" alt="">
         </div>
         <div>
           <h1>KPI Karyawan</h1>
@@ -1408,28 +1383,7 @@
     <aside class="sidebar">
       <div class="brand-row">
         <div class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 96 96">
-            <defs>
-              <linearGradient id="logoGoldB" x1="18" y1="14" x2="78" y2="84" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#fff0a7"></stop>
-                <stop offset=".48" stop-color="#d1a23e"></stop>
-                <stop offset="1" stop-color="#8c6722"></stop>
-              </linearGradient>
-            </defs>
-            <rect x="9" y="9" width="78" height="78" rx="18" fill="url(#logoGoldB)" stroke="#b38225" stroke-width="4"></rect>
-            <rect x="15" y="15" width="66" height="66" rx="14" fill="#f5d06a" opacity=".25"></rect>
-            <g fill="none" stroke="#ffefae" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M31 52l11 11 27-31"></path>
-              <path d="M55 34h14v14"></path>
-              <path d="M24 52a26 26 0 0 1 43-23"></path>
-              <path d="M27 66a26 26 0 0 0 28 8"></path>
-            </g>
-            <g fill="#ffefae">
-              <rect x="58" y="58" width="7" height="16" rx="2"></rect>
-              <rect x="69" y="48" width="7" height="26" rx="2"></rect>
-              <path d="M73 33l4 8 8 1-6 6 2 8-8-4-8 4 2-8-6-6 8-1z"></path>
-            </g>
-          </svg>
+          <img src="logo.jpeg" alt="">
         </div>
         <div>
           <strong>KPI Karyawan</strong>
@@ -1498,6 +1452,10 @@
         <div class="panel kpi-panel">
           <div class="panel-head">
             <h3>Info KPI</h3>
+            <div class="filters period-filters">
+              <select id="dashboardMonthFilter" aria-label="Pilih bulan KPI"></select>
+              <select id="dashboardYearFilter" aria-label="Pilih tahun KPI"></select>
+            </div>
           </div>
           <div id="kpiCards" class="kpi-grid"></div>
         </div>
@@ -1601,6 +1559,8 @@
       kpiStatus: '',
       auditStatus: '',
       taskSearch: '',
+      dashboardMonth: new Date().getMonth() + 1,
+      dashboardYear: new Date().getFullYear(),
       timerInterval: null,
       speech: null,
       authVersion: 0,
@@ -1613,7 +1573,15 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-23-sales-director-role';
+    const CLIENT_CACHE_VERSION = '2026-09-24-month-history-owner-logs-logo';
+    const ACTIVITY_LOG_ACTIONS = {
+      note_edit: true,
+      note_delete: true
+    };
+    const MONTH_LABELS = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
 
     const MENU_ICONS = {
       dashboard: '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9z"></path><path d="M14 20h6V4h-6v16z"></path><path d="M4 20h6v-3H4v3z"></path></svg>',
@@ -1751,7 +1719,6 @@
             state.user = response.user;
             state.menus = response.menus || [];
             showApp();
-            logActivity('session_restore', {});
           })
           .catch(function() {
             if (token === state.token && authStamp === state.authVersion) {
@@ -1782,26 +1749,31 @@
         if (state.dashboard) {
           state.dashboard.notes = [];
         }
-        logActivity('filter_notes', { creatorId: state.noteCreatorId });
         loadDashboard();
       });
       byId('noteAssigneeSelect').addEventListener('change', function(event) {
         state.noteAssigneeId = event.target.value;
-        logActivity('select_note_assignee', { assigneeId: state.noteAssigneeId });
+      });
+      byId('dashboardMonthFilter').addEventListener('change', function(event) {
+        state.dashboardMonth = Number(event.target.value) || new Date().getMonth() + 1;
+        resetDashboardDetailFilters();
+        loadDashboard();
+      });
+      byId('dashboardYearFilter').addEventListener('change', function(event) {
+        state.dashboardYear = Number(event.target.value) || new Date().getFullYear();
+        resetDashboardDetailFilters();
+        loadDashboard();
       });
       byId('taskTypeFilter').addEventListener('change', function(event) {
         state.taskType = event.target.value;
-        logActivity('filter_task_type', { taskType: state.taskType });
         loadDashboard();
       });
       byId('kpiStatusFilter').addEventListener('change', function(event) {
         state.kpiStatus = event.target.value;
-        logActivity('filter_kpi_status', { kpiStatus: state.kpiStatus });
         loadDashboard();
       });
       byId('auditStatusFilter').addEventListener('change', function(event) {
         state.auditStatus = event.target.value;
-        logActivity('filter_audit_status', { auditStatus: state.auditStatus });
         loadDashboard();
       });
       byId('taskSearchFilter').addEventListener('input', function(event) {
@@ -1809,12 +1781,10 @@
         renderTasksTable();
       });
       byId('reportType').addEventListener('change', function(event) {
-        logActivity('select_report_type', { type: event.target.value });
         renderReportForm();
       });
       byId('reportForm').addEventListener('submit', submitReport);
       byId('resetReportButton').addEventListener('click', function() {
-        logActivity('reset_report_form', { type: byId('reportType').value });
         renderReportForm();
       });
       byId('infoDialogClose').addEventListener('click', closeInfoBox);
@@ -1870,7 +1840,7 @@
     }
 
     function logActivity(action, detail) {
-      if (!state.token) {
+      if (!state.token || !ACTIVITY_LOG_ACTIONS[action]) {
         return;
       }
 
@@ -1904,7 +1874,6 @@
           state.page = 'dashboard';
           localStorage.setItem('kpi_token', state.token);
           showApp();
-          logActivity('login', { role: role });
         })
         .catch(showError)
         .finally(function() {
@@ -1914,7 +1883,6 @@
 
     function handleLogout() {
       const token = state.token;
-      const logoutPayload = buildActivityPayload('logout', { page: state.page });
       state.authVersion += 1;
       state.requestSeq += 1;
       localStorage.removeItem('kpi_token');
@@ -1926,11 +1894,7 @@
       showLogin();
 
       if (token) {
-        api('apiLogActivity', token, logoutPayload)
-          .catch(function() {})
-          .finally(function() {
-            api('apiLogout', token).catch(function() {});
-          });
+        api('apiLogout', token).catch(function() {});
       }
     }
 
@@ -1982,14 +1946,32 @@
       state.kpiStatus = '';
       state.auditStatus = '';
       state.taskSearch = '';
+      state.dashboardMonth = new Date().getMonth() + 1;
+      state.dashboardYear = new Date().getFullYear();
       stopTimers();
       clearAppContent();
+    }
+
+    function resetDashboardDetailFilters() {
+      state.taskType = '';
+      state.kpiStatus = '';
+      state.auditStatus = '';
+      state.taskSearch = '';
+      if (byId('taskSearchFilter')) {
+        byId('taskSearchFilter').value = '';
+      }
+      if (state.dashboard) {
+        state.dashboard.cardTasks = [];
+        state.dashboard.tasks = [];
+      }
     }
 
     function clearAppContent() {
       byId('noteCreatorFilter').innerHTML = '<option value="">Pilih pembuat</option>';
       byId('noteAssigneeSelect').innerHTML = '<option value="">Tanpa tugas KPI</option>';
       byId('notePhotos').value = '';
+      byId('dashboardMonthFilter').innerHTML = '';
+      byId('dashboardYearFilter').innerHTML = '';
       byId('taskTypeFilter').innerHTML = '<option value="">Semua tugas</option>';
       byId('kpiStatusFilter').innerHTML = '';
       byId('auditStatusFilter').value = '';
@@ -2009,7 +1991,13 @@
     }
 
     function clientCacheKey(scope) {
-      return state.user && state.user.Id ? 'kpi_' + CLIENT_CACHE_VERSION + '_' + scope + '_' + state.user.Id : '';
+      if (!state.user || !state.user.Id) {
+        return '';
+      }
+      const period = scope === 'dashboard'
+        ? '_' + state.dashboardYear + '_' + state.dashboardMonth
+        : '';
+      return 'kpi_' + CLIENT_CACHE_VERSION + '_' + scope + period + '_' + state.user.Id;
     }
 
     function saveClientCache(scope, data) {
@@ -2031,6 +2019,10 @@
       if (data) {
         state.dashboard = data;
         state.selectedCard = data.selectedCard || (data.cards && data.cards[0] && data.cards[0].key) || '';
+        if (data.period) {
+          state.dashboardMonth = Number(data.period.month || state.dashboardMonth);
+          state.dashboardYear = Number(data.period.year || state.dashboardYear);
+        }
       }
     }
 
@@ -2077,7 +2069,6 @@
 
     function navigate(page) {
       state.page = page;
-      logActivity('navigate', { targetPage: page });
       Array.prototype.forEach.call(document.querySelectorAll('.nav button'), function(button) {
         button.classList.toggle('active', button.dataset.page === page);
       });
@@ -2136,13 +2127,19 @@
         cardKey: state.selectedCard,
         taskType: state.taskType,
         kpiStatus: state.kpiStatus,
-        auditStatus: state.auditStatus
+        auditStatus: state.auditStatus,
+        month: state.dashboardMonth,
+        year: state.dashboardYear
       })
         .then(function(response) {
           if (!isCurrentRequest(token, requestId)) {
             return;
           }
           state.dashboard = response;
+          if (response.period) {
+            state.dashboardMonth = Number(response.period.month || state.dashboardMonth);
+            state.dashboardYear = Number(response.period.year || state.dashboardYear);
+          }
           state.selectedCard = response.selectedCard || (response.cards[0] && response.cards[0].key) || '';
           saveClientCache('dashboard', response);
           renderDashboard();
@@ -2168,6 +2165,7 @@
     function renderDashboard() {
       renderNoteFilter();
       renderNoteAssigneeOptions();
+      renderDashboardPeriodFilter();
       renderNotes();
       renderKpiCards();
       renderTaskFilter();
@@ -2201,6 +2199,39 @@
         return user.id === state.noteAssigneeId;
       }) ? state.noteAssigneeId : '';
       state.noteAssigneeId = select.value;
+    }
+
+    function renderDashboardPeriodFilter() {
+      const monthSelect = byId('dashboardMonthFilter');
+      const yearSelect = byId('dashboardYearFilter');
+      const currentPeriod = state.dashboard.period || {
+        month: state.dashboardMonth,
+        year: state.dashboardYear
+      };
+      const periodOptions = state.dashboard.periodOptions || [];
+      const years = {};
+
+      periodOptions.forEach(function(period) {
+        if (period && period.year) {
+          years[period.year] = true;
+        }
+      });
+      years[currentPeriod.year] = true;
+      years[new Date().getFullYear()] = true;
+
+      monthSelect.innerHTML = MONTH_LABELS.map(function(label, index) {
+        const month = index + 1;
+        return `<option value="${month}">${escapeHtml(label)}</option>`;
+      }).join('');
+      monthSelect.value = String(Number(currentPeriod.month || state.dashboardMonth));
+
+      yearSelect.innerHTML = Object.keys(years)
+        .map(Number)
+        .sort(function(a, b) { return b - a; })
+        .map(function(year) {
+          return `<option value="${year}">${year}</option>`;
+        }).join('');
+      yearSelect.value = String(Number(currentPeriod.year || state.dashboardYear));
     }
 
     function renderNotes() {
@@ -2264,11 +2295,6 @@
           });
         })
         .then(function() {
-          logActivity('note_create', {
-            assignedToId: state.noteAssigneeId,
-            hasTask: Boolean(state.noteAssigneeId),
-            photoCount: photos.length
-          });
           byId('noteInput').value = '';
           byId('noteAssigneeSelect').value = '';
           photoInput.value = '';
@@ -2285,7 +2311,6 @@
     function toggleNote(id, done) {
       api('apiUpdateNote', state.token, id, { done: done })
         .then(function() {
-          logActivity('note_toggle', { noteId: id, done: done });
           loadDashboard();
         })
         .catch(showError);
@@ -2325,7 +2350,6 @@
     function toggleVoice() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        logActivity('voice_note_unsupported', {});
         toast('Browser belum mendukung rekam suara.');
         return;
       }
@@ -2334,7 +2358,6 @@
         state.speech.stop();
         state.speech = null;
         setVoiceRecording(false);
-        logActivity('voice_note_stop', {});
         return;
       }
 
@@ -2363,13 +2386,11 @@
       };
 
       recognition.onerror = function(event) {
-        logActivity('voice_note_error', { error: event.error || '' });
         toast(event.error || 'Rekam suara gagal.');
       };
 
       state.speech = recognition;
       setVoiceRecording(true);
-      logActivity('voice_note_start', {});
       recognition.start();
     }
 
@@ -2395,18 +2416,24 @@
 
       wrap.innerHTML = cards.map(function(card) {
         const notes = card.noteMetrics || {};
+        const ownerCard = card.key === 'owner';
+        const primary = ownerCard ? notes : card;
+        const subTepat = ownerCard ? '' : Number(notes.tepatWaktu || 0);
+        const subMeleset = ownerCard ? '' : Number(notes.meleset || 0);
+        const subTotal = ownerCard ? '' : Number(notes.total || 0);
+        const subPerformance = ownerCard ? '' : Number(notes.performance || 0) + '%';
         return `
           <button class="kpi-card ${card.key === state.selectedCard ? 'active' : ''}" type="button" onclick="selectCard('${escapeAttr(card.key)}')">
             <div>
               <h3>${escapeHtml(card.label)}</h3>
             </div>
             <div class="metric-row">
-              <div class="metric" title="Tugas tambahan dari notes"><span>Tepat</span><strong>${card.tepatWaktu}</strong><small>${Number(notes.tepatWaktu || 0)}</small></div>
-              <div class="metric" title="Tugas tambahan dari notes"><span>Meleset</span><strong>${card.meleset}</strong><small>${Number(notes.meleset || 0)}</small></div>
-              <div class="metric" title="Tugas tambahan dari notes"><span>Total</span><strong>${card.total}</strong><small>${Number(notes.total || 0)}</small></div>
-              <div class="metric" title="Performa tugas tambahan dari notes"><span>Performa</span><strong>${card.performance}%</strong><small>${Number(notes.performance || 0)}%</small></div>
+              <div class="metric" title="${ownerCard ? 'Tugas tambahan dari notes' : 'Tugas wajib dan tambahan dari notes'}"><span>Tepat</span><strong>${Number(primary.tepatWaktu || 0)}</strong><small>${subTepat}</small></div>
+              <div class="metric" title="${ownerCard ? 'Tugas tambahan dari notes' : 'Tugas wajib dan tambahan dari notes'}"><span>Meleset</span><strong>${Number(primary.meleset || 0)}</strong><small>${subMeleset}</small></div>
+              <div class="metric" title="${ownerCard ? 'Tugas tambahan dari notes' : 'Tugas wajib dan tambahan dari notes'}"><span>Total</span><strong>${Number(primary.total || 0)}</strong><small>${subTotal}</small></div>
+              <div class="metric" title="${ownerCard ? 'Performa tugas tambahan dari notes' : 'Performa tugas wajib dan tambahan dari notes'}"><span>Performa</span><strong>${Number(primary.performance || 0)}%</strong><small>${subPerformance}</small></div>
             </div>
-            <div class="progress"><i style="width:${Math.min(100, Math.max(0, card.performance))}%"></i></div>
+            <div class="progress"><i style="width:${Math.min(100, Math.max(0, Number(primary.performance || 0)))}%"></i></div>
           </button>
         `;
       }).join('');
@@ -2725,7 +2752,6 @@
       const select = byId('status-' + taskId);
       api('apiUpdateTaskStatus', state.token, taskId, select.value, '')
         .then(function() {
-          logActivity('task_status_update', { taskId: taskId, kpiStatus: select.value });
           toast('Status diperbarui.');
           loadDashboard();
         })
@@ -2933,11 +2959,7 @@
       setBusy('submitReportButton', true);
       collectReportPayload()
         .then(function(payload) {
-          return api('apiSubmitReport', state.token, payload)
-            .then(function(response) {
-              logActivity('report_submit', { type: payload.type, reportId: response.reportId });
-              return response;
-            });
+          return api('apiSubmitReport', state.token, payload);
         })
         .then(function() {
           toast('Laporan terkirim.');
@@ -3027,7 +3049,6 @@
         newPassword: byId('newPassword').value
       })
         .then(function(response) {
-          logActivity('profile_update', { changedPassword: Boolean(byId('newPassword').value) });
           state.user = response.user;
           state.menus = response.menus || state.menus;
           renderShell();
