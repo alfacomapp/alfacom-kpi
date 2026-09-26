@@ -1359,24 +1359,11 @@
   </div>
 
   <section id="loginView" class="auth-shell">
-    <form id="loginForm" class="auth-card">
-      <div class="brand-row">
-        <div class="brand-mark" aria-hidden="true">
-          <img src="logo.jpeg" alt="">
-        </div>
-        <div>
-          <h1>KPI Karyawan</h1>
-          <p class="muted">Dashboard penilaian dan pelaporan operasional</p>
-        </div>
-      </div>
-      <div class="role-login-grid" aria-label="Pilih role">
-        <button class="role-login-card" type="button" data-login-role="owner">Owner</button>
-        <button class="role-login-card" type="button" data-login-role="admin_kendari">Admin Kendari</button>
-        <button class="role-login-card" type="button" data-login-role="admin_raha">Admin Raha</button>
-        <button class="role-login-card" type="button" data-login-role="auditor">Auditor</button>
-        <button class="role-login-card" type="button" data-login-role="sales_director">Sales Director</button>
-      </div>
-    </form>
+    <div class="auth-card">
+      <h1>KPI Karyawan</h1>
+      <p id="slaGatewayStatus" class="muted">Buka aplikasi KPI melalui Lobby SLA.</p>
+      <a class="btn btn-primary" href="https://aplikasisla.vercel.app/">Buka Lobby SLA</a>
+    </div>
   </section>
 
   <section id="appView" class="app hidden">
@@ -1391,7 +1378,8 @@
         </div>
       </div>
       <nav id="nav" class="nav"></nav>
-      <button id="logoutButton" class="btn btn-ghost logout-button" type="button">Keluar</button>
+      <button id="logoutButton" class="btn btn-ghost logout-button" type="button">Keluar dari KPI</button>
+      <a class="btn btn-ghost" href="https://aplikasisla.vercel.app/">Kembali ke Lobby SLA</a>
     </aside>
 
     <main class="main">
@@ -1528,14 +1516,7 @@
                 <label for="profileRole">Role</label>
                 <input id="profileRole" disabled>
               </div>
-              <div class="field">
-                <label for="currentPassword">Password lama</label>
-                <input id="currentPassword" type="password" autocomplete="current-password">
-              </div>
-              <div class="field">
-                <label for="newPassword">Password baru</label>
-                <input id="newPassword" type="password" autocomplete="new-password">
-              </div>
+              <p class="muted">Password mengikuti akun SLA.</p>
             </div>
             <button id="saveProfileButton" class="btn btn-primary" type="submit">Simpan profil</button>
           </form>
@@ -1546,7 +1527,7 @@
 
   <script>
     const state = {
-      token: localStorage.getItem('kpi_token') || '',
+      token: sessionStorage.getItem('kpi_sla_token') || '',
       user: null,
       menus: [],
       page: 'dashboard',
@@ -1573,7 +1554,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-24-month-history-owner-logs-logo';
+    const CLIENT_CACHE_VERSION = '2026-09-26-sla-supabase';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -1706,8 +1687,10 @@
 
     document.addEventListener('DOMContentLoaded', init);
 
-    function init() {
+    async function init() {
       bindEvents();
+      localStorage.removeItem('kpi_token');
+      if (await terimaSesiDariSla_()) return;
       if (state.token) {
         const token = state.token;
         const authStamp = state.authVersion;
@@ -1722,7 +1705,7 @@
           })
           .catch(function() {
             if (token === state.token && authStamp === state.authVersion) {
-              localStorage.removeItem('kpi_token');
+              sessionStorage.removeItem('kpi_sla_token');
               state.token = '';
               showLogin();
             }
@@ -1733,14 +1716,6 @@
     }
 
     function bindEvents() {
-      byId('loginForm').addEventListener('submit', function(event) {
-        event.preventDefault();
-      });
-      Array.prototype.forEach.call(document.querySelectorAll('[data-login-role]'), function(button) {
-        button.addEventListener('click', function() {
-          handleRoleLogin(button.dataset.loginRole, button);
-        });
-      });
       byId('logoutButton').addEventListener('click', handleLogout);
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
@@ -1796,16 +1771,19 @@
       byId('profileForm').addEventListener('submit', saveProfile);
     }
 
-    // Ganti dengan URL Cloudflare Worker Anda dari Langkah 2
-    const WORKER_URL = 'https://alfacom-kpi-d1.alfacomapp.workers.dev';
+    const KPI_API_URL = 'https://oozkqjgllubhjctnkxwl.supabase.co/functions/v1/kpi-api';
+    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Wa3EUtroPjqwfCkJOyRSSw_MWnMXH6E';
 
     function api(functionName) {
       const args = Array.prototype.slice.call(arguments, 1);
       
-      return fetch(WORKER_URL, {
+      const jwt = typeof args[0] === 'string' ? args[0] : state.token;
+      return fetch(KPI_API_URL, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_PUBLISHABLE_KEY,
+          'Authorization': 'Bearer ' + jwt
         },
         body: JSON.stringify({
           action: functionName,
@@ -1820,7 +1798,7 @@
           } catch (error) {
             const looksLikeHtml = /^\s*</.test(text || '');
             throw new Error(looksLikeHtml
-              ? 'Server mengembalikan halaman HTML, bukan JSON. Coba ulangi; jika sering muncul, cek URL deployment Apps Script pada Cloudflare.'
+              ? 'Server mengembalikan halaman HTML, bukan JSON. Periksa sambungan Supabase KPI.'
               : 'Jawaban server bukan JSON valid.');
           }
 
@@ -1856,36 +1834,56 @@
       };
     }
 
-    function handleRoleLogin(role, button) {
-      const authStamp = ++state.authVersion;
-      state.requestSeq += 1;
-      resetViewState();
-      setRoleLoginBusy(button, true);
-      api('apiLogin', {
-        role: role
-      })
-        .then(function(response) {
-          if (authStamp !== state.authVersion) {
-            return;
-          }
-          state.token = response.token;
+    const SLA_ORIGIN = 'https://aplikasisla.vercel.app';
+
+    async function terimaSesiDariSla_() {
+      const nonce = new URLSearchParams(window.location.hash.slice(1)).get('sla-handoff');
+      if (!nonce) return false;
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      sessionStorage.removeItem('kpi_sla_token');
+      state.token = '';
+      if (!/^[a-f0-9]{48}$/.test(nonce) || !window.opener) {
+        showLogin('Buka aplikasi KPI melalui Lobby SLA.');
+        return true;
+      }
+      showLogin('Menghubungkan sesi dari SLA...');
+      const parent = window.opener;
+      let listener, timer, done = false;
+      const cleanup = () => { clearTimeout(timer); window.removeEventListener('message', listener); };
+      listener = async event => {
+        if (done || event.origin !== SLA_ORIGIN || event.source !== parent || !event.data ||
+            event.data.type !== 'sla:kpi-session' || event.data.nonce !== nonce ||
+            typeof event.data.token !== 'string' || !event.data.token || event.data.token.length > 12000) return;
+        done = true;
+        cleanup();
+        const stamp = ++state.authVersion;
+        try {
+          const response = await api('apiGetSession', event.data.token);
+          if (stamp !== state.authVersion) return;
+          state.token = event.data.token;
           state.user = response.user;
           state.menus = response.menus || [];
           state.page = 'dashboard';
-          localStorage.setItem('kpi_token', state.token);
+          sessionStorage.setItem('kpi_sla_token', state.token);
+          parent.postMessage({ type: 'kpi:sla-accepted', nonce: nonce }, SLA_ORIGIN);
+          window.opener = null;
           showApp();
-        })
-        .catch(showError)
-        .finally(function() {
-          setRoleLoginBusy(button, false);
-        });
+        } catch (error) {
+          parent.postMessage({ type: 'kpi:sla-error', nonce: nonce }, SLA_ORIGIN);
+          showLogin(error.message || 'Sesi SLA belum dapat dibuka.');
+        }
+      };
+      window.addEventListener('message', listener);
+      timer = setTimeout(() => { done = true; cleanup(); showLogin('Koneksi berakhir. Buka kembali KPI dari Lobby SLA.'); }, 90000);
+      parent.postMessage({ type: 'kpi:sla-ready', nonce: nonce }, SLA_ORIGIN);
+      return true;
     }
 
     function handleLogout() {
       const token = state.token;
       state.authVersion += 1;
       state.requestSeq += 1;
-      localStorage.removeItem('kpi_token');
+      sessionStorage.removeItem('kpi_sla_token');
       state.token = '';
       state.user = null;
       state.menus = [];
@@ -1898,9 +1896,10 @@
       }
     }
 
-    function showLogin() {
+    function showLogin(message) {
       byId('loginView').classList.remove('hidden');
       byId('appView').classList.add('hidden');
+      byId('slaGatewayStatus').textContent = message || 'Buka aplikasi KPI melalui Lobby SLA.';
       stopTimers();
     }
 
@@ -3034,8 +3033,6 @@
       byId('profileEmail').value = state.user.Email || '';
       byId('profilePhone').value = state.user.Phone || '';
       byId('profileRole').value = state.user.RoleLabel || state.user.Role || '';
-      byId('currentPassword').value = '';
-      byId('newPassword').value = '';
     }
 
     function saveProfile(event) {
@@ -3044,9 +3041,7 @@
       api('apiUpdateProfile', state.token, {
         name: byId('profileName').value,
         email: byId('profileEmail').value,
-        phone: byId('profilePhone').value,
-        currentPassword: byId('currentPassword').value,
-        newPassword: byId('newPassword').value
+        phone: byId('profilePhone').value
       })
         .then(function(response) {
           state.user = response.user;
@@ -3074,21 +3069,6 @@
         element.dataset.label = element.textContent;
       }
       element.textContent = busy ? 'Memproses...' : element.dataset.label;
-    }
-
-    function setRoleLoginBusy(activeButton, busy) {
-      Array.prototype.forEach.call(document.querySelectorAll('[data-login-role]'), function(button) {
-        button.disabled = busy;
-      });
-
-      if (!activeButton) {
-        return;
-      }
-
-      if (!activeButton.dataset.label) {
-        activeButton.dataset.label = activeButton.textContent;
-      }
-      activeButton.textContent = busy ? 'Membuka...' : activeButton.dataset.label;
     }
 
     function toast(message) {
