@@ -38,8 +38,9 @@ Peran lain ditolak. Setiap panggilan GAS memeriksa kembali JWT, profil SLA, dan 
 - `setupSpreadsheet_()` adalah nama fungsi kompatibilitas dari kode lama. Implementasinya hanya mengecek koneksi tabel Supabase, tidak membaca atau membuat Google Sheet.
 - Kolom `record` JSON di tabel `kpi_*` tetap mengikuti struktur field lama (`Id`, `TaskType`, `PayloadJson`, dan sebagainya). Ubah skema/aturan dengan migrasi yang diaudit; jangan langsung mengedit tabel SLA atau `absensi`.
 - Status berjalan/pause/meleset pada tampilan dihitung dari tugas dan absensi saat dibaca. GAS tidak menulis ulang status turunan itu ke tugas, agar keputusan manual owner tidak tertimpa.
+- Dashboard pertama kali memilih bulan berjalan menurut zona waktu proyek; filter bulan/tahun lama memilih periode itu. GAS menentukan pilihan periode dari tugas mentah, lalu menghitung status/timer hanya untuk tugas di bulan terpilih. Absensi untuk dashboard dibaca dari awal sampai sebelum awal bulan berikutnya. Trigger `scheduledDailyCheck()` tetap membentuk tugas harian; membuka dashboard bulan lama tidak menjalankan pembentukan tugas bulan berjalan.
 - Perubahan satu record memakai pemeriksaan `revision`. Aksi yang menulis banyak record masih menggunakan beberapa operasi Supabase, sehingga jika satu langkah gagal, sebagian data bisa sudah tersimpan. Audit dan tangani kasus ini sebelum menambah alur multi-record baru.
 - Lampiran maksimum 10 MB per file. File lama yang masih ber-ID Google Drive perlu dimigrasikan terpisah bila ada; jangan mengaktifkan kembali Drive di jalur baru.
 - Respons pertama setelah cache dingin dapat lebih lambat karena GAS membaca Supabase dan absensi. Cache GAS berumur pendek; kebenaran data tetap berada di Supabase.
 
-Pengujian lokal: `node gas/brain.test.cjs`. Tes ini memeriksa otorisasi sesi SLA, pembatasan peran, update profil, dan unggah/unduh lampiran privat tanpa mengubah data produksi.
+Pengujian lokal: `node --test gas/brain.test.cjs gas/dashboard-period.test.cjs`. Tes ini memeriksa otorisasi sesi SLA, pembatasan peran, update profil, unggah/unduh lampiran privat, dan pembatasan perhitungan dashboard ke periode terpilih tanpa mengubah data produksi.

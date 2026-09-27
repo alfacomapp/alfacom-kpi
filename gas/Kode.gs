@@ -409,27 +409,28 @@ function apiGetSession(token) {
 function apiGetDashboard(token, filters) {
   try {
     const user = requireUser_(token);
-    setupSpreadsheet_();
-    ensureKpiTasksAndStatus_();
-
     const safeFilters = filters || {};
     const period = normalizeDashboardPeriod_(safeFilters);
+    const currentPeriod = normalizeDashboardPeriod_({});
+    // Pembentukan tugas berkala hanya relevan saat dashboard bulan berjalan dibuka.
+    if (period.key === currentPeriod.key) ensureKpiTasksAndStatus_();
     const activeUsers = getActiveUsers_();
     const noteCreatorFilter = normalizeNoteCreatorFilter_(safeFilters.creatorId);
     const allNotes = noteCreatorFilter ? readRecentObjects_('notes', 500) : [];
     const notes = getNotesForDashboard_(noteCreatorFilter, allNotes, activeUsers);
     const noteCreators = getNoteCreators_();
     const now = new Date();
-    const attendanceMap = getAttendanceMap_();
-    const allTasks = readObjects_('tasks').map(function(task) {
-      return enrichTask_(task, now, attendanceMap);
-    });
-    const visibleDashboardTasks = allTasks.filter(function(task) {
+    // Pilih periode dari data mentah sebelum timer dan status tugas dihitung.
+    const visibleDashboardTasks = readObjects_('tasks').filter(function(task) {
       return canUserSeeDashboardTask_(task);
     });
     const periodOptions = dashboardPeriodOptions_(visibleDashboardTasks, period);
-    const dashboardTasks = visibleDashboardTasks.filter(function(task) {
+    const periodTasks = visibleDashboardTasks.filter(function(task) {
       return isTaskInDashboardPeriod_(task, period);
+    });
+    const attendanceMap = periodTasks.length ? getAttendanceMap_(period) : {};
+    const dashboardTasks = periodTasks.map(function(task) {
+      return enrichTask_(task, now, attendanceMap);
     });
 
     const cards = getVisibleCards_(user, activeUsers).map(function(card) {
@@ -2192,15 +2193,24 @@ function attendanceStatusFor_(assigneeName, date, attendanceMap) {
 }
 
 
-function getAttendanceMap_() {
+function getAttendanceMap_(period) {
+  const mulai = period && period.key
+    ? period.key + '-01T00:00:00+08:00'
+    : '2026-01-01T00:00:00+08:00';
+  const nextMonth = period && period.key ? Number(period.month) % 12 + 1 : 0;
+  const nextYear = period && period.key ? Number(period.year) + (Number(period.month) === 12 ? 1 : 0) : 0;
+  const akhir = nextMonth
+    ? nextYear + '-' + String(nextMonth).padStart(2, '0') + '-01T00:00:00+08:00'
+    : '';
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'sla-attendance:' + Math.floor(Date.now() / 60000);
+  const cacheKey = 'sla-attendance:' + mulai.slice(0, 7) + ':' + akhir.slice(0, 7) + ':' + Math.floor(Date.now() / 60000);
   const cached = cache.get(cacheKey);
   if (cached) return JSON.parse(cached);
   const map = {};
   let offset = 0;
   while (true) {
-    const filter = 'waktu_absen=gte.' + encodeURIComponent('2026-01-01T00:00:00+08:00');
+    const filter = 'waktu_absen=gte.' + encodeURIComponent(mulai) +
+      (akhir ? '&waktu_absen=lt.' + encodeURIComponent(akhir) : '');
     const query = 'select=waktu_absen,nama_pegawai,role,tipe_absen,cabang' +
       '&' + filter + '&order=waktu_absen.asc&limit=1000&offset=' + offset;
     const rows = supabaseKpiRequest_('get', 'absensi', query) || [];
@@ -2233,7 +2243,6 @@ function createPeriodicTasks_() {
   const now = new Date();
   const tasks = readObjects_('tasks');
   const users = readObjects_('users');
-  const attendanceMap = getAttendanceMap_();
   const owner = {
     Id: 'system',
     Name: 'System'
