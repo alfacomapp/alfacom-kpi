@@ -1554,7 +1554,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-26-sla-supabase';
+    const CLIENT_CACHE_VERSION = '2026-09-27-dashboard-period';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -1732,11 +1732,13 @@
       byId('dashboardMonthFilter').addEventListener('change', function(event) {
         state.dashboardMonth = Number(event.target.value) || new Date().getMonth() + 1;
         resetDashboardDetailFilters();
+        state.dashboard = null;
         loadDashboard();
       });
       byId('dashboardYearFilter').addEventListener('change', function(event) {
         state.dashboardYear = Number(event.target.value) || new Date().getFullYear();
         resetDashboardDetailFilters();
+        state.dashboard = null;
         loadDashboard();
       });
       byId('taskTypeFilter').addEventListener('change', function(event) {
