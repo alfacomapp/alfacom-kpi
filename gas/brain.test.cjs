@@ -4,6 +4,11 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, 'Kode.gs'), 'utf8');
+const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'appsscript.json'), 'utf8'));
+assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.external_request'));
+assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/script.scriptapp'));
+assert.ok(manifest.oauthScopes.includes('https://www.googleapis.com/auth/spreadsheets.currentonly'));
+assert.ok(manifest.oauthScopes.every(scope => !scope.includes('/drive')));
 const jwt = 'header.' + Buffer.from(JSON.stringify({ sub: 'sla-user-1', exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url') + '.signature';
 const properties = new Map([
   ['KPI_SUPABASE_SECRET_KEY', 'sb_secret_test_key'],
@@ -13,10 +18,14 @@ const cache = new Map();
 const tables = {
   kpi_users: [{ id: 'U1', seq: 1, revision: 1, record: {
     Id: 'U1', Username: 'OWNER', Name: 'Direktur', Role: 'owner', Location: 'all', Active: true
+  }}, { id: 'U2', seq: 2, revision: 1, record: {
+    Id: 'U2', Username: 'KENDARI', Name: 'Admin Kendari', Role: 'admin_kendari', Location: 'kendari', Active: true
   }}],
   kpi_notes: [], kpi_reports: [], kpi_tasks: [], kpi_activity_logs: []
 };
 let profileRole = 'direktur';
+let profileBranch = 'Semua';
+let authEmail = 'direktur@alfacom.local';
 let storedFile = null;
 const calls = [];
 const response = (code, body) => ({
@@ -52,11 +61,16 @@ const sandbox = {
     calls.push({ url, options });
     if (url.endsWith('/auth/v1/user')) {
       assert.equal(options.headers.Authorization, 'Bearer ' + jwt);
-      return response(200, { id: 'sla-user-1', email: 'direktur@alfacom.local' });
+      return response(200, { id: 'sla-user-1', email: authEmail });
     }
-    if (url.includes('/rest/v1/users?')) return response(200, [{
-      username_login: 'direktur', role: profileRole, hak_akses_cabang: 'Semua'
-    }]);
+    if (url.includes('/rest/v1/users?')) {
+      // A user's JWT cannot be relied on to read the role through profile RLS.
+      assert.equal(options.headers.apikey, 'sb_secret_test_key');
+      assert.equal(options.headers.Authorization, undefined);
+      return response(200, [{
+        username_login: authEmail.split('@')[0], role: profileRole, hak_akses_cabang: profileBranch
+      }]);
+    }
     if (url.includes('/rest/v1/kpi_')) {
       assert.equal(options.headers.apikey, 'sb_secret_test_key');
       const parsed = new URL(url);
@@ -91,6 +105,12 @@ vm.runInContext(source, sandbox);
 vm.runInContext('getAttendanceMap_ = function() { return {}; }', sandbox);
 
 assert.equal(sandbox.apiGetSession(jwt).user.Role, 'owner');
+profileRole = 'admin';
+profileBranch = 'Semua';
+authEmail = 'admin@alfacom.local';
+assert.equal(sandbox.apiGetSession(jwt).user.Role, 'admin_kendari');
+authEmail = 'direktur@alfacom.local';
+profileRole = 'direktur';
 assert.equal(sandbox.apiGetSession('bad-token').ok, false);
 profileRole = 'sales';
 assert.equal(sandbox.apiGetSession(jwt).ok, false);

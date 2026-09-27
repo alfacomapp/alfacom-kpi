@@ -333,7 +333,12 @@ function verifikasiIdentitasSlaKpi_(token) {
   const login = email.slice(0, -'@alfacom.local'.length);
   const url = SLA_SUPABASE_URL + '/rest/v1/users?username_login=eq.' +
     encodeURIComponent(login) + '&select=username,username_login,role,hak_akses_cabang&limit=2';
-  const response = UrlFetchApp.fetch(url, { method: 'get', headers: headers, muteHttpExceptions: true });
+  // Supabase Auth validates the caller above. Read the SLA role server-side so
+  // profile RLS cannot make an otherwise valid KPI handoff look unauthorised.
+  const profileHeaders = { apikey: kpiSupabaseSecretKey_() };
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get', headers: profileHeaders, muteHttpExceptions: true
+  });
   if (response.getResponseCode() !== 200)
     throw new Error('Profil SLA belum dapat diverifikasi.');
   const rows = JSON.parse(response.getContentText());
@@ -395,6 +400,8 @@ function apiGetSession(token) {
       menus: menusForUser_(user)
     });
   } catch (error) {
+    // Keep the reason in GAS executions without recording the SLA token.
+    console.warn('KPI session rejected: ' + String(error && error.message || error));
     return fail_(error);
   }
 }

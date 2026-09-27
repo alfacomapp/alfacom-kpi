@@ -28,6 +28,7 @@ Peran lain ditolak. Setiap panggilan GAS memeriksa kembali JWT, profil SLA, dan 
 - Proyek Apps Script KPI menyimpan `KPI_SUPABASE_SECRET_KEY` dan `SHARED_SECRET` dalam **Script Properties**. Jangan taruh nilainya di source, GitHub, atau browser.
 - Worker menyimpan `GAS_URL`, `SHARED_SECRET`, dan `ALLOWED_ORIGIN=https://alfacomapp.github.io` sebagai environment variables/secrets. `GAS_URL` harus menunjuk deployment `/exec` GAS KPI yang aktif.
 - Web App GAS dijalankan sebagai pemilik proyek dan dapat diakses Worker. Batasi seluruh tindakan melalui `SHARED_SECRET` dan pemeriksaan JWT/peran di `Kode.gs`.
+- `gas/appsscript.json` menetapkan izin minimum untuk koneksi Supabase, trigger harian, dan menu pada spreadsheet aktif. Tidak ada izin Google Drive. Pemilik deployment harus menyetujui izin `script.external_request` sebelum Web App dapat membaca Supabase; tanpa izin ini login KPI ditolak walaupun eksekusi `doPost` terlihat selesai.
 - Sesudah source GAS disimpan, terbitkan versi baru **pada deployment aktif yang sama** agar URL Worker tetap berlaku. Uji penolakan token tidak valid, lalu uji handoff dari lobby SLA, dashboard, laporan, dan lampiran dengan akun yang berhak.
 - Pasang `installDailyTrigger()` satu kali. Trigger menjalankan `scheduledDailyCheck()` pukul 07.00 WITA dan membuat tugas berkala dari aturan GAS. Jangan pasang trigger lama yang memanggil Edge Function atau Sheet.
 - Publikasikan `index.html` dengan `KPI_API_URL` mengarah ke Worker. Jangan kirim kunci rahasia Supabase ke halaman.
