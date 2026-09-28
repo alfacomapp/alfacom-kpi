@@ -1554,7 +1554,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-27-dashboard-period';
+    const CLIENT_CACHE_VERSION = '2026-09-28-supabase-direct';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -1773,16 +1773,20 @@
       byId('profileForm').addEventListener('submit', saveProfile);
     }
 
-    // Worker is only an HTTPS relay. GAS verifies the SLA token and runs KPI rules.
-    const KPI_API_URL = 'https://alfacom-kpi.alfacomapp.workers.dev';
+    // Supabase Edge verifies the SLA token and runs KPI rules.
+    const KPI_API_URL = 'https://oozkqjgllubhjctnkxwl.supabase.co/functions/v1/kpi-api';
+    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Wa3EUtroPjqwfCkJOyRSSw_MWnMXH6E';
 
     function api(functionName) {
       const args = Array.prototype.slice.call(arguments, 1);
+      const jwt = typeof args[0] === 'string' ? args[0] : state.token;
       
       return fetch(KPI_API_URL, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_PUBLISHABLE_KEY,
+          'Authorization': 'Bearer ' + jwt
         },
         body: JSON.stringify({
           action: functionName,
@@ -1797,7 +1801,7 @@
           } catch (error) {
             const looksLikeHtml = /^\s*</.test(text || '');
             throw new Error(looksLikeHtml
-              ? 'Server mengembalikan halaman HTML, bukan JSON. Periksa sambungan GAS KPI.'
+              ? 'Server mengembalikan halaman HTML, bukan JSON. Periksa sambungan Supabase KPI.'
               : 'Jawaban server bukan JSON valid.');
           }
 
