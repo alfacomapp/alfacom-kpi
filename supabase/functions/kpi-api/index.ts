@@ -496,8 +496,6 @@ function apiGetSession(token) {
 function apiGetDashboard(token, filters) {
   try {
     const user = requireUser_(token);
-    setupSpreadsheet_();
-    ensureKpiTasksAndStatus_();
 
     const safeFilters = filters || {};
     const period = normalizeDashboardPeriod_(safeFilters);
@@ -507,16 +505,16 @@ function apiGetDashboard(token, filters) {
     const notes = getNotesForDashboard_(noteCreatorFilter, allNotes, activeUsers);
     const noteCreators = getNoteCreators_();
     const now = new Date();
-    const attendanceMap = getAttendanceMap_();
-    const allTasks = readObjects_('tasks').map(function(task) {
-      return enrichTask_(task, now, attendanceMap);
-    });
-    const visibleDashboardTasks = allTasks.filter(function(task) {
+    const visibleDashboardTasks = readObjects_('tasks').filter(function(task) {
       return canUserSeeDashboardTask_(task);
     });
     const periodOptions = dashboardPeriodOptions_(visibleDashboardTasks, period);
-    const dashboardTasks = visibleDashboardTasks.filter(function(task) {
+    const periodTasks = visibleDashboardTasks.filter(function(task) {
       return isTaskInDashboardPeriod_(task, period);
+    });
+    const attendanceMap = periodTasks.length ? getAttendanceMap_() : {};
+    const dashboardTasks = periodTasks.map(function(task) {
+      return enrichTask_(task, now, attendanceMap);
     });
 
     const cards = getVisibleCards_(user, activeUsers).map(function(card) {
@@ -823,8 +821,6 @@ function truncateText_(value, maxLength) {
 function apiGetReportMeta(token) {
   try {
     const user = requireUser_(token);
-    setupSpreadsheet_();
-    ensureKpiTasksAndStatus_();
 
     const reportTypes = getReportTypesForUser_(user);
     const now = new Date();
@@ -3150,6 +3146,9 @@ function fail_(error) {
   };
   return {
     dateKeyForTest(value) { return dateKey_(value); },
+    runDailyMaintenance() {
+      ensureKpiTasksAndStatus_(true);
+    },
     execute(action, args) {
       if (!Object.prototype.hasOwnProperty.call(actions, action))
         return { ok: false, message: 'Aksi KPI tidak diizinkan.' };
@@ -3208,6 +3207,13 @@ const KPI_TABLES = {
   users: 'kpi_users', notes: 'kpi_notes', reports: 'kpi_reports',
   tasks: 'kpi_tasks', activityLogs: 'kpi_activity_logs'
 };
+
+function sameSecret(actual, expected) {
+  if (!actual || !expected || actual.length !== expected.length) return false;
+  let difference = 0;
+  for (let i = 0; i < actual.length; i++) difference |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
+  return difference === 0;
+}
 
 function corsHeaders(origin) {
   return {
@@ -3349,15 +3355,37 @@ Deno.serve(async request => {
     return jsonResponse({ ok: false, message: 'Origin tidak diizinkan.' }, 403, origin);
   try {
     if (!SECRET_KEY || !PUBLIC_KEY) throw new Error('Konfigurasi Supabase belum siap.');
-    const authHeader = request.headers.get('authorization') || '';
-    const jwt = /^Bearer (.+)$/i.exec(authHeader)?.[1] || '';
-    const identity = await verifyIdentity(jwt);
     const body = await request.json();
     const action = String(body.action || '');
     const args = Array.isArray(body.args) ? body.args : [];
-    if (args[0] !== jwt) throw new Error('Sesi SLA tidak sesuai.');
     if (JSON.stringify(body).length > 14 * 1024 * 1024)
       throw new Error('Ukuran permintaan KPI terlalu besar.');
+
+    if (action === 'apiRunDailyMaintenance') {
+      if (origin || !sameSecret(request.headers.get('apikey') || '', SECRET_KEY))
+        return jsonResponse({ ok: false, message: 'Akses penjadwal KPI ditolak.' }, 403, origin);
+      const fetched = await Promise.all(['users', 'tasks'].map(async key => [key,
+        await restRows(KPI_TABLES[key], 'select=id,record,revision,seq&order=seq.asc')]));
+      const tables = Object.fromEntries(fetched);
+      for (const key of Object.keys(KPI_TABLES)) tables[key] ||= [];
+      const start = Math.min(...tables.tasks.map(item => +new Date(item.record.StartedAt || item.record.CreatedAt)).filter(Number.isFinite), Date.now());
+      const from = new Date(Math.max(Date.UTC(2026, 0, 1), start - 45 * 86400000)).toISOString();
+      const absensi = await restRows('absensi',
+        'select=waktu_absen,nama_pegawai,role,tipe_absen,cabang&waktu_absen=gte.' + encodeURIComponent(from) + '&order=waktu_absen.asc');
+      const ctx = { jwt: '', expiresAt: 0, userRecord: { Id: 'system', Name: 'System' },
+        tables, original: structuredClone(tables), absensi, uploads: [], maxSeq: 0, version: 0 };
+      const engine = createKpiEngine(ctx);
+      engine.runDailyMaintenance();
+      const changes = engine.changes();
+      await applyChanges(changes);
+      return jsonResponse({ ok: true, createdTasks: changes.filter(change =>
+        change.table === 'kpi_tasks' && change.operation === 'insert').length }, 200, origin);
+    }
+
+    const authHeader = request.headers.get('authorization') || '';
+    const jwt = /^Bearer (.+)$/i.exec(authHeader)?.[1] || '';
+    const identity = await verifyIdentity(jwt);
+    if (args[0] !== jwt) throw new Error('Sesi SLA tidak sesuai.');
 
     const tableKeys = action === 'apiGetSession' || action === 'apiLogout'
       ? ['users'] : action === 'apiLogActivity'
