@@ -503,7 +503,7 @@ function apiGetDashboard(token, filters) {
     const noteCreatorFilter = normalizeNoteCreatorFilter_(safeFilters.creatorId);
     const allNotes = noteCreatorFilter ? readRecentObjects_('notes', 500) : [];
     const notes = getNotesForDashboard_(noteCreatorFilter, allNotes, activeUsers);
-    const noteCreators = getNoteCreators_();
+    const noteCreators = getNoteCreators_(activeUsers);
     const now = new Date();
     const visibleDashboardTasks = readObjects_('tasks').filter(function(task) {
       return canUserSeeDashboardTask_(task);
@@ -538,8 +538,15 @@ function apiGetDashboard(token, filters) {
       });
     }
     if (safeFilters.kpiStatus) {
-      const filterStatus = normalizeKpiStatus_(safeFilters.kpiStatus);
+      const requestedStatus = String(safeFilters.kpiStatus);
+      const filterStatus = normalizeKpiStatus_(requestedStatus);
       detailTasks = detailTasks.filter(function(task) {
+        if (requestedStatus === 'meleset_done') {
+          return task.kpiStatus === 'meleset' && task.status === 'selesai';
+        }
+        if (requestedStatus === 'meleset') {
+          return task.kpiStatus === 'meleset' && task.status === 'berjalan';
+        }
         return filterStatus === 'pause' ? task.displayKpiStatus === 'pause' : task.kpiStatus === filterStatus;
       });
     }
@@ -671,12 +678,18 @@ function apiUpdateNote(token, noteId, patch) {
 
 function apiDeleteNote(token, noteId) {
   try {
-    requireUser_(token);
+    const user = requireUser_(token);
     const id = String(noteId || '');
     const note = readObjects_('notes').find(function(row) {
       return row.Id === id;
     });
-    if (note && note.AssignedTaskId) {
+    if (!note) {
+      throw new Error('Note tidak ditemukan.');
+    }
+    if (String(note.CreatedById || '') !== user.Id) {
+      throw new Error('Hanya pembuat note yang dapat menghapus note ini.');
+    }
+    if (note.AssignedTaskId) {
       deleteTaskQuiet_(note.AssignedTaskId);
     }
     deleteObjectById_('notes', id);
@@ -830,7 +843,7 @@ function apiGetReportMeta(token) {
         return enrichTask_(task, now, attendanceMap);
       })
       .filter(function(task) {
-        return task.status === 'berjalan' && canUserSeeTask_(user, task);
+        return task.status === 'berjalan' && isReportTaskAssignedToUser_(user, task);
       })
       .sort(sortTasks_);
 
@@ -1235,6 +1248,14 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
         return true;
       }
 
+      if (filter === '__unassigned') {
+        return !note.AssignedToId;
+      }
+
+      if (filter.indexOf('assignee:') === 0) {
+        return note.AssignedToId === filter.slice(9);
+      }
+
       if (filter.indexOf('role:') === 0) {
         return roleByUserId[note.CreatedById] === normalizeRole_(filter.slice(5));
       }
@@ -1262,15 +1283,17 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
     .slice(0, 80);
 }
 
-function getNoteCreators_() {
-  return [
-    { id: '__all', name: 'Semua pembuat' },
-    { id: 'role:admin_kendari', name: 'Admin Kendari' },
-    { id: 'role:admin_raha', name: 'Admin Raha' },
-    { id: 'role:auditor', name: 'Auditor' },
-    { id: 'role:sales_director', name: 'Sales Director' },
-    { id: 'role:owner', name: 'Owner' }
-  ];
+function getNoteCreators_(sourceUsers) {
+  const users = sourceUsers || getActiveUsers_();
+  const assignees = users.map(function(user) {
+    return {
+      id: 'assignee:' + user.Id,
+      name: (user.Name || user.Username || user.Id) + ' (' + (ROLE_LABELS[normalizeRole_(user.Role)] || user.Role) + ')'
+    };
+  }).sort(function(a, b) {
+    return a.name.localeCompare(b.name);
+  });
+  return [{ id: '__all', name: 'Semua pembuat' }, { id: '__unassigned', name: 'Tanpa penugasan' }].concat(assignees);
 }
 
 function getActiveUsers_() {
@@ -1632,6 +1655,18 @@ function canUserSeeTask_(user, task) {
     return task.assigneeLocation === getUserLocation_(user);
   }
   return task.assigneeName === user.Name;
+}
+
+function isReportTaskAssignedToUser_(user, task) {
+  if (!canUserSeeTask_(user, task) || normalizeRole_(task.assigneeRole) !== normalizeRole_(user.Role)) {
+    return false;
+  }
+  if (isAdminRole_(user.Role) && task.assigneeLocation !== getUserLocation_(user)) {
+    return false;
+  }
+  const assignedName = normalizeName_(task.assigneeName);
+  return !assignedName || assignedName === normalizeName_(user.Name) ||
+    assignedName === normalizeName_(ROLE_LABELS[normalizeRole_(user.Role)]);
 }
 
 function getReportTypesForUser_(user) {
