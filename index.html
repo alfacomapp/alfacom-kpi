@@ -359,12 +359,24 @@
       flex: 0 0 auto;
     }
 
-    .logout-button {
+    .lobby-link {
       margin-top: auto;
       color: var(--green);
       background: #f1f6f3;
       border-color: #cfe0d6;
-      width: var(--menu-button);
+      width: 42px;
+      min-height: 42px;
+      padding: 8px;
+    }
+
+    .lobby-link svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     .main {
@@ -1020,7 +1032,8 @@
 
       .nav {
         width: auto;
-        flex: 1 0 auto;
+        min-width: 0;
+        flex: 1 1 auto;
         flex-direction: row;
         justify-content: flex-start;
         overflow-x: auto;
@@ -1040,13 +1053,12 @@
         transform: translateY(-1px);
       }
 
-      .logout-button {
-        width: auto;
-        min-width: max-content;
+      .lobby-link {
+        flex: 0 0 34px;
+        width: 34px;
         margin: 0;
         min-height: 34px;
-        padding: 7px 10px;
-        font-size: 12px;
+        padding: 5px;
       }
 
       .notes-layout,
@@ -1378,8 +1390,9 @@
         </div>
       </div>
       <nav id="nav" class="nav"></nav>
-      <button id="logoutButton" class="btn btn-ghost logout-button" type="button">Keluar dari KPI</button>
-      <a class="btn btn-ghost" href="https://aplikasisla.vercel.app/">Kembali ke Lobby SLA</a>
+      <a class="btn btn-ghost lobby-link" href="https://aplikasisla.vercel.app/" title="Kembali ke Lobby SLA" aria-label="Kembali ke Lobby SLA">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7"></path><path d="M5 9v12h14V9"></path><path d="M9 21v-7h6v7"></path></svg>
+      </a>
     </aside>
 
     <main class="main">
@@ -1534,7 +1547,7 @@
       dashboard: null,
       reportMeta: null,
       selectedCard: '',
-      noteCreatorId: '',
+      noteCreatorId: '__all',
       noteAssigneeId: '',
       taskType: '',
       kpiStatus: '',
@@ -1554,7 +1567,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-28-supabase-direct';
+    const CLIENT_CACHE_VERSION = '2026-09-28-notes-tasks-order';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -1716,7 +1729,6 @@
     }
 
     function bindEvents() {
-      byId('logoutButton').addEventListener('click', handleLogout);
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
       byId('noteCreatorFilter').addEventListener('change', function(event) {
@@ -1882,23 +1894,6 @@
       return true;
     }
 
-    function handleLogout() {
-      const token = state.token;
-      state.authVersion += 1;
-      state.requestSeq += 1;
-      sessionStorage.removeItem('kpi_sla_token');
-      state.token = '';
-      state.user = null;
-      state.menus = [];
-      state.page = 'dashboard';
-      resetViewState();
-      showLogin();
-
-      if (token) {
-        api('apiLogout', token).catch(function() {});
-      }
-    }
-
     function showLogin(message) {
       byId('loginView').classList.remove('hidden');
       byId('appView').classList.add('hidden');
@@ -1942,7 +1937,7 @@
       state.dashboard = null;
       state.reportMeta = null;
       state.selectedCard = '';
-      state.noteCreatorId = '';
+      state.noteCreatorId = '__all';
       state.noteAssigneeId = '';
       state.taskType = '';
       state.kpiStatus = '';
@@ -1969,7 +1964,7 @@
     }
 
     function clearAppContent() {
-      byId('noteCreatorFilter').innerHTML = '<option value="">Pilih pembuat</option>';
+      byId('noteCreatorFilter').innerHTML = '<option value="__all">Semua pembuat</option>';
       byId('noteAssigneeSelect').innerHTML = '<option value="">Tanpa tugas KPI</option>';
       byId('notePhotos').value = '';
       byId('dashboardMonthFilter').innerHTML = '';
@@ -2155,10 +2150,8 @@
 
     function renderDashboardLoading() {
       stopTimers();
-      byId('notesList').classList.toggle('hidden', !state.noteCreatorId);
-      byId('notesList').innerHTML = state.noteCreatorId
-        ? '<div class="skeleton-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>'
-        : '';
+      byId('notesList').classList.remove('hidden');
+      byId('notesList').innerHTML = '<div class="skeleton-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
       byId('kpiCards').innerHTML = '<div class="skeleton card"></div><div class="skeleton card"></div><div class="skeleton card"></div>';
       byId('tasksTable').innerHTML = '';
       byId('taskPanel').classList.add('hidden');
@@ -2183,10 +2176,10 @@
         return creator.id;
       });
 
-      select.innerHTML = '<option value="">Pilih pembuat</option>' + creators.map(function(creator) {
+      select.innerHTML = creators.map(function(creator) {
         return `<option value="${escapeAttr(creator.id)}">${escapeHtml(creator.name)}</option>`;
       }).join('');
-      select.value = validValues.indexOf(value) !== -1 ? value : '';
+      select.value = validValues.indexOf(value) !== -1 ? value : '__all';
       state.noteCreatorId = select.value;
     }
 
@@ -2240,11 +2233,7 @@
       const notes = state.dashboard.notes || [];
       const list = byId('notesList');
 
-      list.classList.toggle('hidden', !state.noteCreatorId);
-      if (!state.noteCreatorId) {
-        list.innerHTML = '';
-        return;
-      }
+      list.classList.remove('hidden');
 
       if (!notes.length) {
         list.innerHTML = '<div class="empty">Belum ada note.</div>';
@@ -2567,7 +2556,11 @@
           return haystack.indexOf(query) !== -1;
         });
       }
-      return tasks.slice(0, 400);
+      return tasks.sort(function(a, b) {
+        const aDate = Date.parse(a.createdAt || a.startedAt || '') || 0;
+        const bDate = Date.parse(b.createdAt || b.startedAt || '') || 0;
+        return bDate - aDate || String(b.id || '').localeCompare(String(a.id || ''));
+      }).slice(0, 400);
     }
 
     function normalizeSearchText(value) {
