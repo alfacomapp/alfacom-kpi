@@ -121,3 +121,78 @@ test('dashboard splits pending and completed late tasks', () => {
   assert.deepEqual(open.tasks.map(item => item.id), ['late-open']);
   assert.deepEqual(done.tasks.map(item => item.id), ['late-done']);
 });
+
+test('weekly Kendari bank task completes only after three different banks are reported', () => {
+  const admin = user('adm', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const auditor = user('aud', 'Auditor A', 'auditor', 'all');
+  const weeklyTask = {
+    ...task('bank-week', admin, 'berjalan'),
+    TaskType: 'laporan_akun_bank',
+    Title: 'Laporan akun bank pekanan Kendari',
+    KpiStatus: 'berjalan',
+    PeriodKey: 'week:2026-09-14'
+  };
+  const { engine, ctx } = engineFor(admin, [admin, auditor], [], [weeklyTask]);
+  const proof = { name: 'bank.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' };
+
+  ['bri', 'mandiri'].forEach(bankName => {
+    const result = engine.execute('apiSubmitReport', ['test-jwt', {
+      type: 'laporan_akun_bank',
+      fields: { reportDate: '2026-09-15', bankName },
+      files: { bankAccountProof: [proof] }
+    }]);
+    assert.equal(result.ok, true);
+    assert.equal(ctx.tables.tasks.find(item => item.record.Id === 'bank-week').record.Status, 'berjalan');
+  });
+
+  const finalResult = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'laporan_akun_bank',
+    fields: { reportDate: '2026-09-15', bankName: 'bank_sultra' },
+    files: { bankAccountProof: [proof] }
+  }]);
+  assert.equal(finalResult.ok, true);
+  const completedTask = ctx.tables.tasks.find(item => item.record.Id === 'bank-week').record;
+  assert.equal(completedTask.Status, 'selesai');
+  assert.equal(Object.keys(JSON.parse(completedTask.PayloadJson).bankReports).length, 3);
+  assert.equal(ctx.tables.tasks.filter(item => item.record.TaskType === 'audit_pekanan').length, 1);
+});
+
+test('report upload total size follows the configured multi-file limit', () => {
+  const admin = user('adm', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const { engine } = engineFor(admin, [admin]);
+  const tooLarge = {
+    name: 'oversize.jpg',
+    mimeType: 'image/jpeg',
+    size: 11 * 1024 * 1024,
+    data: 'data:image/jpeg;base64,YQ=='
+  };
+  const result = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'laporan_akun_bank',
+    fields: { reportDate: '2026-09-15', bankName: 'bri' },
+    files: { bankAccountProof: [tooLarge] }
+  }]);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /maksimal 10 MB/);
+});
+
+test('legacy weekly bank task is reopened until all three named banks are complete', () => {
+  const admin = user('adm', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const legacyTask = {
+    ...task('legacy-bank-week', admin, 'selesai'),
+    TaskType: 'laporan_akun_bank',
+    KpiStatus: 'tepat_waktu',
+    PeriodKey: 'week:2026-09-14',
+    PayloadJson: '{}'
+  };
+  const { engine, ctx } = engineFor(admin, [admin], [], [legacyTask]);
+  const result = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'laporan_akun_bank',
+    fields: { reportDate: '2026-09-15', bankName: 'bri' },
+    files: { bankAccountProof: [{ name: 'bri.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' }] }
+  }]);
+  assert.equal(result.ok, true);
+  const reopened = ctx.tables.tasks.find(item => item.record.Id === 'legacy-bank-week').record;
+  assert.equal(reopened.Status, 'berjalan');
+  assert.equal(reopened.CompletedAt, '');
+  assert.deepEqual(Object.keys(JSON.parse(reopened.PayloadJson).bankReports), ['bri']);
+});

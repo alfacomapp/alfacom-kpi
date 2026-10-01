@@ -36,6 +36,7 @@
       color: var(--ink);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       line-height: 1.45;
+      overflow-x: hidden;
     }
 
     button,
@@ -227,6 +228,9 @@
     .form-stack {
       display: grid;
       gap: 14px;
+      align-self: start;
+      width: 100%;
+      min-width: 0;
     }
 
     .field {
@@ -358,6 +362,11 @@
       min-height: 100vh;
       display: grid;
       grid-template-columns: var(--sidebar) 1fr;
+      transition: grid-template-columns .18s ease;
+    }
+
+    .app.sidebar-collapsed {
+      grid-template-columns: 0 1fr;
     }
 
     .sidebar {
@@ -373,6 +382,46 @@
       height: 100vh;
       border-right: 1px solid var(--line);
       box-shadow: 8px 0 24px rgba(22, 32, 28, .04);
+      transition: transform .18s ease, opacity .18s ease;
+    }
+
+    .app.sidebar-collapsed .sidebar {
+      transform: translateX(-105%);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .sidebar-toggle {
+      position: fixed;
+      z-index: 31;
+      top: 12px;
+      left: calc(var(--sidebar) - 15px);
+      width: 32px;
+      height: 32px;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      color: var(--green);
+      background: #fff;
+      box-shadow: 0 6px 18px rgba(22, 32, 28, .14);
+      transition: left .18s ease, transform .18s ease;
+    }
+
+    .app.sidebar-collapsed .sidebar-toggle {
+      left: 10px;
+      transform: rotate(180deg);
+    }
+
+    .sidebar-toggle svg {
+      width: 17px;
+      height: 17px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     .sidebar .brand-mark {
@@ -536,6 +585,12 @@
       display: grid;
       grid-template-columns: minmax(260px, 420px) 1fr;
       gap: 16px;
+      align-items: start;
+      min-width: 0;
+    }
+
+    .notes-layout > * {
+      min-width: 0;
     }
 
     .note-composer {
@@ -544,7 +599,7 @@
 
     .note-composer textarea {
       min-height: 122px;
-      padding: 12px 132px 54px 12px;
+      padding: 12px 174px 54px 12px;
     }
 
     .note-composer-actions {
@@ -615,6 +670,35 @@
       height: 1px;
       opacity: 0;
       pointer-events: none;
+    }
+
+    .file-source-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .file-source-button {
+      min-height: 38px;
+      padding: 8px 11px;
+      font-size: 12px;
+    }
+
+    .file-source-button svg {
+      width: 17px;
+      height: 17px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .selected-file-count {
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
     }
 
     .notes-list {
@@ -708,6 +792,20 @@
       justify-content: flex-start;
       padding-left: 8px;
       padding-right: 8px;
+    }
+
+    .attachment-disclosure {
+      display: grid;
+      gap: 7px;
+      justify-items: start;
+    }
+
+    .attachment-disclosure .attachment-list {
+      display: none;
+    }
+
+    .attachment-disclosure.open .attachment-list {
+      display: flex;
     }
 
     .attachment-text {
@@ -837,14 +935,28 @@
       flex: 0 1 240px;
     }
 
+    .task-filters {
+      flex: 1 1 auto;
+    }
+
+    .task-filters > * {
+      flex: 1 1 0;
+      min-width: 0 !important;
+      max-width: none !important;
+    }
+
     .period-filters select {
       min-width: 112px;
     }
 
     .table-wrap {
-      overflow: auto;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
       border: 1px solid var(--line);
       border-radius: 8px;
+      overscroll-behavior-inline: contain;
     }
 
     table {
@@ -852,6 +964,30 @@
       width: 100%;
       min-width: 920px;
       background: #fff;
+    }
+
+    #taskPanel {
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    #tasksTable table {
+      width: max(100%, 1180px);
+      table-layout: fixed;
+    }
+
+    #tasksTable th:nth-child(1) { width: 58px; }
+    #tasksTable th:nth-child(2) { width: 310px; }
+    #tasksTable th:nth-child(3) { width: 160px; }
+    #tasksTable th:nth-child(4) { width: 130px; }
+    #tasksTable th:nth-child(5) { width: 150px; }
+    #tasksTable th:nth-child(6),
+    #tasksTable th:nth-child(7) { width: 150px; }
+    #tasksTable th:nth-child(8) { width: 120px; }
+    #tasksTable th:nth-child(9) { width: 180px; }
+
+    #tasksTable td {
+      overflow-wrap: anywhere;
     }
 
     .owner-task-table {
@@ -940,6 +1076,13 @@
       font-size: 12px;
       white-space: pre-line;
       max-width: 420px;
+    }
+
+    .dashboard-jump {
+      display: none;
+      min-height: 36px;
+      padding: 7px 10px;
+      font-size: 12px;
     }
 
     .timer {
@@ -1121,6 +1264,21 @@
         display: block;
       }
 
+      .app.sidebar-collapsed .sidebar {
+        display: none;
+      }
+
+      .sidebar-toggle,
+      .app.sidebar-collapsed .sidebar-toggle {
+        top: 10px;
+        right: 10px;
+        left: auto;
+      }
+
+      .app.sidebar-collapsed .sidebar-toggle {
+        transform: rotate(180deg);
+      }
+
       .sidebar {
         position: sticky;
         top: 0;
@@ -1131,11 +1289,12 @@
         justify-content: flex-start;
         gap: 10px;
         overflow-x: auto;
+        padding-right: 54px;
       }
 
       .sidebar .brand-row {
-        width: 58px;
-        min-width: 58px;
+        width: min(112px, 30vw);
+        min-width: min(112px, 30vw);
         flex-direction: column;
         gap: 2px;
         margin: 0;
@@ -1152,7 +1311,13 @@
       }
 
       .user-pill {
-        display: none;
+        display: block;
+        width: 100%;
+        padding-top: 2px;
+      }
+
+      .user-pill span {
+        font-size: 9px;
       }
 
       .nav {
@@ -1188,6 +1353,24 @@
       .notes-layout,
       .report-grid {
         grid-template-columns: 1fr;
+      }
+
+      .dashboard-jump {
+        display: inline-flex;
+      }
+
+      #dashboardPage:not(.show-kpi) .kpi-panel,
+      #dashboardPage:not(.show-kpi) #taskPanel {
+        display: none !important;
+      }
+
+      #dashboardPage.show-kpi .notes-panel {
+        display: none;
+      }
+
+      #dashboardPage .notes-panel,
+      #dashboardPage .kpi-panel {
+        scroll-margin-top: 96px;
       }
 
       .report-jump {
@@ -1273,6 +1456,21 @@
         min-width: 0;
         max-width: none;
       }
+
+      .task-filters {
+        width: 100%;
+        flex-wrap: nowrap;
+        gap: 5px;
+      }
+
+      .task-filters select,
+      .task-filters input[type="search"] {
+        flex: 1 1 0;
+        width: 0;
+        min-width: 0;
+        padding: 8px 5px;
+        font-size: 10px;
+      }
     }
 
     @media (max-width: 560px) {
@@ -1321,6 +1519,64 @@
         flex-basis: calc(50% - 4px);
         font-size: 12px;
         padding: 9px 10px;
+      }
+
+      .task-filters select,
+      .task-filters input[type="search"] {
+        flex: 1 1 0 !important;
+        flex-basis: 0 !important;
+        width: 0;
+        min-width: 0;
+        padding: 8px 4px;
+        font-size: 10px;
+      }
+
+      .notes-panel .panel-head,
+      .kpi-panel .panel-head {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .notes-panel .panel-head .filters,
+      .kpi-panel .panel-head .filters {
+        width: 100%;
+        min-width: 0;
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 5px;
+      }
+
+      .notes-panel .panel-head select,
+      .kpi-panel .panel-head select {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        padding: 8px 6px;
+        font-size: 11px;
+      }
+
+      .kpi-panel .period-filters select {
+        flex: 1 1 0;
+      }
+
+      .note-assignee-field {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+      }
+
+      .note-assignee-field label {
+        white-space: nowrap;
+        font-size: 11px;
+      }
+
+      .note-assignee-field select {
+        min-width: 0;
+        padding: 9px 7px;
+        font-size: 11px;
       }
 
       .kpi-panel {
@@ -1470,9 +1726,13 @@
         max-width: 96px;
       }
 
+      #tasksTable .attachment-disclosure {
+        width: 104px;
+      }
+
       .note-composer textarea {
         min-height: 112px;
-        padding-right: 118px;
+        padding-right: 166px;
       }
 
       .composer-icon {
@@ -1488,6 +1748,17 @@
 
       .form-grid {
         grid-template-columns: 1fr;
+      }
+
+      .file-source-actions {
+        gap: 6px;
+      }
+
+      .file-source-button {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 8px 7px;
+        font-size: 11px;
       }
     }
   </style>
@@ -1540,6 +1811,9 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7"></path><path d="M5 9v12h14V9"></path><path d="M9 21v-7h6v7"></path></svg>
       </a>
     </aside>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" title="Sembunyikan menu" aria-label="Sembunyikan menu" aria-expanded="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"></path></svg>
+    </button>
 
     <main class="main">
       <div id="topbar" class="topbar">
@@ -1550,12 +1824,13 @@
       </div>
 
       <section id="dashboardPage" class="page">
-        <div class="panel">
+        <div id="notesPanel" class="panel notes-panel">
           <div class="panel-head">
             <h3>Notes</h3>
             <div class="filters">
               <select id="noteCreatorFilter" aria-label="Filter note berdasarkan pengguna yang ditugaskan"></select>
             </div>
+            <button class="btn btn-ghost dashboard-jump" type="button" data-dashboard-section="kpi">Ke KPI</button>
           </div>
           <div class="notes-layout">
             <div class="form-stack">
@@ -1564,8 +1839,12 @@
                 <div class="note-composer">
                   <textarea id="noteInput" placeholder="Tulis note atau gunakan rekam suara..."></textarea>
                   <input id="notePhotos" class="visually-hidden-file" type="file" accept="image/*" multiple>
+                  <input id="noteCamera" class="visually-hidden-file" type="file" accept="image/*" capture="environment">
                   <div class="note-composer-actions">
-                    <label class="composer-icon" for="notePhotos" title="Lampirkan file" aria-label="Lampirkan file">
+                    <label class="composer-icon" for="noteCamera" title="Buka kamera" aria-label="Buka kamera">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-3h6l2 3h3v13H4V7z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                    </label>
+                    <label class="composer-icon" for="notePhotos" title="Buka penyimpanan" aria-label="Buka penyimpanan">
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M21.4 11.6l-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path>
                       </svg>
@@ -1587,7 +1866,7 @@
                   </div>
                 </div>
               </div>
-              <div class="field">
+              <div class="field note-assignee-field">
                 <label for="noteAssigneeSelect">Jadikan tugas untuk</label>
                 <select id="noteAssigneeSelect"></select>
               </div>
@@ -1603,6 +1882,7 @@
               <select id="dashboardMonthFilter" aria-label="Pilih bulan KPI"></select>
               <select id="dashboardYearFilter" aria-label="Pilih tahun KPI"></select>
             </div>
+            <button class="btn btn-ghost dashboard-jump" type="button" data-dashboard-section="notes">Ke Notes</button>
           </div>
           <div id="kpiCards" class="kpi-grid"></div>
         </div>
@@ -1610,7 +1890,7 @@
         <div id="taskPanel" class="panel hidden">
           <div class="panel-head">
             <h3 id="taskPanelTitle">Rincian tugas</h3>
-            <div class="filters">
+            <div class="filters task-filters">
               <select id="taskTypeFilter"></select>
               <select id="kpiStatusFilter"></select>
               <select id="auditStatusFilter" class="hidden">
@@ -1712,6 +1992,8 @@
       auditStatus: '',
       taskSearch: '',
       reportTaskStatus: '',
+      dashboardSection: 'notes',
+      sidebarCollapsed: localStorage.getItem('kpi_sidebar_collapsed') === '1',
       dashboardMonth: new Date().getMonth() + 1,
       dashboardYear: new Date().getFullYear(),
       timerInterval: null,
@@ -1726,15 +2008,14 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-09-29-dashboard-report-filters';
+    const CLIENT_CACHE_VERSION = '2026-10-01-dashboard-layout-bank-reports';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
     };
-    const MONTH_LABELS = [
-      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
-    ];
+    const MONTH_LABELS = Array.from({ length: 12 }, function(_, index) {
+      return 'Bln ' + (index + 1);
+    });
 
     const MENU_ICONS = {
       dashboard: '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9z"></path><path d="M14 20h6V4h-6v16z"></path><path d="M4 20h6v-3H4v3z"></path></svg>',
@@ -1759,29 +2040,30 @@
       ],
       laporan_akun_bank: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
-        { kind: 'file', field: 'bankAccountProof', label: 'Bukti akun bank', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'select', field: 'bankName', label: 'Bank yang dilaporkan', required: true, options: [['', 'Pilih bank'], ['bri', 'BRI'], ['mandiri', 'Mandiri'], ['bank_sultra', 'Bank Sultra']] },
+        { kind: 'file', field: 'bankAccountProof', label: 'Bukti akun bank', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_keadaan_kas_bank: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
-        { kind: 'file', field: 'bankCashStateProof', label: 'Bukti keadaan kas bank', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'bankCashStateProof', label: 'Bukti keadaan kas bank', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_saldo_bank_jago: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'number', field: 'amount', label: 'Nominal isi saldo Bank Jago', required: true },
-        { kind: 'file', field: 'saldoProof', label: 'Bukti isi saldo Bank Jago', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'saldoProof', label: 'Bukti isi saldo Bank Jago', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       rekap_storan_setengah_bulan: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'number', field: 'amount', label: 'Angka yang tercantum pada speedometer', required: true },
-        { kind: 'file', field: 'storanProof', label: 'Bukti laporan ganti oli', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'storanProof', label: 'Bukti laporan ganti oli', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       sales_upload_harian_10: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
-        { kind: 'file', field: 'salesFiles', label: 'Lampiran minimal 10 file', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'salesFiles', label: 'Lampiran minimal 10 file', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       sales_upload_harian_1_10: [
@@ -1797,62 +2079,62 @@
       input_pengiriman: [
         { kind: 'select', field: 'destination', label: 'Tujuan', required: true, options: [['', 'Pilih tujuan'], ['kendari', 'Kendari'], ['raha', 'Raha']] },
         { kind: 'textarea', field: 'itemSummary', label: 'Rincian barang kiriman', required: true, full: true },
-        { kind: 'file', field: 'shipmentProof', label: 'Lampiran pengiriman', multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'shipmentProof', label: 'Lampiran pengiriman', multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       rincian_barang_tiba: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', required: true, match: ['rincian_barang_tiba'] },
         { kind: 'textarea', field: 'arrivedSummary', label: 'Rincian barang tiba', required: true, full: true },
-        { kind: 'file', field: 'arrivalProof', label: 'Bukti barang tiba', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'arrivalProof', label: 'Bukti barang tiba', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_harian: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_harian'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_pekanan: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_pekanan'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_bank_jago: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_bank_jago'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'auditProof', label: 'Bukti laporan audit Bank Jago', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'auditProof', label: 'Bukti laporan audit Bank Jago', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_nota_ipos: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_nota_ipos'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_piutang: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_piutang'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', help: 'Piutang lebih dari satu bulan harus di-follow up.', full: true }
       ],
       audit_hutang: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_hutang'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_investor: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'reportProof', label: 'Bukti laporan investor', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'reportProof', label: 'Bukti laporan investor', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_raport_fee_freelance: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'reportProof', label: 'Bukti laporan raport & fee freelance', required: true, multiple: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'reportProof', label: 'Bukti laporan raport & fee freelance', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ]
     };
@@ -1890,6 +2172,21 @@
     function bindEvents() {
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
+      byId('noteCamera').addEventListener('change', function(event) {
+        mergeFileSelection(byId('notePhotos'), event.target.files, 20);
+        event.target.value = '';
+      });
+      byId('notePhotos').addEventListener('change', function(event) {
+        validateFileSelection(event.target, 20, 20);
+      });
+      byId('sidebarToggle').addEventListener('click', function() {
+        setSidebarCollapsed(!state.sidebarCollapsed);
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-dashboard-section]'), function(button) {
+        button.addEventListener('click', function() {
+          setDashboardSection(button.dataset.dashboardSection);
+        });
+      });
       byId('noteCreatorFilter').addEventListener('change', function(event) {
         state.noteCreatorId = event.target.value;
         if (state.dashboard) {
@@ -1937,6 +2234,22 @@
       });
       byId('reportType').addEventListener('change', function(event) {
         renderReportForm();
+      });
+      byId('dynamicReportFields').addEventListener('change', function(event) {
+        const cameraFor = event.target && event.target.dataset && event.target.dataset.cameraFor;
+        if (!cameraFor) {
+          if (event.target && event.target.dataset && event.target.dataset.fileField) {
+            updateSelectedFileCount(event.target);
+          }
+          return;
+        }
+        const storageInput = Array.prototype.find.call(document.querySelectorAll('[data-file-field]'), function(input) {
+          return input.dataset.fileField === cameraFor;
+        });
+        const config = findFileConfig(byId('reportType').value, cameraFor);
+        mergeFileSelection(storageInput, event.target.files, config && config.max || 1);
+        event.target.value = '';
+        updateSelectedFileCount(storageInput);
       });
       byId('reportForm').addEventListener('submit', submitReport);
       byId('resetReportButton').addEventListener('click', function() {
@@ -2075,15 +2388,19 @@
     }
 
     function renderShell() {
+      setSidebarCollapsed(state.sidebarCollapsed);
       const userPill = byId('userPill');
       userPill.innerHTML = '<span title="' + escapeAttr(state.user.Name || 'User') + '">' + escapeHtml(state.user.Name || 'User') + '</span>';
+      userPill.setAttribute('aria-label', 'Buka profil ' + (state.user.Name || 'User'));
       userPill.onclick = function() {
         navigate('profil');
       };
 
       const nav = byId('nav');
       nav.innerHTML = '';
-      state.menus.forEach(function(menu) {
+      state.menus.filter(function(menu) {
+        return menu !== 'profil';
+      }).forEach(function(menu) {
         const button = document.createElement('button');
         button.type = 'button';
         button.dataset.page = menu;
@@ -2099,6 +2416,25 @@
       fillProfile();
     }
 
+    function setSidebarCollapsed(collapsed) {
+      state.sidebarCollapsed = Boolean(collapsed);
+      const app = byId('appView');
+      const button = byId('sidebarToggle');
+      app.classList.toggle('sidebar-collapsed', state.sidebarCollapsed);
+      button.setAttribute('aria-expanded', String(!state.sidebarCollapsed));
+      button.setAttribute('aria-label', state.sidebarCollapsed ? 'Tampilkan menu' : 'Sembunyikan menu');
+      button.title = button.getAttribute('aria-label');
+      localStorage.setItem('kpi_sidebar_collapsed', state.sidebarCollapsed ? '1' : '0');
+    }
+
+    function setDashboardSection(section) {
+      state.dashboardSection = section === 'kpi' ? 'kpi' : 'notes';
+      const dashboard = byId('dashboardPage');
+      dashboard.classList.toggle('show-kpi', state.dashboardSection === 'kpi');
+      const target = state.dashboardSection === 'kpi' ? document.querySelector('.kpi-panel') : byId('notesPanel');
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
     function resetViewState() {
       state.dashboard = null;
       state.reportMeta = null;
@@ -2110,6 +2446,7 @@
       state.auditStatus = '';
       state.taskSearch = '';
       state.reportTaskStatus = '';
+      state.dashboardSection = 'notes';
       state.dashboardMonth = new Date().getMonth() + 1;
       state.dashboardYear = new Date().getFullYear();
       stopTimers();
@@ -2134,6 +2471,8 @@
       byId('noteCreatorFilter').innerHTML = '<option value="__all">Semua pembuat</option>';
       byId('noteAssigneeSelect').innerHTML = '<option value="">Tanpa tugas KPI</option>';
       byId('notePhotos').value = '';
+      byId('noteCamera').value = '';
+      byId('dashboardPage').classList.remove('show-kpi');
       byId('dashboardMonthFilter').innerHTML = '';
       byId('dashboardYearFilter').innerHTML = '';
       byId('taskTypeFilter').innerHTML = '<option value="">Semua tugas</option>';
@@ -2454,7 +2793,7 @@
       }
 
       setBusy('saveNoteButton', true);
-      readFiles(photos)
+      readFiles(photos, 20)
         .then(function(photoPayloads) {
           return api('apiCreateNote', state.token, {
             text: text,
@@ -2466,6 +2805,7 @@
           byId('noteInput').value = '';
           byId('noteAssigneeSelect').value = '';
           photoInput.value = '';
+          byId('noteCamera').value = '';
           state.noteAssigneeId = '';
           toast('Note tersimpan.');
           loadDashboard();
@@ -2776,14 +3116,32 @@
         return '<span class="muted">-</span>';
       }
 
+      let fileList;
       if (isOwnerOnlyTaskFile(task) && !isCurrentUserOwner()) {
-        return `<div class="attachment-list">${files.map(function(file) {
+        fileList = `<div class="attachment-list">${files.map(function(file) {
           const label = file.name || 'File khusus owner';
           return `<span class="attachment-text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
         }).join('')}</div>`;
+      } else {
+        fileList = renderAttachmentButtons(task.attachments);
       }
 
-      return renderAttachmentButtons(task.attachments);
+      return `
+        <div class="attachment-disclosure">
+          <button class="btn btn-mini btn-ghost" type="button" aria-expanded="false" onclick="toggleTaskAttachmentDetails(this)">Detail</button>
+          ${fileList}
+        </div>
+      `;
+    }
+
+    function toggleTaskAttachmentDetails(button) {
+      const disclosure = button && button.closest('.attachment-disclosure');
+      if (!disclosure) {
+        return;
+      }
+      const open = disclosure.classList.toggle('open');
+      button.setAttribute('aria-expanded', String(open));
+      button.textContent = open ? 'Tutup' : 'Detail';
     }
 
     function isOwnerOnlyTaskFile(task) {
@@ -3132,11 +3490,27 @@
       }
 
       if (field.kind === 'file') {
+        const storageId = 'upload-storage-' + field.field;
+        const cameraId = 'upload-camera-' + field.field;
+        const maxFiles = field.multiple ? Number(field.max || 10) : 1;
+        const maxTotalMb = field.multiple ? maxFiles : 8;
         return `
           <div class="field${full}">
             <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
-            <input data-file-field="${escapeAttr(field.field)}" type="file" ${field.multiple ? 'multiple' : ''} ${required} accept="${escapeAttr(field.accept || '')}">
-            <div class="file-hint">${field.multiple ? 'Bisa upload lebih dari satu file' : 'Upload satu file'}${field.max ? ', maksimal ' + field.max + ' file' : ''}.</div>
+            <input id="${escapeAttr(storageId)}" class="visually-hidden-file" data-file-field="${escapeAttr(field.field)}" type="file" ${field.multiple ? 'multiple' : ''} ${required} accept="${escapeAttr(field.accept || '')}">
+            <input id="${escapeAttr(cameraId)}" class="visually-hidden-file" data-camera-for="${escapeAttr(field.field)}" type="file" accept="image/*" capture="environment">
+            <div class="file-source-actions">
+              <label class="btn btn-ghost file-source-button" for="${escapeAttr(cameraId)}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-3h6l2 3h3v13H4V7z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                Buka kamera
+              </label>
+              <label class="btn btn-ghost file-source-button" for="${escapeAttr(storageId)}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path></svg>
+                Buka file
+              </label>
+            </div>
+            <div class="selected-file-count" data-file-count="${escapeAttr(field.field)}">Belum ada file dipilih.</div>
+            <div class="file-hint">Maksimal ${maxFiles} file dengan total ukuran maksimal ${maxTotalMb} MB.</div>
             ${help}
           </div>
         `;
@@ -3185,7 +3559,9 @@
         if (config && config.max && list.length > config.max) {
           throw new Error(config.label + ' maksimal ' + config.max + ' file.');
         }
-        files[field] = await readFiles(list);
+        const maxTotalMb = config && config.multiple ? Number(config.max || 10) : 8;
+        validateFileList(list, config && config.multiple ? Number(config.max || 10) : 1, maxTotalMb, config && config.label || 'File');
+        files[field] = await readFiles(list, maxTotalMb);
       }
 
       return {
@@ -3201,11 +3577,17 @@
       });
     }
 
-    function readFiles(files) {
-      const maxSize = 8 * 1024 * 1024;
+    function readFiles(files, maxTotalMb) {
+      const maxSize = Number(maxTotalMb || 8) * 1024 * 1024;
+      const totalSize = files.reduce(function(sum, file) {
+        return sum + Number(file.size || 0);
+      }, 0);
+      if (totalSize > maxSize) {
+        throw new Error('Total ukuran file lebih dari ' + Number(maxTotalMb || 8) + ' MB.');
+      }
       return Promise.all(files.map(function(file) {
         if (file.size > maxSize) {
-          throw new Error(file.name + ' lebih dari 8 MB.');
+          throw new Error(file.name + ' lebih dari ' + Number(maxTotalMb || 8) + ' MB.');
         }
 
         return new Promise(function(resolve, reject) {
@@ -3222,6 +3604,65 @@
           reader.readAsDataURL(file);
         });
       }));
+    }
+
+    function validateFileList(files, maxFiles, maxTotalMb, label) {
+      const list = Array.prototype.slice.call(files || []);
+      if (list.length > Number(maxFiles || 1)) {
+        throw new Error((label || 'File') + ' maksimal ' + Number(maxFiles || 1) + ' file.');
+      }
+      const totalBytes = list.reduce(function(sum, file) {
+        return sum + Number(file.size || 0);
+      }, 0);
+      if (totalBytes > Number(maxTotalMb || 8) * 1024 * 1024) {
+        throw new Error('Total ukuran ' + (label || 'file') + ' maksimal ' + Number(maxTotalMb || 8) + ' MB.');
+      }
+    }
+
+    function validateFileSelection(input, maxFiles, maxTotalMb) {
+      try {
+        validateFileList(input.files, maxFiles, maxTotalMb, 'Lampiran');
+      } catch (error) {
+        input.value = '';
+        showError(error);
+      }
+    }
+
+    function mergeFileSelection(targetInput, incomingFiles, maxFiles) {
+      if (!targetInput || !incomingFiles || !incomingFiles.length) {
+        return;
+      }
+      try {
+        const combined = Array.prototype.slice.call(targetInput.files || []);
+        Array.prototype.forEach.call(incomingFiles, function(file) {
+          const duplicate = combined.some(function(existing) {
+            return existing.name === file.name && existing.size === file.size && existing.lastModified === file.lastModified;
+          });
+          if (!duplicate) {
+            combined.push(file);
+          }
+        });
+        validateFileList(combined, maxFiles, Number(maxFiles || 1), 'Lampiran');
+        const transfer = new DataTransfer();
+        combined.forEach(function(file) {
+          transfer.items.add(file);
+        });
+        targetInput.files = transfer.files;
+        updateSelectedFileCount(targetInput);
+      } catch (error) {
+        showError(error);
+      }
+    }
+
+    function updateSelectedFileCount(input) {
+      if (!input || !input.dataset.fileField) {
+        return;
+      }
+      const count = input.files ? input.files.length : 0;
+      const counter = document.querySelector('[data-file-count="' + input.dataset.fileField + '"]');
+      if (counter) {
+        counter.textContent = count ? count + ' file dipilih.' : 'Belum ada file dipilih.';
+      }
     }
 
     function fillProfile() {

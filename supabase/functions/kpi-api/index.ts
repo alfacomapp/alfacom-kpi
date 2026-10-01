@@ -261,6 +261,34 @@ const REPORT_TYPES = {
   }
 };
 
+const BANK_ACCOUNT_BANKS = {
+  bri: 'BRI',
+  mandiri: 'Mandiri',
+  bank_sultra: 'Bank Sultra'
+};
+
+const REPORT_FILE_LIMITS = {
+  pendapatan_harian: { physicalCash: [1, 8], cashierState: [1, 8], notaAttachments: [20, 20], bankProof: [1, 8] },
+  bukti_storan_bank: { bankProof: [1, 8] },
+  laporan_akun_bank: { bankAccountProof: [10, 10] },
+  laporan_keadaan_kas_bank: { bankCashStateProof: [10, 10] },
+  laporan_saldo_bank_jago: { saldoProof: [10, 10] },
+  rekap_storan_setengah_bulan: { storanProof: [10, 10] },
+  sales_upload_harian_10: { salesFiles: [10, 10] },
+  sales_upload_harian_1_10: { salesFiles: [10, 10] },
+  sales_penawaran: { proposalProof: [10, 10] },
+  input_pengiriman: { shipmentProof: [10, 10] },
+  rincian_barang_tiba: { arrivalProof: [10, 10] },
+  audit_harian: { auditProof: [10, 10] },
+  audit_pekanan: { auditProof: [10, 10] },
+  audit_bank_jago: { auditProof: [10, 10] },
+  audit_nota_ipos: { auditProof: [10, 10] },
+  audit_piutang: { auditProof: [10, 10] },
+  audit_hutang: { auditProof: [10, 10] },
+  laporan_investor: { reportProof: [10, 10] },
+  laporan_raport_fee_freelance: { reportProof: [10, 10] }
+};
+
 function doGet() {
   return responseJson({
     ok: true,
@@ -729,6 +757,7 @@ function getNoteAssignee_(assigneeId) {
 
 function validateNotePhotoFiles_(files) {
   limitFiles_(files, 'photos', 20, 'Foto notes maksimal 20 lampiran.');
+  limitFileGroupSize_(files && files.photos || [], 20, 'Total ukuran foto notes maksimal 20 MB.');
 
   (files && files.photos || []).forEach(function(file) {
     const mimeType = String(file.mimeType || '').toLowerCase();
@@ -873,6 +902,7 @@ function apiSubmitReport(token, request) {
 
     ensureReportPermission_(user, type);
     validateReportPayload_(user, type, fields, files);
+    validateReportFileLimits_(type, files);
 
     const savedFiles = saveUploadedFileGroups_(files, type);
     const reportId = makeId_('RPT');
@@ -1617,6 +1647,16 @@ function buildTaskDetailText_(task, payload) {
   if (detail.auditStatus) {
     parts.push('Status audit: ' + detail.auditStatus);
   }
+  if (String(task.TaskType || '') === 'laporan_akun_bank') {
+    const bankReports = detail.bankReports || {};
+    const completedBanks = Object.keys(BANK_ACCOUNT_BANKS).filter(function(key) {
+      return Boolean(bankReports[key]);
+    });
+    const bankLabels = completedBanks.map(function(key) {
+      return BANK_ACCOUNT_BANKS[key];
+    });
+    parts.push('Bank dilaporkan: ' + (bankLabels.length ? bankLabels.join(', ') : 'belum ada') + ' (' + completedBanks.length + '/3)');
+  }
   if (detail.deadlineAt) {
     parts.push('Deadline: ' + Utilities.formatDate(parseDate_(detail.deadlineAt), getScriptTimeZone_(), 'dd/MM/yyyy HH:mm'));
   }
@@ -1710,6 +1750,10 @@ function validateReportPayload_(user, type, fields, files) {
   if (type === 'laporan_akun_bank') {
     if (getUserLocation_(user) !== 'kendari') {
       throw new Error('Laporan akun bank pekanan hanya untuk Kendari.');
+    }
+    const bankName = String(fields.bankName || '').trim().toLowerCase();
+    if (!BANK_ACCOUNT_BANKS[bankName]) {
+      throw new Error('Pilih bank yang dilaporkan: BRI, Mandiri, atau Bank Sultra.');
     }
     requireFile_(files, 'bankAccountProof', 'Bukti akun bank wajib diupload.');
     return;
@@ -1862,29 +1906,24 @@ function processReportTasks_(user, report, fields, savedFiles) {
 
   if (type === 'laporan_akun_bank') {
     const weekKey = periodKeyForWeek_(parseDate_(fields.reportDate || now));
-    results.push(completeOpenTaskByTypePeriod_('laporan_akun_bank', weekKey, user, report, savedFiles, {
-      title: 'Laporan akun bank pekanan Kendari',
-      assigneeRole: user.Role,
-      assigneeLocation: 'kendari',
-      assigneeName: user.Name,
-      timeLimitHours: REPORT_TYPES.laporan_akun_bank.timeLimitHours,
-      startedAt: weekStart_(parseDate_(fields.reportDate || report.ReportDate || now)),
-      payload: fields
-    }));
+    const bankResult = recordBankAccountReport_(weekKey, user, report, fields, savedFiles);
+    results.push(bankResult);
 
-    results.push(createTask_({
-      taskType: 'audit_pekanan',
-      title: 'Audit laporan akun bank pekanan Kendari',
-      assigneeRole: 'auditor',
-      assigneeLocation: 'all',
-      assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
-      relatedReportId: report.Id,
-      timeLimitHours: REPORT_TYPES.audit_pekanan.timeLimitHours,
-      startedAt: now,
-      createdBy: user,
-      payload: { sourceReportId: report.Id, location: 'kendari' },
-      attachments: {}
-    }));
+    if (bankResult.completed) {
+      results.push(createTask_({
+        taskType: 'audit_pekanan',
+        title: 'Audit laporan akun bank pekanan Kendari',
+        assigneeRole: 'auditor',
+        assigneeLocation: 'all',
+        assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
+        relatedReportId: report.Id,
+        timeLimitHours: REPORT_TYPES.audit_pekanan.timeLimitHours,
+        startedAt: now,
+        createdBy: user,
+        payload: { sourceReportId: report.Id, location: 'kendari', banksComplete: true },
+        attachments: {}
+      }));
+    }
   }
 
   if (type === 'laporan_keadaan_kas_bank') {
@@ -2152,6 +2191,108 @@ function completeOpenTaskByTypePeriod_(taskType, periodKey, user, report, savedF
   });
 
   return createTask_(options);
+}
+
+function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
+  const bankName = String(fields.bankName || '').trim().toLowerCase();
+  const bankLabel = BANK_ACCOUNT_BANKS[bankName];
+  if (!bankLabel) {
+    throw new Error('Bank laporan tidak valid.');
+  }
+
+  const existing = readObjects_('tasks').find(function(row) {
+    return row.TaskType === 'laporan_akun_bank' && row.PeriodKey === periodKey;
+  });
+  const taskAttachments = {};
+  taskAttachments['bankAccountProof_' + bankName] = savedFiles.bankAccountProof || [];
+
+  if (!existing) {
+    const bankReports = {};
+    bankReports[bankName] = {
+      label: bankLabel,
+      reportId: report.Id,
+      reportedAt: toIso_(report.CreatedAt),
+      reporter: user.Name
+    };
+    const created = createTask_({
+      taskType: 'laporan_akun_bank',
+      title: 'Laporan akun bank pekanan Kendari',
+      assigneeRole: user.Role,
+      assigneeLocation: 'kendari',
+      assigneeName: user.Name,
+      relatedReportId: report.Id,
+      timeLimitHours: REPORT_TYPES.laporan_akun_bank.timeLimitHours,
+      startedAt: weekStart_(parseDate_(fields.reportDate || report.ReportDate || report.CreatedAt)),
+      createdBy: user,
+      periodKey: periodKey,
+      payload: Object.assign({}, fields, { bankReports: bankReports }),
+      attachments: taskAttachments
+    });
+    return Object.assign({}, created, { completed: false, banksReported: 1, banksRequired: 3 });
+  }
+
+  const existingPayload = parseJsonSafe_(existing.PayloadJson, {});
+  const existingBankReports = existingPayload.bankReports || {};
+  const existingCompletedCount = Object.keys(BANK_ACCOUNT_BANKS).filter(function(key) {
+    return Boolean(existingBankReports[key]);
+  }).length;
+  if (String(existing.Status || 'berjalan') !== 'berjalan' && existingCompletedCount === 3) {
+    throw new Error('Laporan BRI, Mandiri, dan Bank Sultra untuk pekan ini sudah lengkap.');
+  }
+  if (!canUserCompleteTask_(user, existing)) {
+    throw new Error('Tugas laporan akun bank ini tidak sesuai dengan akun Anda.');
+  }
+
+  let result;
+  updateObjectById_('tasks', existing.Id, function(row) {
+    const previousPayload = parseJsonSafe_(row.PayloadJson, {});
+    const bankReports = Object.assign({}, previousPayload.bankReports || {});
+    if (bankReports[bankName]) {
+      throw new Error('Laporan ' + bankLabel + ' untuk pekan ini sudah dikirim.');
+    }
+    bankReports[bankName] = {
+      label: bankLabel,
+      reportId: report.Id,
+      reportedAt: toIso_(report.CreatedAt),
+      reporter: user.Name
+    };
+    const completedCount = Object.keys(BANK_ACCOUNT_BANKS).filter(function(key) {
+      return Boolean(bankReports[key]);
+    }).length;
+    const completed = completedCount === Object.keys(BANK_ACCOUNT_BANKS).length;
+    const previousAttachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
+
+    row.RelatedReportId = report.Id;
+    row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, fields, { bankReports: bankReports }));
+    row.AttachmentUrlsJson = JSON.stringify(Object.assign({}, previousAttachments, taskAttachments));
+    row.UpdatedAt = parseDate_(report.CreatedAt);
+    row.Notes = completedCount + '/3 bank telah dilaporkan.';
+    if (completed) {
+      row.Status = 'selesai';
+      row.KpiStatus = calculateKpiStatus_(row, parseDate_(report.CreatedAt));
+      row.CompletedAt = parseDate_(report.CreatedAt);
+      row.CompletedBy = user.Name;
+    } else {
+      const timer = buildTaskTimer_(row, parseDate_(report.CreatedAt), getAttendanceMap_());
+      row.Status = 'berjalan';
+      row.KpiStatus = timer.remainingMs < 0 ? 'meleset' : 'berjalan';
+      row.CompletedAt = '';
+      row.CompletedBy = '';
+    }
+
+    result = {
+      id: row.Id,
+      taskType: row.TaskType,
+      title: row.Title,
+      kpiStatus: row.KpiStatus,
+      completed: completed,
+      banksReported: completedCount,
+      banksRequired: 3
+    };
+    return row;
+  });
+
+  return result;
 }
 
 function canUserCompleteTask_(user, task) {
@@ -2782,6 +2923,37 @@ function requireMinFiles_(files, field, min, message) {
 
 function limitFiles_(files, field, max, message) {
   if (files && files[field] && files[field].length > max) {
+    throw new Error(message);
+  }
+}
+
+function validateReportFileLimits_(type, files) {
+  const limits = REPORT_FILE_LIMITS[type] || {};
+  Object.keys(files || {}).forEach(function(field) {
+    const list = Array.isArray(files[field]) ? files[field] : [];
+    if (!list.length) {
+      return;
+    }
+    const limit = limits[field];
+    if (!limit) {
+      throw new Error('Lampiran ' + field + ' tidak dikenal untuk laporan ini.');
+    }
+    if (list.length > Number(limit[0])) {
+      throw new Error('Lampiran ' + field + ' maksimal ' + Number(limit[0]) + ' file.');
+    }
+    limitFileGroupSize_(list, Number(limit[1]), 'Total ukuran lampiran ' + field + ' maksimal ' + Number(limit[1]) + ' MB.');
+  });
+}
+
+function limitFileGroupSize_(files, maxMb, message) {
+  const maxBytes = Number(maxMb || 1) * 1024 * 1024;
+  const totalBytes = (files || []).reduce(function(total, file) {
+    const declared = Number(file && file.size || 0);
+    const encoded = String(file && file.data || '').split(',').pop().replace(/\s+/g, '');
+    const estimated = encoded ? Math.floor(encoded.length * 3 / 4) : 0;
+    return total + Math.max(declared, estimated);
+  }, 0);
+  if (totalBytes > maxBytes) {
     throw new Error(message);
   }
 }
