@@ -800,12 +800,22 @@
       justify-items: start;
     }
 
+    .attachment-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
     .attachment-disclosure .attachment-list {
       display: none;
     }
 
     .attachment-disclosure.open .attachment-list {
       display: flex;
+    }
+
+    .attachment-open-all {
+      font-weight: 800;
     }
 
     .attachment-text {
@@ -827,6 +837,78 @@
     #tasksTable .attachment-text {
       width: 96px;
       max-width: 96px;
+    }
+
+    .task-title-wrap {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+    }
+
+    .task-row-toggle,
+    .kpi-panel-toggle,
+    .shipment-add-button,
+    .shipment-remove-button {
+      min-width: 32px;
+      width: 32px;
+      min-height: 32px;
+      height: 32px;
+      padding: 6px;
+      justify-content: center;
+    }
+
+    .task-row-toggle svg,
+    .kpi-panel-toggle svg,
+    .shipment-add-button svg,
+    .shipment-remove-button svg,
+    .dashboard-jump svg,
+    .report-jump svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .task-title-content {
+      min-width: 0;
+    }
+
+    .task-hidden-label {
+      display: none;
+      grid-column: 2;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .task-row-collapsed td:not([data-label="No"]):not([data-label="Tugas"]) {
+      display: none;
+    }
+
+    .task-row-collapsed .task-title-content {
+      display: none;
+    }
+
+    .task-row-collapsed .task-hidden-label {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+    }
+
+    .task-row-collapsed .task-row-toggle svg {
+      transform: rotate(180deg);
+    }
+
+    .task-deadline {
+      display: block;
+      margin-top: 4px;
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 800;
     }
 
     .kpi-grid {
@@ -1085,6 +1167,10 @@
       font-size: 12px;
     }
 
+    .kpi-panel-toggle {
+      display: none;
+    }
+
     .timer {
       color: var(--blue);
       font-weight: 800;
@@ -1145,6 +1231,16 @@
       font-size: 13px;
     }
 
+    .report-task-filters {
+      flex: 1 1 auto;
+      justify-content: flex-end;
+    }
+
+    .report-task-filters select {
+      min-width: 112px;
+      flex: 0 1 136px;
+    }
+
     .form-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(220px, 1fr));
@@ -1162,6 +1258,46 @@
       color: var(--muted);
       font-size: 12px;
       border: 1px dashed var(--line);
+    }
+
+    .shipment-items-field {
+      display: grid;
+      gap: 10px;
+    }
+
+    .shipment-items {
+      display: grid;
+      gap: 10px;
+    }
+
+    .shipment-item {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfb;
+    }
+
+    .shipment-item-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .shipment-item-head strong {
+      font-size: 13px;
+    }
+
+    .shipment-item-grid {
+      grid-template-columns: repeat(3, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
+    .shipment-add-row {
+      display: flex;
+      justify-content: flex-end;
     }
 
     .toast {
@@ -1284,7 +1420,7 @@
         top: 0;
         z-index: 20;
         height: auto;
-        padding: 10px 12px;
+        padding: 8px 12px;
         flex-direction: row;
         justify-content: flex-start;
         gap: 10px;
@@ -1293,17 +1429,18 @@
       }
 
       .sidebar .brand-row {
-        width: min(112px, 30vw);
-        min-width: min(112px, 30vw);
-        flex-direction: column;
-        gap: 2px;
+        width: auto;
+        min-width: min(150px, 42vw);
+        flex-direction: row;
+        gap: 7px;
         margin: 0;
-        text-align: center;
+        text-align: left;
       }
 
       .sidebar .brand-mark {
-        width: 40px;
-        height: 40px;
+        width: 34px;
+        height: 34px;
+        flex: 0 0 34px;
       }
 
       .sidebar .brand-row strong {
@@ -1312,8 +1449,9 @@
 
       .user-pill {
         display: block;
-        width: 100%;
+        width: auto;
         padding-top: 2px;
+        text-align: left;
       }
 
       .user-pill span {
@@ -1357,6 +1495,19 @@
 
       .dashboard-jump {
         display: inline-flex;
+        position: fixed;
+        z-index: 30;
+        top: 50px;
+        right: 10px;
+        width: 32px;
+        height: 32px;
+        min-height: 32px;
+        padding: 6px;
+        border-radius: 999px;
+        align-items: center;
+        justify-content: center;
+        background: #fff;
+        box-shadow: 0 6px 18px rgba(22, 32, 28, .14);
       }
 
       #dashboardPage:not(.show-kpi) .kpi-panel,
@@ -1373,9 +1524,68 @@
         scroll-margin-top: 96px;
       }
 
+      #dashboardPage.show-kpi {
+        height: calc(100dvh - 74px);
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #dashboardPage.show-kpi .kpi-panel {
+        flex: 0 0 auto;
+      }
+
+      #dashboardPage.show-kpi #taskPanel {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      #dashboardPage.show-kpi #tasksTable {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        padding-right: 2px;
+      }
+
+      #dashboardPage.kpi-collapsed .kpi-panel {
+        padding-bottom: 8px;
+      }
+
+      #dashboardPage.kpi-collapsed .kpi-grid {
+        display: none;
+      }
+
+      .kpi-panel-toggle {
+        display: inline-flex;
+      }
+
       .report-jump {
         display: inline-flex;
-        flex: 0 0 40px;
+        position: fixed;
+        z-index: 30;
+        top: 50px;
+        right: 10px;
+        width: 32px;
+        height: 32px;
+        min-height: 32px;
+        padding: 6px;
+        border-radius: 999px;
+        align-items: center;
+        justify-content: center;
+        background: #fff;
+        box-shadow: 0 6px 18px rgba(22, 32, 28, .14);
+      }
+
+      #laporanPage:not(.show-form) #reportFormPanel {
+        display: none;
+      }
+
+      #laporanPage.show-form .report-tasks-panel {
+        display: none;
       }
 
       #reportFormPanel {
@@ -1471,6 +1681,19 @@
         padding: 8px 5px;
         font-size: 10px;
       }
+
+      .report-task-filters {
+        flex-wrap: nowrap;
+        gap: 5px;
+      }
+
+      .report-task-filters select {
+        flex: 1 1 0;
+        width: 0;
+        min-width: 0;
+        padding: 8px 5px;
+        font-size: 10px;
+      }
     }
 
     @media (max-width: 560px) {
@@ -1523,6 +1746,15 @@
 
       .task-filters select,
       .task-filters input[type="search"] {
+        flex: 1 1 0 !important;
+        flex-basis: 0 !important;
+        width: 0;
+        min-width: 0;
+        padding: 8px 4px;
+        font-size: 10px;
+      }
+
+      .report-task-filters select {
         flex: 1 1 0 !important;
         flex-basis: 0 !important;
         width: 0;
@@ -1760,6 +1992,14 @@
         padding: 8px 7px;
         font-size: 11px;
       }
+
+      .shipment-item {
+        padding: 10px;
+      }
+
+      .shipment-item-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -1830,7 +2070,9 @@
             <div class="filters">
               <select id="noteCreatorFilter" aria-label="Filter note berdasarkan pengguna yang ditugaskan"></select>
             </div>
-            <button class="btn btn-ghost dashboard-jump" type="button" data-dashboard-section="kpi">Ke KPI</button>
+            <button class="btn btn-ghost dashboard-jump" type="button" data-dashboard-section="kpi" title="Ke KPI" aria-label="Ke KPI">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+            </button>
           </div>
           <div class="notes-layout">
             <div class="form-stack">
@@ -1882,7 +2124,12 @@
               <select id="dashboardMonthFilter" aria-label="Pilih bulan KPI"></select>
               <select id="dashboardYearFilter" aria-label="Pilih tahun KPI"></select>
             </div>
-            <button class="btn btn-ghost dashboard-jump" type="button" data-dashboard-section="notes">Ke Notes</button>
+            <button id="kpiPanelToggle" class="btn btn-ghost kpi-panel-toggle" type="button" title="Sembunyikan Info KPI" aria-label="Sembunyikan Info KPI" aria-expanded="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>
+            </button>
+            <button class="btn btn-ghost dashboard-jump" type="button" data-dashboard-section="notes" title="Ke Notes" aria-label="Ke Notes">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>
+            </button>
           </div>
           <div id="kpiCards" class="kpi-grid"></div>
         </div>
@@ -1907,10 +2154,12 @@
 
       <section id="laporanPage" class="page hidden">
         <div class="report-grid">
-          <div class="panel">
+          <div class="panel report-tasks-panel">
             <div class="panel-head">
-              <h3>Tugas Berjalan</h3>
-              <div class="filters">
+              <h3>Tugas</h3>
+              <div class="filters report-task-filters">
+                <select id="reportMonthFilter" aria-label="Filter bulan tugas"></select>
+                <select id="reportYearFilter" aria-label="Filter tahun tugas"></select>
                 <select id="reportTaskStatusFilter" aria-label="Filter status tugas berjalan">
                   <option value="">Semua status</option>
                   <option value="berjalan">Berjalan</option>
@@ -1919,7 +2168,7 @@
                   <option value="tepat_waktu">Tepat Waktu</option>
                 </select>
                 <button id="jumpToReportForm" class="btn btn-ghost report-jump" type="button" title="Ke Form Laporan" aria-label="Ke Form Laporan">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7V3z"></path><path d="M15 3v5h4"></path><path d="m10 14 2 2 4-4"></path></svg>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
                 </button>
               </div>
             </div>
@@ -1928,6 +2177,9 @@
           <div id="reportFormPanel" class="panel">
             <div class="panel-head">
               <h3>Form Laporan</h3>
+              <button id="jumpToOpenTasks" class="btn btn-ghost report-jump" type="button" title="Ke Tugas" aria-label="Ke Tugas">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>
+              </button>
             </div>
             <form id="reportForm" class="form-stack">
               <div class="field">
@@ -1992,6 +2244,12 @@
       auditStatus: '',
       taskSearch: '',
       reportTaskStatus: '',
+      reportMonth: new Date().getMonth() + 1,
+      reportYear: new Date().getFullYear(),
+      reportSection: 'tasks',
+      kpiPanelCollapsed: false,
+      hiddenTaskIds: {},
+      shipmentItemSeq: 0,
       dashboardSection: 'notes',
       sidebarCollapsed: localStorage.getItem('kpi_sidebar_collapsed') === '1',
       dashboardMonth: new Date().getMonth() + 1,
@@ -2004,11 +2262,11 @@
 
     const PAGE_LABELS = {
       dashboard: ['Dashboard', 'Ringkasan KPI, notes, dan tugas berjalan'],
-      laporan: ['Laporan', 'Input laporan sesuai tugas dan role'],
+      laporan: ['Laporan', ''],
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-01-dashboard-layout-bank-reports';
+    const CLIENT_CACHE_VERSION = '2026-10-02-notes-report-shipment-items';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2078,9 +2336,7 @@
       ],
       input_pengiriman: [
         { kind: 'select', field: 'destination', label: 'Tujuan', required: true, options: [['', 'Pilih tujuan'], ['kendari', 'Kendari'], ['raha', 'Raha']] },
-        { kind: 'textarea', field: 'itemSummary', label: 'Rincian barang kiriman', required: true, full: true },
-        { kind: 'file', field: 'shipmentProof', label: 'Lampiran pengiriman', multiple: true, max: 10, accept: 'image/*,application/pdf' },
-        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+        { kind: 'shipmentItems', field: 'shipmentItems', label: 'Detail barang', full: true }
       ],
       rincian_barang_tiba: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', required: true, match: ['rincian_barang_tiba'] },
@@ -2173,7 +2429,7 @@
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
       byId('noteCamera').addEventListener('change', function(event) {
-        mergeFileSelection(byId('notePhotos'), event.target.files, 20);
+        mergeFileSelection(byId('notePhotos'), event.target.files, 20, 20);
         event.target.value = '';
       });
       byId('notePhotos').addEventListener('change', function(event) {
@@ -2186,6 +2442,9 @@
         button.addEventListener('click', function() {
           setDashboardSection(button.dataset.dashboardSection);
         });
+      });
+      byId('kpiPanelToggle').addEventListener('click', function() {
+        setKpiPanelCollapsed(!state.kpiPanelCollapsed);
       });
       byId('noteCreatorFilter').addEventListener('change', function(event) {
         state.noteCreatorId = event.target.value;
@@ -2229,8 +2488,19 @@
         state.reportTaskStatus = event.target.value;
         renderOpenTasks();
       });
+      byId('reportMonthFilter').addEventListener('change', function(event) {
+        state.reportMonth = Number(event.target.value) || new Date().getMonth() + 1;
+        renderOpenTasks();
+      });
+      byId('reportYearFilter').addEventListener('change', function(event) {
+        state.reportYear = Number(event.target.value) || new Date().getFullYear();
+        renderOpenTasks();
+      });
       byId('jumpToReportForm').addEventListener('click', function() {
-        byId('reportFormPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setReportSection('form');
+      });
+      byId('jumpToOpenTasks').addEventListener('click', function() {
+        setReportSection('tasks');
       });
       byId('reportType').addEventListener('change', function(event) {
         renderReportForm();
@@ -2247,9 +2517,20 @@
           return input.dataset.fileField === cameraFor;
         });
         const config = findFileConfig(byId('reportType').value, cameraFor);
-        mergeFileSelection(storageInput, event.target.files, config && config.max || 1);
+        const maxFiles = config && config.multiple ? Number(config.max || 10) : 1;
+        const maxTotalMb = config && config.multiple ? maxFiles : 8;
+        mergeFileSelection(storageInput, event.target.files, maxFiles, maxTotalMb);
         event.target.value = '';
         updateSelectedFileCount(storageInput);
+      });
+      byId('dynamicReportFields').addEventListener('click', function(event) {
+        const addButton = event.target.closest('[data-add-shipment-item]');
+        const removeButton = event.target.closest('[data-remove-shipment-item]');
+        if (addButton) {
+          addShipmentItem();
+        } else if (removeButton) {
+          removeShipmentItem(removeButton);
+        }
       });
       byId('reportForm').addEventListener('submit', submitReport);
       byId('resetReportButton').addEventListener('click', function() {
@@ -2271,7 +2552,7 @@
     function api(functionName) {
       const args = Array.prototype.slice.call(arguments, 1);
       const jwt = typeof args[0] === 'string' ? args[0] : state.token;
-      
+
       return fetch(KPI_API_URL, {
         method: 'POST',
         headers: {
@@ -2435,6 +2716,29 @@
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    function setKpiPanelCollapsed(collapsed) {
+      state.kpiPanelCollapsed = Boolean(collapsed);
+      const dashboard = byId('dashboardPage');
+      const button = byId('kpiPanelToggle');
+      dashboard.classList.toggle('kpi-collapsed', state.kpiPanelCollapsed);
+      button.setAttribute('aria-expanded', String(!state.kpiPanelCollapsed));
+      button.setAttribute('aria-label', state.kpiPanelCollapsed ? 'Tampilkan Info KPI' : 'Sembunyikan Info KPI');
+      button.title = button.getAttribute('aria-label');
+      button.innerHTML = state.kpiPanelCollapsed
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>'
+        : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>';
+    }
+
+    function setReportSection(section) {
+      state.reportSection = section === 'form' ? 'form' : 'tasks';
+      const page = byId('laporanPage');
+      page.classList.toggle('show-form', state.reportSection === 'form');
+      const target = state.reportSection === 'form' ? byId('reportFormPanel') : page.querySelector('.report-tasks-panel');
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
     function resetViewState() {
       state.dashboard = null;
       state.reportMeta = null;
@@ -2446,6 +2750,12 @@
       state.auditStatus = '';
       state.taskSearch = '';
       state.reportTaskStatus = '';
+      state.reportMonth = new Date().getMonth() + 1;
+      state.reportYear = new Date().getFullYear();
+      state.reportSection = 'tasks';
+      state.kpiPanelCollapsed = false;
+      state.hiddenTaskIds = {};
+      state.shipmentItemSeq = 0;
       state.dashboardSection = 'notes';
       state.dashboardMonth = new Date().getMonth() + 1;
       state.dashboardYear = new Date().getFullYear();
@@ -2473,6 +2783,7 @@
       byId('notePhotos').value = '';
       byId('noteCamera').value = '';
       byId('dashboardPage').classList.remove('show-kpi');
+      byId('dashboardPage').classList.remove('kpi-collapsed');
       byId('dashboardMonthFilter').innerHTML = '';
       byId('dashboardYearFilter').innerHTML = '';
       byId('taskTypeFilter').innerHTML = '<option value="">Semua tugas</option>';
@@ -2481,6 +2792,9 @@
       byId('auditStatusFilter').classList.add('hidden');
       byId('taskSearchFilter').value = '';
       byId('reportTaskStatusFilter').value = '';
+      byId('reportMonthFilter').innerHTML = '';
+      byId('reportYearFilter').innerHTML = '';
+      byId('laporanPage').classList.remove('show-form');
       byId('notesList').innerHTML = '';
       byId('kpiCards').innerHTML = '';
       byId('tasksTable').innerHTML = '';
@@ -2587,12 +2901,13 @@
       const title = PAGE_LABELS[page] || [titleCase(page), ''];
       byId('pageTitle').textContent = title[0];
       byId('pageSubtitle').textContent = title[1];
-      byId('topbar').classList.toggle('hidden', page === 'dashboard');
+      byId('topbar').classList.toggle('hidden', page === 'dashboard' || page === 'laporan');
 
       if (page === 'dashboard') {
         loadDashboard();
       }
       if (page === 'laporan') {
+        setReportSection(state.reportSection);
         loadReportMeta();
       }
       if (page === 'profil') {
@@ -2673,6 +2988,8 @@
       renderKpiCards();
       renderTaskFilter();
       renderTasksTable();
+      byId('dashboardPage').classList.toggle('show-kpi', state.dashboardSection === 'kpi');
+      setKpiPanelCollapsed(state.kpiPanelCollapsed);
       startTimers();
     }
 
@@ -2753,7 +3070,7 @@
         const assignment = note.assignedToName
           ? `<span>Ditugaskan ke ${escapeHtml(note.assignedToName)}${note.assignedTaskId ? ' &middot; ' + escapeHtml(note.assignedTaskId) : ''}</span>`
           : '<span>Note umum</span>';
-        const attachments = renderAttachmentButtons(note.attachments);
+        const attachments = renderAttachmentDisclosure(note.attachments);
         return `
           <article class="note-item ${note.done ? 'done' : ''}">
             <div class="note-meta">
@@ -3077,6 +3394,7 @@
             task.displayKpiLabel || task.kpiLabel,
             task.notes,
             displayTaskDate(task),
+            taskDeadlineText(task),
             attachmentSearchText(task.attachments)
           ].join(' '));
           return haystack.indexOf(query) !== -1;
@@ -3105,9 +3423,46 @@
         return '';
       }
 
-      return `<div class="attachment-list">${files.map(function(file) {
-        return `<button class="btn btn-mini btn-ghost attachment-button" type="button" title="${escapeAttr(file.name || 'Buka file')}" onclick="openUploadedFile('${escapeAttr(file.id)}', this)">${escapeHtml(file.name || 'Buka file')}</button>`;
+      return renderAttachmentButtonList(files, { openAll: false });
+    }
+
+    function renderAttachmentButtonList(files, options) {
+      const safeFiles = files || [];
+      const buttons = safeFiles.map(function(file) {
+        const label = file.name || 'Buka file';
+        return `<button class="btn btn-mini btn-ghost attachment-button" type="button" data-file-id="${escapeAttr(file.id)}" title="${escapeAttr(label)}" onclick="openUploadedFile('${escapeAttr(file.id)}', this)">${escapeHtml(label)}</button>`;
+      });
+      if (options && options.openAll) {
+        buttons.push('<button class="btn btn-mini btn-primary attachment-open-all" type="button" onclick="openAllAttachmentFiles(this)">Open all</button>');
+      }
+      return `<div class="attachment-list">${buttons.join('')}</div>`;
+    }
+
+    function renderAttachmentTextList(files) {
+      return `<div class="attachment-list">${(files || []).map(function(file) {
+        const label = file.name || 'File khusus owner';
+        return `<span class="attachment-text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
       }).join('')}</div>`;
+    }
+
+    function renderAttachmentDisclosureFromFiles(files, options) {
+      const safeFiles = files || [];
+      if (!safeFiles.length) {
+        return '';
+      }
+      const list = options && options.textOnly
+        ? renderAttachmentTextList(safeFiles)
+        : renderAttachmentButtonList(safeFiles, { openAll: true });
+      return `
+        <div class="attachment-disclosure">
+          <button class="btn btn-mini btn-ghost" type="button" aria-expanded="false" onclick="toggleAttachmentDetails(this)">Detail</button>
+          ${list}
+        </div>
+      `;
+    }
+
+    function renderAttachmentDisclosure(attachments) {
+      return renderAttachmentDisclosureFromFiles(flattenAttachmentFiles(attachments), { openAll: true });
     }
 
     function renderTaskAttachmentCell(task) {
@@ -3116,25 +3471,12 @@
         return '<span class="muted">-</span>';
       }
 
-      let fileList;
-      if (isOwnerOnlyTaskFile(task) && !isCurrentUserOwner()) {
-        fileList = `<div class="attachment-list">${files.map(function(file) {
-          const label = file.name || 'File khusus owner';
-          return `<span class="attachment-text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
-        }).join('')}</div>`;
-      } else {
-        fileList = renderAttachmentButtons(task.attachments);
-      }
-
-      return `
-        <div class="attachment-disclosure">
-          <button class="btn btn-mini btn-ghost" type="button" aria-expanded="false" onclick="toggleTaskAttachmentDetails(this)">Detail</button>
-          ${fileList}
-        </div>
-      `;
+      return renderAttachmentDisclosureFromFiles(files, {
+        textOnly: isOwnerOnlyTaskFile(task) && !isCurrentUserOwner()
+      });
     }
 
-    function toggleTaskAttachmentDetails(button) {
+    function toggleAttachmentDetails(button) {
       const disclosure = button && button.closest('.attachment-disclosure');
       if (!disclosure) {
         return;
@@ -3142,6 +3484,20 @@
       const open = disclosure.classList.toggle('open');
       button.setAttribute('aria-expanded', String(open));
       button.textContent = open ? 'Tutup' : 'Detail';
+    }
+
+    function openAllAttachmentFiles(button) {
+      const disclosure = button && button.closest('.attachment-disclosure');
+      const fileButtons = disclosure
+        ? Array.prototype.slice.call(disclosure.querySelectorAll('.attachment-button[data-file-id]'))
+        : [];
+      if (!fileButtons.length) {
+        toast('Tidak ada lampiran yang bisa dibuka.');
+        return;
+      }
+      fileButtons.forEach(function(fileButton) {
+        openUploadedFile(fileButton.dataset.fileId, fileButton);
+      });
     }
 
     function isOwnerOnlyTaskFile(task) {
@@ -3212,7 +3568,9 @@
     }
 
     function renderTaskRow(task, index) {
-      const detail = task.detailText ? `<div class="task-detail">${escapeHtml(task.detailText)}</div>` : '';
+      const collapsed = Boolean(state.hiddenTaskIds[task.id]);
+      const detail = renderTaskDetail(task);
+      const deadline = renderTaskDeadline(task);
       const ownerAction = state.dashboard.canEditTaskStatus ? `
         <td class="action-cell" data-label="Aksi">
           <div class="inline-actions">
@@ -3227,12 +3585,21 @@
       ` : '';
 
       return `
-        <tr>
+        <tr class="${collapsed ? 'task-row-collapsed' : ''}">
           <td class="${state.dashboard.canEditTaskStatus ? 'id-cell' : ''}" data-label="No"><strong>${Number(index || 0) + 1}</strong></td>
           <td data-label="Tugas">
-            <strong>${escapeHtml(displayTaskDate(task))}</strong><br>
-            <span class="muted">${escapeHtml(task.taskLabel)}</span>
-            ${detail}
+            <div class="task-title-wrap">
+              <button class="btn btn-mini btn-ghost task-row-toggle" type="button" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? 'Tampilkan tugas' : 'Sembunyikan tugas'}" aria-label="${collapsed ? 'Tampilkan tugas' : 'Sembunyikan tugas'}" onclick="toggleTaskRow('${escapeAttr(task.id)}')">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+              </button>
+              <div class="task-title-content">
+                <strong>${escapeHtml(displayTaskDate(task))}</strong><br>
+                <span class="muted">${escapeHtml(task.taskLabel)}</span>
+                ${deadline}
+                ${detail}
+              </div>
+              <span class="task-hidden-label">Tugas disembunyikan</span>
+            </div>
           </td>
           <td data-label="Penanggung Jawab">${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
           <td data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.kpiStatus === 'meleset' && task.status === 'selesai' ? 'Meleset (done)' : (task.displayKpiLabel || task.kpiLabel))}</span></td>
@@ -3244,6 +3611,43 @@
           ${ownerAction}
         </tr>
       `;
+    }
+
+    function toggleTaskRow(id) {
+      if (!id) {
+        return;
+      }
+      state.hiddenTaskIds[id] = !state.hiddenTaskIds[id];
+      renderTasksTable();
+    }
+
+    function renderTaskDetail(task) {
+      const text = String(task && task.detailText || '')
+        .split('\n')
+        .filter(function(line) {
+          return !/^deadline\s*:/i.test(String(line || '').trim());
+        })
+        .join('\n')
+        .trim();
+      return text ? `<div class="task-detail">${escapeHtml(text)}</div>` : '';
+    }
+
+    function renderTaskDeadline(task) {
+      const text = taskDeadlineText(task);
+      return text ? `<span class="task-deadline">${escapeHtml(text)}</span>` : '';
+    }
+
+    function taskDeadlineText(task) {
+      const payload = task && task.payload || {};
+      let deadline = payload.deadlineAt || task && task.timer && task.timer.deadlineAt || '';
+      if (!deadline && task && task.startedAt && Number(task.timeLimitHours || 0) > 0) {
+        const start = new Date(task.startedAt);
+        if (!isNaN(start.getTime())) {
+          start.setHours(start.getHours() + Number(task.timeLimitHours || 0));
+          deadline = start.toISOString();
+        }
+      }
+      return deadline ? 'Deadline: ' + formatDate(deadline) : '';
     }
 
     function displayTaskDate(task) {
@@ -3376,14 +3780,43 @@
         return;
       }
 
+      renderReportPeriodFilter();
       renderOpenTasks();
       renderReportForm();
     }
 
+    function renderReportPeriodFilter() {
+      const monthSelect = byId('reportMonthFilter');
+      const yearSelect = byId('reportYearFilter');
+      const years = {};
+      reportTasksForCurrentUser().forEach(function(task) {
+        const date = taskDateForPeriod(task);
+        if (date && !isNaN(date.getTime())) {
+          years[date.getFullYear()] = true;
+        }
+      });
+      years[state.reportYear || new Date().getFullYear()] = true;
+      years[new Date().getFullYear()] = true;
+
+      monthSelect.innerHTML = MONTH_LABELS.map(function(label, index) {
+        const month = index + 1;
+        return `<option value="${month}">${escapeHtml(label)}</option>`;
+      }).join('');
+      monthSelect.value = String(Number(state.reportMonth || new Date().getMonth() + 1));
+
+      yearSelect.innerHTML = Object.keys(years)
+        .map(Number)
+        .sort(function(a, b) { return b - a; })
+        .map(function(year) {
+          return `<option value="${year}">${year}</option>`;
+        }).join('');
+      yearSelect.value = String(Number(state.reportYear || new Date().getFullYear()));
+    }
+
     function renderOpenTasks() {
       const tasks = reportTasksForCurrentUser().filter(function(task) {
-        return !state.reportTaskStatus ||
-          (state.reportTaskStatus === 'pause' ? task.displayKpiStatus === 'pause' : task.kpiStatus === state.reportTaskStatus);
+        return taskMatchesReportPeriod(task) && (!state.reportTaskStatus ||
+          (state.reportTaskStatus === 'pause' ? task.displayKpiStatus === 'pause' : task.kpiStatus === state.reportTaskStatus));
       });
       const wrap = byId('openTasksList');
       if (!tasks.length) {
@@ -3410,6 +3843,21 @@
       startTimers();
     }
 
+    function taskMatchesReportPeriod(task) {
+      const date = taskDateForPeriod(task);
+      if (!date || isNaN(date.getTime())) {
+        return true;
+      }
+      return date.getMonth() + 1 === Number(state.reportMonth) && date.getFullYear() === Number(state.reportYear);
+    }
+
+    function taskDateForPeriod(task) {
+      const payload = task && task.payload || {};
+      const source = payload.deadlineAt || task.startedAt || task.createdAt || task.completedAt;
+      const date = new Date(source || '');
+      return isNaN(date.getTime()) ? null : date;
+    }
+
     function reportTasksForCurrentUser() {
       const user = state.user || {};
       const role = String(user.Role || '').toLowerCase();
@@ -3427,12 +3875,14 @@
     function renderReportForm() {
       const type = byId('reportType').value;
       const config = (REPORT_FORMS[type] || []).filter(fieldVisibleForUser);
+      state.shipmentItemSeq = 0;
       byId('dynamicReportFields').innerHTML = config.map(renderField).join('');
       Array.prototype.forEach.call(document.querySelectorAll('[data-default-date]'), function(input) {
         if (!input.value) {
           input.value = new Date().toISOString().slice(0, 10);
         }
       });
+      renumberShipmentItems();
     }
 
     function fieldVisibleForUser(field) {
@@ -3489,6 +3939,22 @@
         `;
       }
 
+      if (field.kind === 'shipmentItems') {
+        return `
+          <div class="field full shipment-items-field" data-shipment-items-root>
+            <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
+            <div class="shipment-items" data-shipment-items>
+              ${renderShipmentItem(nextShipmentItemKey())}
+            </div>
+            <div class="shipment-add-row">
+              <button class="btn btn-ghost shipment-add-button" type="button" data-add-shipment-item title="Tambah item" aria-label="Tambah item">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
       if (field.kind === 'file') {
         const storageId = 'upload-storage-' + field.field;
         const cameraId = 'upload-camera-' + field.field;
@@ -3526,6 +3992,95 @@
       `;
     }
 
+    function nextShipmentItemKey() {
+      state.shipmentItemSeq += 1;
+      return String(state.shipmentItemSeq);
+    }
+
+    function renderShipmentItem(key) {
+      const fileField = 'shipmentItemFiles_' + key;
+      const storageId = 'shipment-storage-' + key;
+      const cameraId = 'shipment-camera-' + key;
+      return `
+        <div class="shipment-item" data-shipment-item="${escapeAttr(key)}">
+          <div class="shipment-item-head">
+            <strong data-shipment-title>Item</strong>
+            <button class="btn btn-ghost shipment-remove-button" type="button" data-remove-shipment-item title="Hapus item" aria-label="Hapus item">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+            </button>
+          </div>
+          <div class="form-grid shipment-item-grid">
+            <div class="field">
+              <label>Nama supplier *</label>
+              <input data-shipment-field="supplierName" required>
+            </div>
+            <div class="field">
+              <label>Nama barang *</label>
+              <input data-shipment-field="itemName" required>
+            </div>
+            <div class="field">
+              <label>Harga barang *</label>
+              <input data-shipment-field="itemPrice" type="number" min="1" step="1" required>
+            </div>
+            <div class="field full">
+              <label>Keterangan</label>
+              <textarea data-shipment-field="description"></textarea>
+            </div>
+            <div class="field full">
+              <label>Lampiran</label>
+              <input id="${escapeAttr(storageId)}" class="visually-hidden-file" data-file-field="${escapeAttr(fileField)}" type="file" accept="image/*,application/pdf">
+              <input id="${escapeAttr(cameraId)}" class="visually-hidden-file" data-camera-for="${escapeAttr(fileField)}" type="file" accept="image/*" capture="environment">
+              <div class="file-source-actions">
+                <label class="btn btn-ghost file-source-button" for="${escapeAttr(cameraId)}">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-3h6l2 3h3v13H4V7z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                  Buka kamera
+                </label>
+                <label class="btn btn-ghost file-source-button" for="${escapeAttr(storageId)}">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path></svg>
+                  Buka file
+                </label>
+              </div>
+              <div class="selected-file-count" data-file-count="${escapeAttr(fileField)}">Belum ada file dipilih.</div>
+              <div class="file-hint">Opsional, maksimal 1 file dengan ukuran maksimal 8 MB.</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function addShipmentItem() {
+      const list = document.querySelector('[data-shipment-items]');
+      if (!list) {
+        return;
+      }
+      list.insertAdjacentHTML('beforeend', renderShipmentItem(nextShipmentItemKey()));
+      renumberShipmentItems();
+    }
+
+    function removeShipmentItem(button) {
+      const item = button && button.closest('[data-shipment-item]');
+      const items = Array.prototype.slice.call(document.querySelectorAll('[data-shipment-item]'));
+      if (!item || items.length <= 1) {
+        return;
+      }
+      item.remove();
+      renumberShipmentItems();
+    }
+
+    function renumberShipmentItems() {
+      const items = Array.prototype.slice.call(document.querySelectorAll('[data-shipment-item]'));
+      items.forEach(function(item, index) {
+        const title = item.querySelector('[data-shipment-title]');
+        const removeButton = item.querySelector('[data-remove-shipment-item]');
+        if (title) {
+          title.textContent = 'Item ' + (index + 1);
+        }
+        if (removeButton) {
+          removeButton.disabled = items.length <= 1;
+        }
+      });
+    }
+
     function submitReport(event) {
       event.preventDefault();
       setBusy('submitReportButton', true);
@@ -3549,6 +4104,9 @@
       Array.prototype.forEach.call(document.querySelectorAll('[data-field]'), function(input) {
         fields[input.dataset.field] = input.value;
       });
+      if (document.querySelector('[data-shipment-items-root]')) {
+        fields.shipmentItems = collectShipmentItems();
+      }
 
       const files = {};
       const fileInputs = Array.prototype.slice.call(document.querySelectorAll('[data-file-field]'));
@@ -3572,8 +4130,26 @@
     }
 
     function findFileConfig(type, fieldName) {
+      if (type === 'input_pengiriman' && /^shipmentItemFiles_\d+$/.test(String(fieldName || ''))) {
+        return { field: fieldName, label: 'Lampiran item pengiriman', multiple: false, max: 1, accept: 'image/*,application/pdf' };
+      }
       return (REPORT_FORMS[type] || []).find(function(field) {
         return field.field === fieldName;
+      });
+    }
+
+    function collectShipmentItems() {
+      return Array.prototype.slice.call(document.querySelectorAll('[data-shipment-item]')).map(function(item) {
+        const valueFor = function(name) {
+          const input = item.querySelector('[data-shipment-field="' + name + '"]');
+          return input ? input.value.trim() : '';
+        };
+        return {
+          supplierName: valueFor('supplierName'),
+          itemName: valueFor('itemName'),
+          itemPrice: valueFor('itemPrice'),
+          description: valueFor('description')
+        };
       });
     }
 
@@ -3628,7 +4204,7 @@
       }
     }
 
-    function mergeFileSelection(targetInput, incomingFiles, maxFiles) {
+    function mergeFileSelection(targetInput, incomingFiles, maxFiles, maxTotalMb) {
       if (!targetInput || !incomingFiles || !incomingFiles.length) {
         return;
       }
@@ -3642,7 +4218,7 @@
             combined.push(file);
           }
         });
-        validateFileList(combined, maxFiles, Number(maxFiles || 1), 'Lampiran');
+        validateFileList(combined, maxFiles, Number(maxTotalMb || (Number(maxFiles || 1) > 1 ? maxFiles : 8)), 'Lampiran');
         const transfer = new DataTransfer();
         combined.forEach(function(file) {
           transfer.items.add(file);

@@ -277,7 +277,7 @@ const REPORT_FILE_LIMITS = {
   sales_upload_harian_10: { salesFiles: [10, 10] },
   sales_upload_harian_1_10: { salesFiles: [10, 10] },
   sales_penawaran: { proposalProof: [10, 10] },
-  input_pengiriman: { shipmentProof: [10, 10] },
+  input_pengiriman: {},
   rincian_barang_tiba: { arrivalProof: [10, 10] },
   audit_harian: { auditProof: [10, 10] },
   audit_pekanan: { auditProof: [10, 10] },
@@ -1635,7 +1635,10 @@ function buildTaskDetailText_(task, payload) {
   if (detail.source || detail.destination) {
     parts.push('Rute: ' + [detail.source, detail.destination].filter(Boolean).join(' ke '));
   }
-  if (detail.itemSummary) {
+  const shipmentItems = parseShipmentItems_(detail.shipmentItems);
+  if (shipmentItems.length) {
+    parts.push('Rincian kiriman:\n' + formatShipmentItemSummary_(shipmentItems));
+  } else if (detail.itemSummary) {
     parts.push('Rincian kiriman: ' + detail.itemSummary);
   }
   if (detail.arrivedSummary) {
@@ -1805,7 +1808,17 @@ function validateReportPayload_(user, type, fields, files) {
 
   if (type === 'input_pengiriman') {
     requireText_(fields.destination, 'Tujuan pengiriman wajib dipilih.');
-    requireText_(fields.itemSummary, 'Rincian barang kiriman wajib diisi.');
+    const shipmentItems = parseShipmentItems_(fields.shipmentItems);
+    if (!shipmentItems.length) {
+      throw new Error('Minimal 1 detail barang pengiriman wajib diisi.');
+    }
+    shipmentItems.forEach(function(item, index) {
+      requireText_(item.supplierName, 'Nama supplier item ' + (index + 1) + ' wajib diisi.');
+      requireText_(item.itemName, 'Nama barang item ' + (index + 1) + ' wajib diisi.');
+      requireNumber_(item.itemPrice, 'Harga barang item ' + (index + 1) + ' wajib diisi.');
+    });
+    fields.shipmentItems = shipmentItems;
+    fields.itemSummary = formatShipmentItemSummary_(shipmentItems);
     return;
   }
 
@@ -1993,6 +2006,8 @@ function processReportTasks_(user, report, fields, savedFiles) {
   if (type === 'input_pengiriman') {
     const destination = normalizeLocation_(fields.destination);
     const source = getUserLocation_(user);
+    const shipmentItems = parseShipmentItems_(fields.shipmentItems);
+    const itemSummary = formatShipmentItemSummary_(shipmentItems);
     if (destination !== 'kendari' && destination !== 'raha') {
       throw new Error('Tujuan pengiriman harus Kendari atau Raha.');
     }
@@ -2010,7 +2025,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
       timeLimitHours: REPORT_TYPES.input_pengiriman.timeLimitHours,
       startedAt: now,
       createdBy: user,
-      payload: fields,
+      payload: Object.assign({}, fields, { shipmentItems: shipmentItems, itemSummary: itemSummary }),
       attachments: savedFiles,
       completeNow: true
     }));
@@ -2025,8 +2040,8 @@ function processReportTasks_(user, report, fields, savedFiles) {
       timeLimitHours: REPORT_TYPES.rincian_barang_tiba.timeLimitHours,
       startedAt: now,
       createdBy: user,
-      payload: { source: source, destination: destination, itemSummary: fields.itemSummary, description: fields.description || '' },
-      attachments: {}
+      payload: { source: source, destination: destination, shipmentItems: shipmentItems, itemSummary: itemSummary },
+      attachments: savedFiles
     }));
   }
 
@@ -2915,6 +2930,38 @@ function requireFile_(files, field, message) {
   }
 }
 
+function parseShipmentItems_(value) {
+  const rawItems = Array.isArray(value) ? value : parseJsonSafe_(value, []);
+  if (!Array.isArray(rawItems)) {
+    return [];
+  }
+  return rawItems.map(function(item) {
+    const source = item || {};
+    return {
+      supplierName: String(source.supplierName || '').trim(),
+      itemName: String(source.itemName || '').trim(),
+      itemPrice: Number(source.itemPrice || 0),
+      description: String(source.description || '').trim()
+    };
+  }).filter(function(item) {
+    return item.supplierName || item.itemName || item.itemPrice || item.description;
+  });
+}
+
+function formatShipmentItemSummary_(items) {
+  return (items || []).map(function(item, index) {
+    const parts = [
+      (index + 1) + '. Supplier: ' + item.supplierName,
+      'Barang: ' + item.itemName,
+      'Harga: ' + item.itemPrice
+    ];
+    if (item.description) {
+      parts.push('Keterangan: ' + item.description);
+    }
+    return parts.join(' | ');
+  }).join('\n');
+}
+
 function requireMinFiles_(files, field, min, message) {
   if (!files || !files[field] || files[field].length < Number(min || 1)) {
     throw new Error(message);
@@ -2934,7 +2981,9 @@ function validateReportFileLimits_(type, files) {
     if (!list.length) {
       return;
     }
-    const limit = limits[field];
+    const limit = type === 'input_pengiriman' && /^shipmentItemFiles_\d+$/.test(field)
+      ? [1, 8]
+      : limits[field];
     if (!limit) {
       throw new Error('Lampiran ' + field + ' tidak dikenal untuk laporan ini.');
     }

@@ -175,6 +175,47 @@ test('report upload total size follows the configured multi-file limit', () => {
   assert.match(result.message, /maksimal 10 MB/);
 });
 
+test('shipment report stores repeated item details and creates arrival task', () => {
+  const adminKendari = user('adm-kdi', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const adminRaha = user('adm-rha', 'Admin Raha', 'admin_raha', 'raha');
+  const { engine, ctx } = engineFor(adminKendari, [adminKendari, adminRaha]);
+  const proof = { name: 'barang.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' };
+
+  const rejected = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'input_pengiriman',
+    fields: {
+      destination: 'raha',
+      shipmentItems: [{ supplierName: 'CV Satu', itemName: '', itemPrice: 100000 }]
+    },
+    files: {}
+  }]);
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.message, /Nama barang item 1 wajib diisi/);
+
+  const result = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'input_pengiriman',
+    fields: {
+      destination: 'raha',
+      shipmentItems: [
+        { supplierName: 'CV Satu', itemName: 'Kabel', itemPrice: 100000, description: '2 dus' },
+        { supplierName: 'CV Dua', itemName: 'Adaptor', itemPrice: 50000 }
+      ]
+    },
+    files: { shipmentItemFiles_1: [proof] }
+  }]);
+  assert.equal(result.ok, true);
+
+  const taskRows = ctx.tables.tasks.map(item => item.record);
+  const arrivalTask = taskRows.find(item => item.TaskType === 'rincian_barang_tiba');
+  assert.ok(arrivalTask);
+  assert.equal(arrivalTask.AssigneeLocation, 'raha');
+  const payload = JSON.parse(arrivalTask.PayloadJson);
+  assert.equal(payload.shipmentItems.length, 2);
+  assert.match(payload.itemSummary, /Supplier: CV Satu/);
+  assert.equal(JSON.parse(arrivalTask.AttachmentUrlsJson).shipmentItemFiles_1.length, 1);
+  assert.equal(ctx.uploads.length, 1);
+});
+
 test('legacy weekly bank task is reopened until all three named banks are complete', () => {
   const admin = user('adm', 'Admin Kendari', 'admin_kendari', 'kendari');
   const legacyTask = {
