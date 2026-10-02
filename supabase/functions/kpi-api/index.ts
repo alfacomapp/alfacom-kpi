@@ -1816,6 +1816,7 @@ function validateReportPayload_(user, type, fields, files) {
       requireText_(item.supplierName, 'Nama supplier item ' + (index + 1) + ' wajib diisi.');
       requireText_(item.itemName, 'Nama barang item ' + (index + 1) + ' wajib diisi.');
       requireNumber_(item.itemPrice, 'Harga barang item ' + (index + 1) + ' wajib diisi.');
+      if (!isFinite(item.itemPrice)) throw new Error('Harga barang item ' + (index + 1) + ' tidak valid.');
     });
     fields.shipmentItems = shipmentItems;
     fields.itemSummary = formatShipmentItemSummary_(shipmentItems);
@@ -2937,29 +2938,44 @@ function parseShipmentItems_(value) {
   }
   return rawItems.map(function(item) {
     const source = item || {};
-    return {
+    const parsed = {
       supplierName: String(source.supplierName || '').trim(),
       itemName: String(source.itemName || '').trim(),
       itemPrice: Number(source.itemPrice || 0),
       description: String(source.description || '').trim()
     };
+    // Keep the flat item contract for older clients and records; stable keys
+    // connect new supplier groups and their attachments even after a row is removed.
+    if (/^\d+$/.test(String(source.supplierKey || ''))) parsed.supplierKey = String(source.supplierKey);
+    if (/^shipmentSupplierFiles_\d+$/.test(String(source.supplierFileField || ''))) parsed.supplierFileField = String(source.supplierFileField);
+    if (/^shipmentItemFiles_\d+$/.test(String(source.itemFileField || ''))) parsed.itemFileField = String(source.itemFileField);
+    return parsed;
   }).filter(function(item) {
     return item.supplierName || item.itemName || item.itemPrice || item.description;
   });
 }
 
 function formatShipmentItemSummary_(items) {
-  return (items || []).map(function(item, index) {
-    const parts = [
-      (index + 1) + '. Supplier: ' + item.supplierName,
-      'Barang: ' + item.itemName,
-      'Harga: ' + item.itemPrice
-    ];
-    if (item.description) {
-      parts.push('Keterangan: ' + item.description);
+  const groups = [];
+  (items || []).forEach(function(item) {
+    const key = item.supplierKey ? 'key:' + item.supplierKey : 'name:' + item.supplierName.toLowerCase();
+    let group = groups.find(function(entry) { return entry.key === key; });
+    if (!group) {
+      group = { key: key, name: item.supplierName, description: item.supplierKey ? item.description : '', items: [] };
+      groups.push(group);
     }
-    return parts.join(' | ');
-  }).join('\n');
+    group.items.push(item);
+  });
+  return groups.map(function(group, index) {
+    const parts = [(index + 1) + '. Supplier: ' + group.name];
+    if (group.description) parts.push('   Keterangan: ' + group.description);
+    group.items.forEach(function(item, itemIndex) {
+      let line = '   ' + (itemIndex + 1) + ') Barang: ' + item.itemName + ' | Harga: Rp ' + Number(item.itemPrice).toLocaleString('id-ID');
+      if (!item.supplierKey && item.description) line += ' | Keterangan: ' + item.description;
+      parts.push(line);
+    });
+    return parts.join('\n');
+  }).join('\n\n');
 }
 
 function requireMinFiles_(files, field, min, message) {
@@ -2981,7 +2997,7 @@ function validateReportFileLimits_(type, files) {
     if (!list.length) {
       return;
     }
-    const limit = type === 'input_pengiriman' && /^shipmentItemFiles_\d+$/.test(field)
+    const limit = type === 'input_pengiriman' && /^shipment(Item|Supplier)Files_\d+$/.test(field)
       ? [1, 8]
       : limits[field];
     if (!limit) {

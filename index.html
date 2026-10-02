@@ -1300,6 +1300,42 @@
       justify-content: flex-end;
     }
 
+    .shipment-add-button {
+      width: auto;
+      height: auto;
+      min-height: 36px;
+      padding: 8px 12px;
+      white-space: nowrap;
+    }
+
+    .shipment-supplier {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f6faf8;
+      min-width: 0;
+    }
+
+    .shipment-supplier .shipment-item-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .shipment-receipt {
+      display: grid;
+      gap: 12px;
+    }
+
+    .shipment-receipt-list {
+      margin: 0;
+      padding-left: 22px;
+    }
+
+    .shipment-receipt-list li { margin: 8px 0; }
+    .shipment-receipt-description { white-space: pre-line; overflow-wrap: anywhere; }
+    .shipment-receipt > div small { display: block; margin-top: 4px; }
+
     .toast {
       position: fixed;
       right: 18px;
@@ -2000,6 +2036,9 @@
       .shipment-item-grid {
         grid-template-columns: 1fr;
       }
+
+      .shipment-supplier { padding: 10px; }
+      .shipment-supplier .shipment-item-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -2250,6 +2289,7 @@
       kpiPanelCollapsed: false,
       hiddenTaskIds: {},
       shipmentItemSeq: 0,
+      shipmentSupplierSeq: 0,
       dashboardSection: 'notes',
       sidebarCollapsed: localStorage.getItem('kpi_sidebar_collapsed') === '1',
       dashboardMonth: new Date().getMonth() + 1,
@@ -2266,7 +2306,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-02-notes-report-shipment-items';
+    const CLIENT_CACHE_VERSION = '2026-10-02-shipment-supplier-groups';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2340,6 +2380,7 @@
       ],
       rincian_barang_tiba: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', required: true, match: ['rincian_barang_tiba'] },
+        { kind: 'shipmentReceipt', label: 'Rincian kiriman per supplier', full: true },
         { kind: 'textarea', field: 'arrivedSummary', label: 'Rincian barang tiba', required: true, full: true },
         { kind: 'file', field: 'arrivalProof', label: 'Bukti barang tiba', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
@@ -2506,6 +2547,9 @@
         renderReportForm();
       });
       byId('dynamicReportFields').addEventListener('change', function(event) {
+        if (event.target && event.target.dataset.field === 'relatedTaskId' && byId('reportType').value === 'rincian_barang_tiba') {
+          updateShipmentReceipt(true);
+        }
         const cameraFor = event.target && event.target.dataset && event.target.dataset.cameraFor;
         if (!cameraFor) {
           if (event.target && event.target.dataset && event.target.dataset.fileField) {
@@ -2526,8 +2570,14 @@
       byId('dynamicReportFields').addEventListener('click', function(event) {
         const addButton = event.target.closest('[data-add-shipment-item]');
         const removeButton = event.target.closest('[data-remove-shipment-item]');
-        if (addButton) {
-          addShipmentItem();
+        const addSupplierButton = event.target.closest('[data-add-shipment-supplier]');
+        const removeSupplierButton = event.target.closest('[data-remove-shipment-supplier]');
+        if (addSupplierButton) {
+          addShipmentSupplier();
+        } else if (removeSupplierButton) {
+          removeShipmentSupplier(removeSupplierButton);
+        } else if (addButton) {
+          addShipmentItem(addButton);
         } else if (removeButton) {
           removeShipmentItem(removeButton);
         }
@@ -2756,6 +2806,7 @@
       state.kpiPanelCollapsed = false;
       state.hiddenTaskIds = {};
       state.shipmentItemSeq = 0;
+      state.shipmentSupplierSeq = 0;
       state.dashboardSection = 'notes';
       state.dashboardMonth = new Date().getMonth() + 1;
       state.dashboardYear = new Date().getFullYear();
@@ -3876,6 +3927,7 @@
       const type = byId('reportType').value;
       const config = (REPORT_FORMS[type] || []).filter(fieldVisibleForUser);
       state.shipmentItemSeq = 0;
+      state.shipmentSupplierSeq = 0;
       byId('dynamicReportFields').innerHTML = config.map(renderField).join('');
       Array.prototype.forEach.call(document.querySelectorAll('[data-default-date]'), function(input) {
         if (!input.value) {
@@ -3883,6 +3935,7 @@
         }
       });
       renumberShipmentItems();
+      updateShipmentReceipt(false);
     }
 
     function fieldVisibleForUser(field) {
@@ -3943,16 +3996,21 @@
         return `
           <div class="field full shipment-items-field" data-shipment-items-root>
             <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
-            <div class="shipment-items" data-shipment-items>
-              ${renderShipmentItem(nextShipmentItemKey())}
+            <div class="shipment-items" data-shipment-suppliers>
+              ${renderShipmentSupplier()}
             </div>
             <div class="shipment-add-row">
-              <button class="btn btn-ghost shipment-add-button" type="button" data-add-shipment-item title="Tambah item" aria-label="Tambah item">
+              <button class="btn btn-ghost shipment-add-button" type="button" data-add-shipment-supplier>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+                Tambah supplier
               </button>
             </div>
           </div>
         `;
+      }
+
+      if (field.kind === 'shipmentReceipt') {
+        return `<div class="field full"><label>${escapeHtml(field.label)}</label><div class="shipment-receipt" data-shipment-receipt><span class="muted">Pilih tugas untuk melihat rincian kiriman.</span></div></div>`;
       }
 
       if (field.kind === 'file') {
@@ -3997,10 +4055,35 @@
       return String(state.shipmentItemSeq);
     }
 
+    function renderShipmentSupplier() {
+      const key = String(++state.shipmentSupplierSeq);
+      return `
+        <section class="shipment-supplier" data-shipment-supplier="${escapeAttr(key)}">
+          <div class="shipment-item-head">
+            <strong data-shipment-supplier-title>Supplier</strong>
+            <button class="btn btn-ghost shipment-remove-button" type="button" data-remove-shipment-supplier aria-label="Hapus supplier" title="Hapus supplier">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+            </button>
+          </div>
+          <div class="field">
+            <label for="shipment-supplier-name-${escapeAttr(key)}">Nama supplier *</label>
+            <input id="shipment-supplier-name-${escapeAttr(key)}" data-supplier-field="supplierName" required>
+          </div>
+          <div class="shipment-items" data-shipment-items>${renderShipmentItem(nextShipmentItemKey())}</div>
+          <div class="shipment-add-row">
+            <button class="btn btn-ghost shipment-add-button" type="button" data-add-shipment-item>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>Tambah item
+            </button>
+          </div>
+          <div class="field">
+            <label for="shipment-supplier-description-${escapeAttr(key)}">Keterangan supplier</label>
+            <textarea id="shipment-supplier-description-${escapeAttr(key)}" data-supplier-field="description"></textarea>
+          </div>
+          ${renderField({ kind: 'file', field: 'shipmentSupplierFiles_' + key, label: 'Lampiran supplier', accept: 'image/*,application/pdf' })}
+        </section>`;
+    }
+
     function renderShipmentItem(key) {
-      const fileField = 'shipmentItemFiles_' + key;
-      const storageId = 'shipment-storage-' + key;
-      const cameraId = 'shipment-camera-' + key;
       return `
         <div class="shipment-item" data-shipment-item="${escapeAttr(key)}">
           <div class="shipment-item-head">
@@ -4011,45 +4094,36 @@
           </div>
           <div class="form-grid shipment-item-grid">
             <div class="field">
-              <label>Nama supplier *</label>
-              <input data-shipment-field="supplierName" required>
+              <label for="shipment-item-name-${escapeAttr(key)}">Nama barang *</label>
+              <input id="shipment-item-name-${escapeAttr(key)}" data-shipment-field="itemName" required>
             </div>
             <div class="field">
-              <label>Nama barang *</label>
-              <input data-shipment-field="itemName" required>
+              <label for="shipment-item-price-${escapeAttr(key)}">Harga barang *</label>
+              <input id="shipment-item-price-${escapeAttr(key)}" data-shipment-field="itemPrice" type="number" min="1" step="1" required>
             </div>
-            <div class="field">
-              <label>Harga barang *</label>
-              <input data-shipment-field="itemPrice" type="number" min="1" step="1" required>
-            </div>
-            <div class="field full">
-              <label>Keterangan</label>
-              <textarea data-shipment-field="description"></textarea>
-            </div>
-            <div class="field full">
-              <label>Lampiran</label>
-              <input id="${escapeAttr(storageId)}" class="visually-hidden-file" data-file-field="${escapeAttr(fileField)}" type="file" accept="image/*,application/pdf">
-              <input id="${escapeAttr(cameraId)}" class="visually-hidden-file" data-camera-for="${escapeAttr(fileField)}" type="file" accept="image/*" capture="environment">
-              <div class="file-source-actions">
-                <label class="btn btn-ghost file-source-button" for="${escapeAttr(cameraId)}">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-3h6l2 3h3v13H4V7z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-                  Buka kamera
-                </label>
-                <label class="btn btn-ghost file-source-button" for="${escapeAttr(storageId)}">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path></svg>
-                  Buka file
-                </label>
-              </div>
-              <div class="selected-file-count" data-file-count="${escapeAttr(fileField)}">Belum ada file dipilih.</div>
-              <div class="file-hint">Opsional, maksimal 1 file dengan ukuran maksimal 8 MB.</div>
-            </div>
+            ${renderField({ kind: 'file', field: 'shipmentItemFiles_' + key, label: 'Lampiran barang', accept: 'image/*,application/pdf' })}
           </div>
         </div>
       `;
     }
 
-    function addShipmentItem() {
-      const list = document.querySelector('[data-shipment-items]');
+    function addShipmentSupplier() {
+      const list = document.querySelector('[data-shipment-suppliers]');
+      if (!list) return;
+      list.insertAdjacentHTML('beforeend', renderShipmentSupplier());
+      renumberShipmentItems();
+    }
+
+    function removeShipmentSupplier(button) {
+      const supplier = button && button.closest('[data-shipment-supplier]');
+      if (!supplier || document.querySelectorAll('[data-shipment-supplier]').length <= 1) return;
+      supplier.remove();
+      renumberShipmentItems();
+    }
+
+    function addShipmentItem(button) {
+      const supplier = button && button.closest('[data-shipment-supplier]');
+      const list = supplier && supplier.querySelector('[data-shipment-items]');
       if (!list) {
         return;
       }
@@ -4059,7 +4133,8 @@
 
     function removeShipmentItem(button) {
       const item = button && button.closest('[data-shipment-item]');
-      const items = Array.prototype.slice.call(document.querySelectorAll('[data-shipment-item]'));
+      const supplier = item && item.closest('[data-shipment-supplier]');
+      const items = supplier ? supplier.querySelectorAll('[data-shipment-item]') : [];
       if (!item || items.length <= 1) {
         return;
       }
@@ -4068,16 +4143,21 @@
     }
 
     function renumberShipmentItems() {
-      const items = Array.prototype.slice.call(document.querySelectorAll('[data-shipment-item]'));
-      items.forEach(function(item, index) {
-        const title = item.querySelector('[data-shipment-title]');
-        const removeButton = item.querySelector('[data-remove-shipment-item]');
-        if (title) {
-          title.textContent = 'Item ' + (index + 1);
-        }
-        if (removeButton) {
-          removeButton.disabled = items.length <= 1;
-        }
+      const suppliers = Array.prototype.slice.call(document.querySelectorAll('[data-shipment-supplier]'));
+      suppliers.forEach(function(supplier, supplierIndex) {
+        supplier.querySelector('[data-shipment-supplier-title]').textContent = 'Supplier ' + (supplierIndex + 1);
+        supplier.querySelector('[data-remove-shipment-supplier]').disabled = suppliers.length <= 1;
+        const items = Array.prototype.slice.call(supplier.querySelectorAll('[data-shipment-item]'));
+        items.forEach(function(item, index) {
+          const title = item.querySelector('[data-shipment-title]');
+          const removeButton = item.querySelector('[data-remove-shipment-item]');
+          if (title) {
+            title.textContent = 'Item ' + (index + 1);
+          }
+          if (removeButton) {
+            removeButton.disabled = items.length <= 1;
+          }
+        });
       });
     }
 
@@ -4130,8 +4210,8 @@
     }
 
     function findFileConfig(type, fieldName) {
-      if (type === 'input_pengiriman' && /^shipmentItemFiles_\d+$/.test(String(fieldName || ''))) {
-        return { field: fieldName, label: 'Lampiran item pengiriman', multiple: false, max: 1, accept: 'image/*,application/pdf' };
+      if (type === 'input_pengiriman' && /^shipment(Item|Supplier)Files_\d+$/.test(String(fieldName || ''))) {
+        return { field: fieldName, label: 'Lampiran pengiriman', multiple: false, max: 1, accept: 'image/*,application/pdf' };
       }
       return (REPORT_FORMS[type] || []).find(function(field) {
         return field.field === fieldName;
@@ -4140,17 +4220,83 @@
 
     function collectShipmentItems() {
       return Array.prototype.slice.call(document.querySelectorAll('[data-shipment-item]')).map(function(item) {
+        const supplier = item.closest('[data-shipment-supplier]');
         const valueFor = function(name) {
           const input = item.querySelector('[data-shipment-field="' + name + '"]');
           return input ? input.value.trim() : '';
         };
         return {
-          supplierName: valueFor('supplierName'),
+          supplierKey: supplier.dataset.shipmentSupplier,
+          supplierName: supplier.querySelector('[data-supplier-field="supplierName"]').value.trim(),
           itemName: valueFor('itemName'),
           itemPrice: valueFor('itemPrice'),
-          description: valueFor('description')
+          description: supplier.querySelector('[data-supplier-field="description"]').value.trim(),
+          supplierFileField: 'shipmentSupplierFiles_' + supplier.dataset.shipmentSupplier,
+          itemFileField: 'shipmentItemFiles_' + item.dataset.shipmentItem
         };
       });
+    }
+
+    function shipmentSupplierGroups(items) {
+      const groups = [];
+      (Array.isArray(items) ? items : []).forEach(function(item) {
+        const key = item.supplierKey ? 'key:' + item.supplierKey : 'name:' + String(item.supplierName || '').toLowerCase();
+        let group = groups.find(function(entry) { return entry.key === key; });
+        if (!group) {
+          group = { key: key, name: item.supplierName || '', description: item.supplierKey ? item.description || '' : '', fileField: item.supplierFileField || '', items: [] };
+          groups.push(group);
+        }
+        group.items.push(item);
+      });
+      return groups;
+    }
+
+    function shipmentArrivalSummary(payload) {
+      const groups = shipmentSupplierGroups(payload.shipmentItems);
+      if (!groups.length) return String(payload.itemSummary || '');
+      return groups.map(function(group, index) {
+        const lines = [(index + 1) + '. Supplier: ' + group.name];
+        if (group.description) lines.push('   Keterangan: ' + group.description);
+        group.items.forEach(function(item, itemIndex) {
+          let line = '   ' + (itemIndex + 1) + ') Barang: ' + item.itemName + ' | Harga: Rp ' + Number(item.itemPrice || 0).toLocaleString('id-ID');
+          if (!item.supplierKey && item.description) line += ' | Keterangan: ' + item.description;
+          lines.push(line);
+        });
+        return lines.join('\n');
+      }).join('\n\n');
+    }
+
+    function updateShipmentReceipt(fillSummary) {
+      const receipt = document.querySelector('[data-shipment-receipt]');
+      if (!receipt) return;
+      const select = document.querySelector('[data-field="relatedTaskId"]');
+      const task = reportTasksForCurrentUser().find(function(entry) {
+        return entry.id === (select && select.value) && entry.taskType === 'rincian_barang_tiba';
+      });
+      const payload = task && task.payload || {};
+      const summary = document.querySelector('[data-field="arrivedSummary"]');
+      if (fillSummary && summary) summary.value = task ? shipmentArrivalSummary(payload) : '';
+      if (!task) {
+        receipt.innerHTML = '<span class="muted">Pilih tugas untuk melihat rincian kiriman.</span>';
+        return;
+      }
+      const attachments = task.attachments || {};
+      const filesFor = function(field) { return renderAttachmentDisclosureFromFiles(attachments[field] || []); };
+      const groups = shipmentSupplierGroups(payload.shipmentItems);
+      const route = [payload.source, payload.destination].filter(Boolean).join(' → ');
+      receipt.innerHTML = `<div><strong>${escapeHtml(route)}</strong><small>Sesuaikan rincian di bawah dengan barang yang benar-benar tiba.</small></div>` +
+        (groups.length ? groups.map(function(group, index) {
+          return `<section class="shipment-supplier">
+            <strong>${index + 1}. ${escapeHtml(group.name)}</strong>
+            ${group.description ? `<div class="shipment-receipt-description">Keterangan: ${escapeHtml(group.description)}</div>` : ''}
+            ${group.fileField && (attachments[group.fileField] || []).length ? `<div>Lampiran supplier: ${filesFor(group.fileField)}</div>` : ''}
+            <ol class="shipment-receipt-list">${group.items.map(function(item) {
+              return `<li><strong>${escapeHtml(item.itemName)}</strong> — Rp ${escapeHtml(Number(item.itemPrice || 0).toLocaleString('id-ID'))}
+                ${!item.supplierKey && item.description ? `<div class="shipment-receipt-description">${escapeHtml(item.description)}</div>` : ''}
+                ${item.itemFileField && (attachments[item.itemFileField] || []).length ? `<div>Lampiran barang: ${filesFor(item.itemFileField)}</div>` : ''}</li>`;
+            }).join('')}</ol>
+          </section>`;
+        }).join('') : `<div class="shipment-receipt-description">${escapeHtml(payload.itemSummary || task.detailText || 'Rincian kiriman belum tersedia.')}</div>`);
     }
 
     function readFiles(files, maxTotalMb) {
