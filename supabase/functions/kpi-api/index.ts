@@ -262,9 +262,11 @@ const REPORT_TYPES = {
 };
 
 const BANK_ACCOUNT_BANKS = {
-  bri: 'BRI',
+  bri_kendari: 'BRI Kendari',
+  bri_raha: 'BRI Raha',
   mandiri: 'Mandiri',
-  bank_sultra: 'Bank Sultra'
+  bank_sultra: 'Bank Sultra',
+  aladin_syariah: 'Bank Aladin Syariah'
 };
 
 const REPORT_FILE_LIMITS = {
@@ -1652,13 +1654,17 @@ function buildTaskDetailText_(task, payload) {
   }
   if (String(task.TaskType || '') === 'laporan_akun_bank') {
     const bankReports = detail.bankReports || {};
-    const completedBanks = Object.keys(BANK_ACCOUNT_BANKS).filter(function(key) {
+    const requiredBanks = bankAccountReportKeys_(task, detail);
+    const completedBanks = requiredBanks.filter(function(key) {
       return Boolean(bankReports[key]);
     });
     const bankLabels = completedBanks.map(function(key) {
-      return BANK_ACCOUNT_BANKS[key];
+      return key === 'bri' ? 'BRI (laporan lama)' : BANK_ACCOUNT_BANKS[key];
     });
-    parts.push('Bank dilaporkan: ' + (bankLabels.length ? bankLabels.join(', ') : 'belum ada') + ' (' + completedBanks.length + '/3)');
+    parts.push('Bank dilaporkan: ' + (bankLabels.length ? bankLabels.join(', ') : 'belum ada') + ' (' + completedBanks.length + '/' + requiredBanks.length + ')');
+    if (bankReports.bri && requiredBanks.indexOf('bri') === -1) {
+      parts.push('BRI (laporan lama) tersimpan; laporkan BRI Kendari dan BRI Raha secara terpisah.');
+    }
   }
   if (detail.deadlineAt) {
     parts.push('Deadline: ' + Utilities.formatDate(parseDate_(detail.deadlineAt), getScriptTimeZone_(), 'dd/MM/yyyy HH:mm'));
@@ -1755,8 +1761,8 @@ function validateReportPayload_(user, type, fields, files) {
       throw new Error('Laporan akun bank pekanan hanya untuk Kendari.');
     }
     const bankName = String(fields.bankName || '').trim().toLowerCase();
-    if (!BANK_ACCOUNT_BANKS[bankName]) {
-      throw new Error('Pilih bank yang dilaporkan: BRI, Mandiri, atau Bank Sultra.');
+    if (!Object.prototype.hasOwnProperty.call(BANK_ACCOUNT_BANKS, bankName)) {
+      throw new Error('Pilih bank yang dilaporkan: BRI Kendari, BRI Raha, Mandiri, Bank Sultra, atau Bank Aladin Syariah. Muat ulang KPI bila pilihan bank belum diperbarui.');
     }
     requireFile_(files, 'bankAccountProof', 'Bukti akun bank wajib diupload.');
     return;
@@ -2209,7 +2215,23 @@ function completeOpenTaskByTypePeriod_(taskType, periodKey, user, report, savedF
   return createTask_(options);
 }
 
+function bankAccountReportKeys_(task, payload) {
+  const currentKeys = Object.keys(BANK_ACCOUNT_BANKS);
+  const detail = payload || {};
+  const savedKeys = detail.requiredBankKeys;
+  if (Array.isArray(savedKeys) && savedKeys.length === currentKeys.length && currentKeys.every(function(key) { return savedKeys.indexOf(key) !== -1; })) {
+    return currentKeys;
+  }
+  const reports = detail.bankReports || {};
+  // Closed records predating the split keep their original completion/history.
+  if (String(task && task.Status || 'berjalan') !== 'berjalan' && !reports.bri_kendari && !reports.bri_raha && !reports.aladin_syariah) {
+    return ['bri', 'mandiri', 'bank_sultra'];
+  }
+  return currentKeys;
+}
+
 function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
+  const requiredBanks = Object.keys(BANK_ACCOUNT_BANKS);
   const bankName = String(fields.bankName || '').trim().toLowerCase();
   const bankLabel = BANK_ACCOUNT_BANKS[bankName];
   if (!bankLabel) {
@@ -2242,19 +2264,20 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
       startedAt: weekStart_(parseDate_(fields.reportDate || report.ReportDate || report.CreatedAt)),
       createdBy: user,
       periodKey: periodKey,
-      payload: Object.assign({}, fields, { bankReports: bankReports }),
+      payload: Object.assign({}, fields, { bankReports: bankReports, requiredBankKeys: requiredBanks }),
       attachments: taskAttachments
     });
-    return Object.assign({}, created, { completed: false, banksReported: 1, banksRequired: 3 });
+    return Object.assign({}, created, { completed: false, banksReported: 1, banksRequired: requiredBanks.length });
   }
 
   const existingPayload = parseJsonSafe_(existing.PayloadJson, {});
   const existingBankReports = existingPayload.bankReports || {};
-  const existingCompletedCount = Object.keys(BANK_ACCOUNT_BANKS).filter(function(key) {
+  const existingRequiredBanks = bankAccountReportKeys_(existing, existingPayload);
+  const existingCompletedCount = existingRequiredBanks.filter(function(key) {
     return Boolean(existingBankReports[key]);
   }).length;
-  if (String(existing.Status || 'berjalan') !== 'berjalan' && existingCompletedCount === 3) {
-    throw new Error('Laporan BRI, Mandiri, dan Bank Sultra untuk pekan ini sudah lengkap.');
+  if (String(existing.Status || 'berjalan') !== 'berjalan' && (existingRequiredBanks.indexOf('bri') !== -1 || existingCompletedCount === existingRequiredBanks.length)) {
+    throw new Error('Laporan bank untuk pekan ini sudah lengkap atau ditutup.');
   }
   if (!canUserCompleteTask_(user, existing)) {
     throw new Error('Tugas laporan akun bank ini tidak sesuai dengan akun Anda.');
@@ -2273,17 +2296,17 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
       reportedAt: toIso_(report.CreatedAt),
       reporter: user.Name
     };
-    const completedCount = Object.keys(BANK_ACCOUNT_BANKS).filter(function(key) {
+    const completedCount = requiredBanks.filter(function(key) {
       return Boolean(bankReports[key]);
     }).length;
-    const completed = completedCount === Object.keys(BANK_ACCOUNT_BANKS).length;
+    const completed = completedCount === requiredBanks.length;
     const previousAttachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
 
     row.RelatedReportId = report.Id;
-    row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, fields, { bankReports: bankReports }));
+    row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, fields, { bankReports: bankReports, requiredBankKeys: requiredBanks }));
     row.AttachmentUrlsJson = JSON.stringify(Object.assign({}, previousAttachments, taskAttachments));
     row.UpdatedAt = parseDate_(report.CreatedAt);
-    row.Notes = completedCount + '/3 bank telah dilaporkan.';
+    row.Notes = completedCount + '/' + requiredBanks.length + ' bank telah dilaporkan.';
     if (completed) {
       row.Status = 'selesai';
       row.KpiStatus = calculateKpiStatus_(row, parseDate_(report.CreatedAt));
@@ -2304,7 +2327,7 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
       kpiStatus: row.KpiStatus,
       completed: completed,
       banksReported: completedCount,
-      banksRequired: 3
+      banksRequired: requiredBanks.length
     };
     return row;
   });
@@ -2640,6 +2663,7 @@ function createPeriodicTasks_() {
       assigneeName: kendariUser.Name,
       timeLimitHours: REPORT_TYPES.laporan_akun_bank.timeLimitHours,
       startedAt: weekStart_(now),
+      payload: { requiredBankKeys: Object.keys(BANK_ACCOUNT_BANKS) },
       createdBy: owner
     });
   }

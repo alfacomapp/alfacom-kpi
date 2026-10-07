@@ -2308,7 +2308,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-07-bank-upload-note-wa';
+    const CLIENT_CACHE_VERSION = '2026-10-07-bank-branches-aladin';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2340,7 +2340,7 @@
       ],
       laporan_akun_bank: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
-        { kind: 'select', field: 'bankName', label: 'Bank yang dilaporkan', required: true, options: [['', 'Pilih bank'], ['bri', 'BRI'], ['mandiri', 'Mandiri'], ['bank_sultra', 'Bank Sultra']] },
+        { kind: 'select', field: 'bankName', label: 'Bank yang dilaporkan', required: true, options: [['', 'Pilih bank'], ['bri_kendari', 'BRI Kendari'], ['bri_raha', 'BRI Raha'], ['mandiri', 'Mandiri'], ['bank_sultra', 'Bank Sultra'], ['aladin_syariah', 'Bank Aladin Syariah']] },
         { kind: 'file', field: 'bankAccountProof', label: 'Bukti akun bank', required: true, multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf' },
         { kind: 'file', field: 'bankStatement', label: 'Statement bank (PDF)', multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'application/pdf,.pdf', help: 'Opsional. Maksimal 50 file dan 10 MB total, termasuk bukti akun bank. PDF dapat dilihat dan diunduh setelah upload.' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }

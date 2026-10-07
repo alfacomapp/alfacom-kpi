@@ -14,11 +14,11 @@ vm.createContext(sandbox); vm.runInContext(source, sandbox);
 const user = {Id:'U1',Username:'kendari',Name:'Admin Kendari',Role:'admin_kendari',Location:'kendari',Active:true};
 const image = () => ({name:'proof.jpg',mimeType:'image/jpeg',size:3,data:Buffer.from([1,2,3]).toString('base64')});
 const pdf = () => ({name:'statement.pdf',mimeType:'application/pdf',size:12,data:Buffer.from('%PDF-1.7\nEOF').toString('base64')});
-function engine() {
-  const tables = {users:[{id:'U1',record:user,revision:1,seq:1}],notes:[],reports:[],tasks:[],activityLogs:[]};
+function engine(tasks=[]) {
+  const tables = {users:[{id:'U1',record:user,revision:1,seq:1}],notes:[],reports:[],tasks:tasks,activityLogs:[]};
   return sandbox.createKpiEngine({jwt:'test.jwt.token',expiresAt:Date.now()+600000,userRecord:user,tables,original:structuredClone(tables),absensi:[],uploads:[],maxSeq:1,version:0});
 }
-function submit(engine, files, bankName='bri', type='laporan_akun_bank') {
+function submit(engine, files, bankName='bri_kendari', type='laporan_akun_bank') {
   return engine.execute('apiSubmitReport',['test.jwt.token',{type,fields:{bankName,reportDate:'2026-10-07'},files}]);
 }
 test('50 combined attachments accepted and statement is retained in report and weekly bank task', () => {
@@ -28,7 +28,7 @@ test('50 combined attachments accepted and statement is retained in report and w
   const statement = JSON.parse(report.record.AttachmentUrlsJson).bankStatement[0];
   assert.equal(statement.mimeType,'application/pdf');
   const task = e.changes().find(change=>change.table==='kpi_tasks');
-  assert.equal(JSON.parse(task.record.AttachmentUrlsJson).bankStatement_bri[0].id,statement.id);
+  assert.equal(JSON.parse(task.record.AttachmentUrlsJson).bankStatement_bri_kendari[0].id,statement.id);
   assert.equal(e.authorizeFile(statement.id).mimeType,'application/pdf');
 });
 test('51 combined files rejected before staging any uploads or records', () => {
@@ -49,18 +49,70 @@ test('statement MIME, PDF magic and unknown groups are checked on server', () =>
     const e=engine(); assert.equal(submit(e,files).ok,false); assert.equal(e.uploads().length,0);
   }
 });
-test('three-bank completion and PDF history survive successive reports', () => {
+test('all five banks are required, and BRI branches and Aladin keep separate PDF histories', () => {
   const e=engine();
-  for(const bank of ['bri','mandiri','bank_sultra']) assert.equal(submit(e,{bankAccountProof:[image()],bankStatement:[pdf()]},bank).ok,true);
+  for(const bank of ['bri_kendari','mandiri','bank_sultra','bri_raha']) {
+    const result=submit(e,{bankAccountProof:[image()],bankStatement:[pdf()]},bank);
+    assert.equal(result.ok,true,result.message);assert.equal(result.tasks[0].banksRequired,5);assert.equal(result.tasks[0].completed,false);
+  }
+  assert.equal(e.changes().find(change=>change.table==='kpi_tasks').record.Status,'berjalan');
+  const result=submit(e,{bankAccountProof:[image()],bankStatement:[pdf()]},'aladin_syariah');
+  assert.equal(result.ok,true,result.message);assert.equal(result.tasks[0].banksReported,5);assert.equal(result.tasks[0].completed,true);
   const task=e.changes().find(change=>change.table==='kpi_tasks');
   assert.equal(task.record.Status,'selesai');
+  assert.equal(task.record.Notes,'5/5 bank telah dilaporkan.');
   const attachments=JSON.parse(task.record.AttachmentUrlsJson);
-  for(const bank of ['bri','mandiri','bank_sultra']) assert.equal(attachments['bankStatement_'+bank].length,1);
-  assert.equal(submit(e,{bankAccountProof:[image()]},'bri').ok,false);
+  for(const bank of ['bri_kendari','bri_raha','mandiri','bank_sultra','aladin_syariah']) assert.equal(attachments['bankStatement_'+bank].length,1);
+  assert.notEqual(attachments.bankStatement_bri_kendari[0].id,attachments.bankStatement_bri_raha[0].id);
+  assert.equal(submit(e,{bankAccountProof:[image()]},'bri_raha').ok,false);
 });
 test('other KPI reports keep existing 10-file limit', () => {
-  const e=engine(); const result=submit(e,{bankCashStateProof:Array.from({length:11},image)},'bri','laporan_keadaan_kas_bank');
+  const e=engine(); const result=submit(e,{bankCashStateProof:Array.from({length:11},image)},'bri_kendari','laporan_keadaan_kas_bank');
   assert.equal(result.ok,false); assert.match(result.message,/10 file/);
+});
+function legacyTask(status='berjalan') {
+  return {id:'T-legacy',revision:1,seq:2,record:{Id:'T-legacy',TaskType:'laporan_akun_bank',TaskLabel:'Laporan Akun Bank Pekanan',Title:'Laporan akun bank pekanan',PeriodKey:'week:2026-10-05',Status:status,KpiStatus:status==='selesai'?'tepat_waktu':'berjalan',AssigneeRole:'admin_kendari',AssigneeLocation:'kendari',AssigneeName:user.Name,StartedAt:'2026-10-04T16:00:00.000Z',CreatedAt:'2026-10-04T16:00:00.000Z',TimeLimitHours:168,PayloadJson:JSON.stringify({bankReports:{bri:{label:'BRI'},mandiri:{label:'Mandiri'},bank_sultra:{label:'Bank Sultra'}}}),AttachmentUrlsJson:JSON.stringify({bankStatement_bri:[{id:'legacy-bri.pdf',name:'BRI lama.pdf',mimeType:'application/pdf'}]})}};
+}
+test('legacy BRI is not guessed as either branch and its attachments remain accessible',()=>{
+  const e=engine([legacyTask()]);
+  const first=submit(e,{bankAccountProof:[image()],bankStatement:[pdf()]},'bri_kendari');
+  assert.equal(first.ok,true,first.message);assert.equal(first.tasks[0].banksReported,3);assert.equal(first.tasks[0].completed,false);
+  const task=e.changes().find(change=>change.table==='kpi_tasks').record;
+  const groups=JSON.parse(task.AttachmentUrlsJson);assert.equal(groups.bankStatement_bri[0].id,'legacy-bri.pdf');
+  assert.equal(e.authorizeFile('legacy-bri.pdf').mimeType,'application/pdf');
+  const second=submit(e,{bankAccountProof:[image()],bankStatement:[pdf()]},'bri_raha');
+  assert.equal(second.ok,true,second.message);assert.equal(second.tasks[0].banksReported,4);assert.equal(second.tasks[0].completed,false);
+  const third=submit(e,{bankAccountProof:[image()],bankStatement:[pdf()]},'aladin_syariah');
+  assert.equal(third.ok,true,third.message);assert.equal(third.tasks[0].banksReported,5);assert.equal(third.tasks[0].completed,true);
+});
+test('closed legacy reports keep their original history without reopening',()=>{
+  const e=engine([legacyTask('selesai')]);
+  const dashboard=e.execute('apiGetDashboard',['test.jwt.token',{month:10,year:2026}]);
+  assert.equal(dashboard.ok,true,dashboard.message);
+  const task=dashboard.tasks.find(task=>task.id==='T-legacy');assert.ok(task);
+  assert.match(task.detailText,/BRI \(laporan lama\)/);assert.match(task.detailText,/3\/3/);
+  assert.equal(submit(e,{bankAccountProof:[image()]},'bri_raha').ok,false);
+  assert.equal(e.changes().filter(change=>change.table==='kpi_tasks').length,0);
+});
+test('old generic BRI and unknown bank codes are rejected instead of assigned silently',()=>{
+  for(const bank of ['bri','not_a_bank','constructor','__proto__']){
+    const e=engine();const result=submit(e,{bankAccountProof:[image()]},bank);
+    assert.equal(result.ok,false);assert.match(result.message,/BRI Kendari.*BRI Raha/);assert.equal(e.uploads().length,0);
+  }
+});
+test('duplicate BRI Kendari is rejected while BRI Raha remains a separate valid report',()=>{
+  const e=engine();assert.equal(submit(e,{bankAccountProof:[image()]},'bri_kendari').ok,true);
+  const duplicate=submit(e,{bankAccountProof:[image()]},'bri_kendari');assert.equal(duplicate.ok,false);assert.match(duplicate.message,/BRI Kendari.*sudah dikirim/);
+  const otherBranch=submit(e,{bankAccountProof:[image()]},'bri_raha');assert.equal(otherBranch.ok,true,otherBranch.message);assert.equal(otherBranch.tasks[0].banksReported,2);
+});
+test('scheduled weekly tasks require five banks before the first report and retain that count if closed',()=>{
+  const e=engine();e.runDailyMaintenance();
+  const task=e.changes().find(change=>change.table==='kpi_tasks'&&change.record.TaskType==='laporan_akun_bank').record;
+  const payload=JSON.parse(task.PayloadJson);
+  assert.deepEqual(payload.requiredBankKeys,['bri_kendari','bri_raha','mandiri','bank_sultra','aladin_syariah']);
+  const closed=engine([{id:task.Id,revision:1,seq:2,record:{...task,Status:'selesai'}}]);
+  const dashboard=closed.execute('apiGetDashboard',['test.jwt.token',{month:10,year:2026}]);
+  assert.match(dashboard.tasks.find(item=>item.id===task.Id).detailText,/0\/5/);
 });
 test('partial Storage failure cleans only new objects before any report is saved', async () => {
   const requests=[];
