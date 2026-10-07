@@ -12,7 +12,7 @@
     return file.type === 'application/pdf' || ((!file.type || file.type === 'application/octet-stream') && /\.pdf$/i.test(file.name));
   }
   async function validate(entries) {
-    if (entries.length > MAX_FILES) throw new Error('Bukti dan statement bank maksimal 50 file per laporan.');
+    if (entries.length > MAX_FILES) throw new Error('Lampiran maksimal 50 file per laporan.');
     for (const entry of entries) {
       const file = entry.file;
       if (!file.size) throw new Error(file.name + ' kosong.');

@@ -2267,9 +2267,18 @@
     </main>
   </section>
 
-  <script src="assets/kpi-bank-upload.js?v=2026-10-07-2"></script>
+  <script src="assets/kpi-bank-upload.js?v=2026-10-07-3"></script>
   <script>
     const bankUploadPreparation = { version: 0, promise: null, result: null, urls: [] };
+    const reportFileSelections = new WeakMap();
+    function preparedUploadLimitText() {
+      return byId('reportType').value === 'pendapatan_harian'
+        ? 'Maksimal 10 file per bagian foto. Total seluruh lampiran maksimal 10 MB per laporan.'
+        : 'Maksimal 50 file dan 10 MB total per laporan, termasuk seluruh bagian lampiran.';
+    }
+    function usesPreparedReportUploads() {
+      return ['laporan_akun_bank', 'pendapatan_harian'].includes(byId('reportType').value);
+    }
     const state = {
       token: sessionStorage.getItem('kpi_sla_token') || '',
       user: null,
@@ -2308,7 +2317,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-07-bank-branches-aladin';
+    const CLIENT_CACHE_VERSION = '2026-10-07-daily-multi-photo';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2327,10 +2336,10 @@
       pendapatan_harian: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'number', field: 'amount', label: 'Total setoran harian', required: true },
-        { kind: 'file', field: 'physicalCash', label: 'Foto uang fisik', required: true, accept: 'image/*' },
-        { kind: 'file', field: 'cashierState', label: 'Foto keadaan kas aplikasi kasir', required: true, accept: 'image/*' },
-        { kind: 'file', field: 'notaAttachments', label: 'Foto nota', required: true, multiple: true, max: 20, accept: 'image/*' },
-        { kind: 'file', field: 'bankProof', label: 'Bukti storan bank', accept: 'image/*,application/pdf', locations: ['raha'], help: 'Wajib bila setoran lebih dari 1 juta. Bisa menyusul maksimal 1x24 jam.' },
+        { kind: 'file', field: 'physicalCash', label: 'Foto uang fisik', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*' },
+        { kind: 'file', field: 'cashierState', label: 'Foto keadaan kas aplikasi kasir', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*' },
+        { kind: 'file', field: 'notaAttachments', label: 'Foto nota', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'bankProof', label: 'Bukti storan bank', maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf', locations: ['raha'], help: 'Wajib bila setoran lebih dari 1 juta. Bisa menyusul maksimal 1x24 jam.' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       bukti_storan_bank: [
@@ -2556,8 +2565,14 @@
         const cameraFor = event.target && event.target.dataset && event.target.dataset.cameraFor;
         if (!cameraFor) {
           if (event.target && event.target.dataset && event.target.dataset.fileField) {
-            updateSelectedFileCount(event.target);
-            if (byId('reportType').value === 'laporan_akun_bank') refreshBankUploadPreparation();
+            const input = event.target;
+            const config = findFileConfig(byId('reportType').value, input.dataset.fileField);
+            if (config && config.autoCompress && config.multiple) {
+              mergeFileSelection(input, input.files, Number(config.max || 10), Infinity, reportFileSelections.get(input) || []);
+            } else {
+              updateSelectedFileCount(input);
+            }
+            if (usesPreparedReportUploads()) refreshBankUploadPreparation();
           }
           return;
         }
@@ -2566,11 +2581,11 @@
         });
         const config = findFileConfig(byId('reportType').value, cameraFor);
         const maxFiles = config && config.multiple ? Number(config.max || 10) : 1;
-        const maxTotalMb = config && config.autoCompress ? Infinity : config && config.multiple ? maxFiles : 8;
+        const maxTotalMb = config && config.autoCompress ? Infinity : config && config.maxTotalMb || (config && config.multiple ? maxFiles : 8);
         mergeFileSelection(storageInput, event.target.files, maxFiles, maxTotalMb);
         event.target.value = '';
         updateSelectedFileCount(storageInput);
-        if (byId('reportType').value === 'laporan_akun_bank') refreshBankUploadPreparation();
+        if (usesPreparedReportUploads()) refreshBankUploadPreparation();
       });
       byId('dynamicReportFields').addEventListener('click', function(event) {
         const addButton = event.target.closest('[data-add-shipment-item]');
@@ -2591,7 +2606,11 @@
       byId('reportForm').addEventListener('reset', function() {
         clearBankUploadPreparation();
         window.setTimeout(function() {
-          if (byId('reportType').value === 'laporan_akun_bank') refreshBankUploadPreparation();
+          document.querySelectorAll('[data-file-field]').forEach(function(input) {
+            reportFileSelections.delete(input);
+            updateSelectedFileCount(input);
+          });
+          if (usesPreparedReportUploads()) refreshBankUploadPreparation();
         }, 0);
       });
       byId('resetReportButton').addEventListener('click', function() {
@@ -3957,7 +3976,7 @@
       const config = (REPORT_FORMS[type] || []).filter(fieldVisibleForUser);
       state.shipmentItemSeq = 0;
       state.shipmentSupplierSeq = 0;
-      byId('dynamicReportFields').innerHTML = config.map(renderField).join('') + (type === 'laporan_akun_bank' ? '<div class="field full"><div class="file-hint" data-bank-upload-status role="status" aria-live="polite">Maksimal 50 file dan 10 MB total per laporan. File besar dikompresi otomatis sebelum dikirim. Periksa pratinjau hasil kompresi.</div></div>' : '');
+      byId('dynamicReportFields').innerHTML = config.map(renderField).join('') + (usesPreparedReportUploads() ? '<div class="field full"><div class="file-hint" data-bank-upload-status role="status" aria-live="polite">' + preparedUploadLimitText() + ' File besar dikompresi otomatis sebelum dikirim. Periksa pratinjau hasil kompresi.</div></div>' : '');
       Array.prototype.forEach.call(document.querySelectorAll('[data-default-date]'), function(input) {
         if (!input.value) {
           input.value = new Date().toISOString().slice(0, 10);
@@ -4064,7 +4083,7 @@
               </label>
             </div>
             <div class="selected-file-count" data-file-count="${escapeAttr(field.field)}">Belum ada file dipilih.</div>
-            <div class="file-hint">Maksimal ${maxFiles} file dengan total ukuran maksimal ${maxTotalMb} MB${field.autoCompress ? ' per laporan, termasuk statement dan bukti bank. Kompresi otomatis bila melebihi batas' : ''}.</div>
+            <div class="file-hint">Maksimal ${maxFiles} file dengan total ukuran maksimal ${maxTotalMb} MB${field.autoCompress ? ' per laporan, termasuk seluruh bagian lampiran. Kompresi otomatis bila melebihi batas' : ''}.</div>
             ${help}
           </div>
         `;
@@ -4210,6 +4229,7 @@
     }
 
     async function collectReportPayload() {
+      const type = byId('reportType').value;
       const fields = {};
       Array.prototype.forEach.call(document.querySelectorAll('[data-field]'), function(input) {
         fields[input.dataset.field] = input.value;
@@ -4219,13 +4239,13 @@
       }
 
       const files = {};
-      if (byId('reportType').value === 'laporan_akun_bank') {
+      if (usesPreparedReportUploads()) {
         const prepared = await (bankUploadPreparation.promise || refreshBankUploadPreparation());
         for (const entry of prepared.entries) {
           const payloads = await readFiles([entry.file], 10);
           (files[entry.field] ||= []).push(payloads[0]);
         }
-        return { type: 'laporan_akun_bank', fields: fields, files: files };
+        return { type: type, fields: fields, files: files };
       }
       const fileInputs = Array.prototype.slice.call(document.querySelectorAll('[data-file-field]'));
       for (const input of fileInputs) {
@@ -4235,7 +4255,7 @@
         if (config && config.max && list.length > config.max) {
           throw new Error(config.label + ' maksimal ' + config.max + ' file.');
         }
-        const maxTotalMb = config && config.multiple ? Number(config.max || 10) : 8;
+        const maxTotalMb = config && config.maxTotalMb || (config && config.multiple ? Number(config.max || 10) : 8);
         validateFileList(list, config && config.multiple ? Number(config.max || 10) : 1, maxTotalMb, config && config.label || 'File');
         files[field] = await readFiles(list, maxTotalMb);
       }
@@ -4356,14 +4376,20 @@
       const update = function(message) {
         if (version === bankUploadPreparation.version && status) status.textContent = message;
       };
-      update('Memeriksa ' + entries.length + ' file bank...');
-      const promise = KpiBankUpload.prepare(entries, function(message) {
-        if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
-        update(message);
+      update('Memeriksa ' + entries.length + ' lampiran...');
+      const promise = Promise.resolve().then(function() {
+        document.querySelectorAll('[data-file-field]').forEach(function(input) {
+          const config = findFileConfig(byId('reportType').value, input.dataset.fileField);
+          validateFileList(input.files, config && config.multiple ? Number(config.max || 10) : 1, Infinity, config && config.label || 'Lampiran');
+        });
+        return KpiBankUpload.prepare(entries, function(message) {
+          if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
+          update(message);
+        });
       }).then(function(result) {
         if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
         bankUploadPreparation.result = result;
-        update(result.entries.length + ' file, total ' + (result.bytes / 1048576).toFixed(2) + ' MB.' + (result.compressed ? ' ' + result.compressed + ' file dikompresi dari total ' + (result.originalBytes / 1048576).toFixed(2) + ' MB. Periksa hasil sebelum dikirim.' : ' Maksimal 50 file dan 10 MB total.'));
+        update(result.entries.length + ' file, total ' + (result.bytes / 1048576).toFixed(2) + ' MB.' + (result.compressed ? ' ' + result.compressed + ' file dikompresi dari total ' + (result.originalBytes / 1048576).toFixed(2) + ' MB. Periksa hasil sebelum dikirim.' : ' ' + preparedUploadLimitText()));
         document.querySelectorAll('[data-file-count]').forEach(function(counter) {
           const list = result.entries.filter(function(entry) { return entry.field === counter.dataset.fileCount; });
           counter.innerHTML = list.length ? list.map(function(entry) {
@@ -4433,12 +4459,12 @@
       }
     }
 
-    function mergeFileSelection(targetInput, incomingFiles, maxFiles, maxTotalMb) {
+    function mergeFileSelection(targetInput, incomingFiles, maxFiles, maxTotalMb, previousFiles) {
       if (!targetInput || !incomingFiles || !incomingFiles.length) {
         return;
       }
       try {
-        const combined = Array.prototype.slice.call(targetInput.files || []);
+        const combined = Array.prototype.slice.call(previousFiles || targetInput.files || []);
         Array.prototype.forEach.call(incomingFiles, function(file) {
           const duplicate = combined.some(function(existing) {
             return existing.name === file.name && existing.size === file.size && existing.lastModified === file.lastModified;
@@ -4455,6 +4481,12 @@
         targetInput.files = transfer.files;
         updateSelectedFileCount(targetInput);
       } catch (error) {
+        if (previousFiles) {
+          const transfer = new DataTransfer();
+          previousFiles.forEach(function(file) { transfer.items.add(file); });
+          targetInput.files = transfer.files;
+          updateSelectedFileCount(targetInput);
+        }
         showError(error);
       }
     }
@@ -4462,6 +4494,10 @@
     function updateSelectedFileCount(input) {
       if (!input || !input.dataset.fileField) {
         return;
+      }
+      const config = findFileConfig(byId('reportType').value, input.dataset.fileField);
+      if (config && config.autoCompress && config.multiple) {
+        reportFileSelections.set(input, Array.from(input.files || []));
       }
       const count = input.files ? input.files.length : 0;
       const counter = document.querySelector('[data-file-count="' + input.dataset.fileField + '"]');

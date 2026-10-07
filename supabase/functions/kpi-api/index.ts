@@ -270,7 +270,7 @@ const BANK_ACCOUNT_BANKS = {
 };
 
 const REPORT_FILE_LIMITS = {
-  pendapatan_harian: { physicalCash: [1, 8], cashierState: [1, 8], notaAttachments: [20, 20], bankProof: [1, 8] },
+  pendapatan_harian: { physicalCash: [10, 10], cashierState: [10, 10], notaAttachments: [10, 10], bankProof: [1, 10] },
   bukti_storan_bank: { bankProof: [1, 8] },
   laporan_akun_bank: { bankAccountProof: [50, 10], bankStatement: [50, 10] },
   laporan_keadaan_kas_bank: { bankCashStateProof: [10, 10] },
@@ -1743,7 +1743,7 @@ function validateReportPayload_(user, type, fields, files) {
     requireFile_(files, 'physicalCash', 'Foto uang fisik wajib diupload.');
     requireFile_(files, 'cashierState', 'Foto keadaan kas di aplikasi kasir wajib diupload.');
     requireFile_(files, 'notaAttachments', 'Minimal 1 foto nota wajib diupload.');
-    limitFiles_(files, 'notaAttachments', 20, 'Foto nota maksimal 20 lampiran.');
+    limitFiles_(files, 'notaAttachments', 10, 'Foto nota maksimal 10 lampiran.');
     return;
   }
 
@@ -3016,6 +3016,35 @@ function limitFiles_(files, field, max, message) {
 }
 
 function validateReportFileLimits_(type, files) {
+  if (type === 'pendapatan_harian') {
+    const combined = [];
+    const limits = REPORT_FILE_LIMITS.pendapatan_harian;
+    Object.keys(files || {}).forEach(function(field) {
+      if (!Object.prototype.hasOwnProperty.call(limits, field) || !Array.isArray(files[field]))
+        throw new Error('Lampiran pendapatan harian tidak dikenal atau tidak valid.');
+      if (files[field].length > limits[field][0])
+        throw new Error('Lampiran ' + field + ' maksimal ' + limits[field][0] + ' file.');
+      files[field].forEach(function(file) {
+        const mime = String(file && file.mimeType || '').toLowerCase();
+        const data = String(file && file.data || '');
+        const encoded = data.includes(',') ? data.slice(data.lastIndexOf(',') + 1) : data;
+        if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))
+          throw new Error('Data lampiran pendapatan harian tidak valid.');
+        const pdfAllowed = field === 'notaAttachments' || field === 'bankProof';
+        if (!mime.startsWith('image/') && !(pdfAllowed && mime === 'application/pdf'))
+          throw new Error('Jenis lampiran ' + field + ' tidak sesuai.');
+        if (mime === 'application/pdf' && !encoded.startsWith('JVBERi0'))
+          throw new Error('Lampiran PDF harus berupa PDF yang valid.');
+        const size = Math.floor(encoded.length * 3 / 4) - (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0);
+        if (size < 1) throw new Error('Lampiran pendapatan harian kosong.');
+        combined.push({ size: size });
+      });
+    });
+    if (combined.length > 50) throw new Error('Lampiran maksimal 50 file per laporan.');
+    if (combined.reduce(function(sum, file) { return sum + file.size; }, 0) > 10 * 1024 * 1024)
+      throw new Error('Total lampiran maksimal 10 MB per laporan.');
+    return;
+  }
   if (type === 'laporan_akun_bank') {
     const combined = [];
     Object.keys(files || {}).forEach(function(field) {
