@@ -270,7 +270,7 @@ const BANK_ACCOUNT_BANKS = {
 const REPORT_FILE_LIMITS = {
   pendapatan_harian: { physicalCash: [1, 8], cashierState: [1, 8], notaAttachments: [20, 20], bankProof: [1, 8] },
   bukti_storan_bank: { bankProof: [1, 8] },
-  laporan_akun_bank: { bankAccountProof: [10, 10] },
+  laporan_akun_bank: { bankAccountProof: [50, 10], bankStatement: [50, 10] },
   laporan_keadaan_kas_bank: { bankCashStateProof: [10, 10] },
   laporan_saldo_bank_jago: { saldoProof: [10, 10] },
   rekap_storan_setengah_bulan: { storanProof: [10, 10] },
@@ -645,7 +645,7 @@ function apiCreateNote(token, request, assigneeId) {
     });
 
     touchDataVersion_();
-    return ok_({ message: assignee ? 'Note tersimpan dan menjadi tugas.' : 'Note tersimpan.' });
+    return ok_({ message: assignee ? 'Note tersimpan dan menjadi tugas.' : 'Note tersimpan.', noteId: noteId, assigned: Boolean(assignee) });
   } catch (error) {
     return fail_(error);
   }
@@ -2221,6 +2221,7 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
   });
   const taskAttachments = {};
   taskAttachments['bankAccountProof_' + bankName] = savedFiles.bankAccountProof || [];
+  taskAttachments['bankStatement_' + bankName] = savedFiles.bankStatement || [];
 
   if (!existing) {
     const bankReports = {};
@@ -2991,6 +2992,31 @@ function limitFiles_(files, field, max, message) {
 }
 
 function validateReportFileLimits_(type, files) {
+  if (type === 'laporan_akun_bank') {
+    const combined = [];
+    Object.keys(files || {}).forEach(function(field) {
+      if (!['bankAccountProof', 'bankStatement'].includes(field) || !Array.isArray(files[field]))
+        throw new Error('Lampiran bank tidak dikenal atau tidak valid.');
+      files[field].forEach(function(file) {
+        const mime = String(file && file.mimeType || '').toLowerCase();
+        const data = String(file && file.data || '');
+        const encoded = data.includes(',') ? data.slice(data.lastIndexOf(',') + 1) : data;
+        if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))
+          throw new Error('Data lampiran bank tidak valid.');
+        if ((field === 'bankStatement' && mime !== 'application/pdf') || (mime === 'application/pdf' && !encoded.startsWith('JVBERi0')))
+          throw new Error('Statement bank harus berupa PDF yang valid.');
+        if (field === 'bankAccountProof' && !mime.startsWith('image/') && mime !== 'application/pdf')
+          throw new Error('Bukti akun bank harus berupa gambar atau PDF.');
+        const size = Math.floor(encoded.length * 3 / 4) - (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0);
+        if (size < 1) throw new Error('Lampiran bank kosong.');
+        combined.push({ size: size });
+      });
+    });
+    if (combined.length > 50) throw new Error('Bukti dan statement bank maksimal 50 file per laporan.');
+    if (combined.reduce(function(sum, file) { return sum + file.size; }, 0) > 10 * 1024 * 1024)
+      throw new Error('Total bukti dan statement bank maksimal 10 MB per laporan.');
+    return;
+  }
   const limits = REPORT_FILE_LIMITS[type] || {};
   Object.keys(files || {}).forEach(function(field) {
     const list = Array.isArray(files[field]) ? files[field] : [];
@@ -3592,14 +3618,19 @@ function objectUrl(id) {
 }
 async function uploadFiles(files) {
   const uploaded = [];
-  for (const file of files) {
-    const response = await fetch(objectUrl(file.id), {
-      method: 'POST',
-      headers: { ...serviceHeaders(file.mimeType), 'x-upsert': 'false' },
-      body: decodeBase64(file.base64)
-    });
-    if (!response.ok) throw new Error('Lampiran KPI gagal diunggah (' + response.status + ').');
-    uploaded.push(file.id);
+  try {
+    for (const file of files) {
+      const response = await fetch(objectUrl(file.id), {
+        method: 'POST',
+        headers: { ...serviceHeaders(file.mimeType), 'x-upsert': 'false' },
+        body: decodeBase64(file.base64)
+      });
+      if (!response.ok) throw new Error('Lampiran KPI gagal diunggah (' + response.status + ').');
+      uploaded.push(file.id);
+    }
+  } catch (error) {
+    await removeUploadedFiles(uploaded);
+    throw error;
   }
   return uploaded;
 }
@@ -3610,6 +3641,92 @@ async function removeUploadedFiles(ids) {
     body: JSON.stringify({ prefixes: ids })
   }).catch(() => {});
 }
+function kpiAccessForNotification(profile) {
+  const role = String(profile.role || '').trim().toLowerCase();
+  const branch = String(profile.hak_akses_cabang || '').trim().toLowerCase();
+  const login = String(profile.username_login || '').trim().toLowerCase();
+  if (role === 'direktur') return ['owner', 'all'];
+  if (role === 'manager') return ['auditor', 'all'];
+  if (role === 'admin_raha' || (role === 'admin' && branch === 'raha')) return ['admin_raha', 'raha'];
+  if (role === 'admin' && ['', 'semua', 'kendari'].includes(branch)) return ['admin_kendari', 'kendari'];
+  if (role === 'sales' && login === 'juna' && branch === 'kendari') return ['sales_director', 'sales'];
+  return null;
+}
+function normalizeKpiWhatsAppPhone(value) {
+  let phone = String(value || '').trim().replace(/[\s()+.-]/g, '');
+  if (phone.startsWith('0')) phone = '62' + phone.slice(1);
+  else if (phone.startsWith('8')) phone = '62' + phone;
+  if (!/^628[0-9]{7,12}$/.test(phone)) throw new Error('Nomor WA penerima belum valid pada profil SLA.');
+  return phone;
+}
+async function kpiNotificationRpc(name, args) {
+  const response = await fetch(PROJECT_URL + '/rest/v1/rpc/' + name, {
+    method: 'POST', headers: serviceHeaders('application/json'), body: JSON.stringify(args)
+  });
+  if (!response.ok) throw new Error('Antrean WA KPI belum dapat diproses (' + response.status + ').');
+  return response.json();
+}
+async function sendKpiNoteNotification(noteId) {
+  let job;
+  let accepted = false;
+  try {
+    const rows = await kpiNotificationRpc('kpi_claim_note_notification', { p_note_id: noteId || null });
+    job = rows[0];
+    if (!job) return { status: 'none' };
+    const users = await restRows('kpi_users', 'select=id,record&id=eq.' + encodeURIComponent(job.assignee_id));
+    const recipient = users.length === 1 && users[0].record;
+    if (!recipient || String(recipient.Active).toLowerCase() === 'false') throw new Error('Penerima tugas KPI tidak aktif.');
+    const profiles = await restRows('users', 'select=username_login,role,hak_akses_cabang,no_wa&role=in.(direktur,manager,admin,admin_raha,sales)');
+    const matches = profiles.filter(profile => {
+      const access = kpiAccessForNotification(profile);
+      return access && access[0] === String(recipient.Role || '').trim().toLowerCase() && access[1] === String(recipient.Location || '').trim().toLowerCase();
+    });
+    if (matches.length !== 1) throw new Error('Profil SLA penerima tugas tidak ditemukan atau ambigu.');
+    const phone = normalizeKpiWhatsAppPhone(matches[0].no_wa);
+    const token = Deno.env.get('FONNTE_TOKEN') || Deno.env.get('FONNTE_TOKEN_CADANGAN');
+    if (!token) throw new Error('Konfigurasi WA KPI belum tersedia.');
+    const message = ['Tugas baru di Aplikasi KPI', 'Untuk: ' + recipient.Name,
+      'Dari: ' + job.creator_name, 'Tugas: ' + job.task_id, '',
+      String(job.note_text || '').slice(0, 10000), '',
+      'Buka KPI melalui Lobby SLA untuk melihat rincian dan lampiran:', 'https://aplikasisla.vercel.app/'].join('\n');
+    const response = await fetch('https://api.fonnte.com/send', {
+      method: 'POST', headers: { Authorization: token, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ target: phone, message: message, countryCode: '0', connectOnly: 'false' }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const result = await response.json();
+    if (!response.ok || result.status !== true) throw new Error('Provider WA belum menerima notifikasi tugas.');
+    accepted = true;
+    const finished = await kpiNotificationRpc('kpi_finish_note_notification', {
+      p_note_id: job.note_id, p_lease_token: job.lease_token, p_accepted: true,
+      p_provider_id: Array.isArray(result.id) ? result.id.join(',') : String(result.id || ''), p_error: ''
+    });
+    if (!finished) throw new Error('Status pengiriman WA belum dapat dicatat.');
+    return { status: 'accepted' };
+  } catch (error) {
+    // Notification failures must never turn a successfully saved note into a retry
+    // of note creation. Leave accepted-but-unrecorded sends under their lease.
+    console.error('KPI note notification:', error.message || 'Gagal memproses antrean.');
+    if (job && !accepted) {
+      await kpiNotificationRpc('kpi_finish_note_notification', {
+        p_note_id: job.note_id, p_lease_token: job.lease_token, p_accepted: false,
+        p_provider_id: '', p_error: String(error.message || 'Pengiriman belum berhasil.').slice(0, 300)
+      }).catch(() => {});
+    }
+    return { status: 'pending' };
+  }
+}
+async function retryKpiNoteNotifications() {
+  let accepted = 0;
+  for (let i = 0; i < 5; i++) {
+    const result = await sendKpiNoteNotification(null);
+    if (result.status === 'none') break;
+    if (result.status === 'accepted') accepted += 1;
+    else break;
+  }
+  return accepted;
+}
+
 async function downloadFile(id, meta) {
   const response = await fetch(objectUrl(id), { headers: serviceHeaders() });
   if (!response.ok) throw new Error('Lampiran KPI belum tersedia di Supabase.');
@@ -3650,6 +3767,7 @@ Deno.serve(async request => {
       engine.runDailyMaintenance();
       const changes = engine.changes();
       await applyChanges(changes);
+      await retryKpiNoteNotifications();
       return jsonResponse({ ok: true, createdTasks: changes.filter(change =>
         change.table === 'kpi_tasks' && change.operation === 'insert').length }, 200, origin);
     }
@@ -3694,6 +3812,12 @@ Deno.serve(async request => {
       await removeUploadedFiles(uploaded);
       throw error;
     }
+    if (action === 'apiCreateNote' && result.assigned && result.noteId) {
+      result.notification = await sendKpiNoteNotification(result.noteId);
+      result.message = result.notification.status === 'accepted'
+        ? 'Note tersimpan, tugas dibuat, dan notifikasi WA diterima untuk dikirim.'
+        : 'Note dan tugas tersimpan. Notifikasi WA masuk antrean untuk dicoba kembali.';
+    }
     return jsonResponse(result, 200, origin);
   } catch (error) {
     console.error('KPI Edge request failed:', error && error.message ? error.message : String(error));
@@ -3702,3 +3826,4 @@ Deno.serve(async request => {
     return jsonResponse({ ok: false, message }, unauthorized ? 401 : 500, origin);
   }
 });
+

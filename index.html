@@ -2267,7 +2267,9 @@
     </main>
   </section>
 
+  <script src="assets/kpi-bank-upload.js?v=2026-10-07"></script>
   <script>
+    const bankUploadPreparation = { version: 0, promise: null, result: null, urls: [] };
     const state = {
       token: sessionStorage.getItem('kpi_sla_token') || '',
       user: null,
@@ -2306,7 +2308,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-02-shipment-supplier-groups';
+    const CLIENT_CACHE_VERSION = '2026-10-07-bank-upload-note-wa';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2339,7 +2341,8 @@
       laporan_akun_bank: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'select', field: 'bankName', label: 'Bank yang dilaporkan', required: true, options: [['', 'Pilih bank'], ['bri', 'BRI'], ['mandiri', 'Mandiri'], ['bank_sultra', 'Bank Sultra']] },
-        { kind: 'file', field: 'bankAccountProof', label: 'Bukti akun bank', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'bankAccountProof', label: 'Bukti akun bank', required: true, multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'bankStatement', label: 'Statement bank (PDF)', multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'application/pdf,.pdf', help: 'Opsional. Maksimal 50 file dan 10 MB total, termasuk bukti akun bank. PDF dapat dilihat dan diunduh setelah upload.' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_keadaan_kas_bank: [
@@ -2554,6 +2557,7 @@
         if (!cameraFor) {
           if (event.target && event.target.dataset && event.target.dataset.fileField) {
             updateSelectedFileCount(event.target);
+            if (byId('reportType').value === 'laporan_akun_bank') refreshBankUploadPreparation();
           }
           return;
         }
@@ -2562,10 +2566,11 @@
         });
         const config = findFileConfig(byId('reportType').value, cameraFor);
         const maxFiles = config && config.multiple ? Number(config.max || 10) : 1;
-        const maxTotalMb = config && config.multiple ? maxFiles : 8;
+        const maxTotalMb = config && config.autoCompress ? Infinity : config && config.multiple ? maxFiles : 8;
         mergeFileSelection(storageInput, event.target.files, maxFiles, maxTotalMb);
         event.target.value = '';
         updateSelectedFileCount(storageInput);
+        if (byId('reportType').value === 'laporan_akun_bank') refreshBankUploadPreparation();
       });
       byId('dynamicReportFields').addEventListener('click', function(event) {
         const addButton = event.target.closest('[data-add-shipment-item]');
@@ -2583,6 +2588,12 @@
         }
       });
       byId('reportForm').addEventListener('submit', submitReport);
+      byId('reportForm').addEventListener('reset', function() {
+        clearBankUploadPreparation();
+        window.setTimeout(function() {
+          if (byId('reportType').value === 'laporan_akun_bank') refreshBankUploadPreparation();
+        }, 0);
+      });
       byId('resetReportButton').addEventListener('click', function() {
         renderReportForm();
       });
@@ -3169,13 +3180,13 @@
             files: { photos: photoPayloads }
           });
         })
-        .then(function() {
+        .then(function(response) {
           byId('noteInput').value = '';
           byId('noteAssigneeSelect').value = '';
           photoInput.value = '';
           byId('noteCamera').value = '';
           state.noteAssigneeId = '';
-          toast('Note tersimpan.');
+          toast(response.message || 'Note tersimpan.');
           loadDashboard();
         })
         .catch(showError)
@@ -3481,7 +3492,9 @@
       const safeFiles = files || [];
       const buttons = safeFiles.map(function(file) {
         const label = file.name || 'Buka file';
-        return `<button class="btn btn-mini btn-ghost attachment-button" type="button" data-file-id="${escapeAttr(file.id)}" title="${escapeAttr(label)}" onclick="openUploadedFile('${escapeAttr(file.id)}', this)">${escapeHtml(label)}</button>`;
+        const open = `<button class="btn btn-mini btn-ghost attachment-button" type="button" data-file-id="${escapeAttr(file.id)}" title="${escapeAttr(label)}" onclick="openUploadedFile('${escapeAttr(file.id)}', this)">${escapeHtml(label)}</button>`;
+        const pdf = String(file.mimeType || '').toLowerCase() === 'application/pdf' || /\.pdf$/i.test(label);
+        return open + (pdf ? `<button class="btn btn-mini btn-ghost" type="button" title="Unduh ${escapeAttr(label)}" onclick="downloadUploadedFile('${escapeAttr(file.id)}', this)">Unduh PDF</button>` : '');
       });
       if (options && options.openAll) {
         buttons.push('<button class="btn btn-mini btn-primary attachment-open-all" type="button" onclick="openAllAttachmentFiles(this)">Open all</button>');
@@ -3601,6 +3614,21 @@
             button.disabled = false;
           }
         });
+    }
+
+    function downloadUploadedFile(fileId, button) {
+      if (button) button.disabled = true;
+      return api('apiGetUploadedFile', state.token, fileId).then(function(response) {
+        const file = response.file || {};
+        const url = blobUrlFromBase64(file.data || '', file.mimeType || 'application/pdf');
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.name || 'statement-bank.pdf';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
+      }).catch(showError).finally(function() { if (button) button.disabled = false; });
     }
 
     function blobUrlFromBase64(base64, mimeType) {
@@ -3924,11 +3952,12 @@
     }
 
     function renderReportForm() {
+      clearBankUploadPreparation();
       const type = byId('reportType').value;
       const config = (REPORT_FORMS[type] || []).filter(fieldVisibleForUser);
       state.shipmentItemSeq = 0;
       state.shipmentSupplierSeq = 0;
-      byId('dynamicReportFields').innerHTML = config.map(renderField).join('');
+      byId('dynamicReportFields').innerHTML = config.map(renderField).join('') + (type === 'laporan_akun_bank' ? '<div class="field full"><div class="file-hint" data-bank-upload-status role="status" aria-live="polite">Maksimal 50 file dan 10 MB total per laporan. File besar dikompresi otomatis sebelum dikirim. Periksa pratinjau hasil kompresi.</div></div>' : '');
       Array.prototype.forEach.call(document.querySelectorAll('[data-default-date]'), function(input) {
         if (!input.value) {
           input.value = new Date().toISOString().slice(0, 10);
@@ -4017,24 +4046,25 @@
         const storageId = 'upload-storage-' + field.field;
         const cameraId = 'upload-camera-' + field.field;
         const maxFiles = field.multiple ? Number(field.max || 10) : 1;
-        const maxTotalMb = field.multiple ? maxFiles : 8;
+        const maxTotalMb = field.maxTotalMb || (field.multiple ? maxFiles : 8);
+        const pdfOnly = field.field === 'bankStatement';
         return `
           <div class="field${full}">
             <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
             <input id="${escapeAttr(storageId)}" class="visually-hidden-file" data-file-field="${escapeAttr(field.field)}" type="file" ${field.multiple ? 'multiple' : ''} ${required} accept="${escapeAttr(field.accept || '')}">
-            <input id="${escapeAttr(cameraId)}" class="visually-hidden-file" data-camera-for="${escapeAttr(field.field)}" type="file" accept="image/*" capture="environment">
+            ${pdfOnly ? '' : `<input id="${escapeAttr(cameraId)}" class="visually-hidden-file" data-camera-for="${escapeAttr(field.field)}" type="file" accept="image/*" capture="environment">`}
             <div class="file-source-actions">
-              <label class="btn btn-ghost file-source-button" for="${escapeAttr(cameraId)}">
+              ${pdfOnly ? '' : `<label class="btn btn-ghost file-source-button" for="${escapeAttr(cameraId)}">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-3h6l2 3h3v13H4V7z"></path><circle cx="12" cy="13" r="4"></circle></svg>
                 Buka kamera
-              </label>
+              </label>`}
               <label class="btn btn-ghost file-source-button" for="${escapeAttr(storageId)}">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path></svg>
                 Buka file
               </label>
             </div>
             <div class="selected-file-count" data-file-count="${escapeAttr(field.field)}">Belum ada file dipilih.</div>
-            <div class="file-hint">Maksimal ${maxFiles} file dengan total ukuran maksimal ${maxTotalMb} MB.</div>
+            <div class="file-hint">Maksimal ${maxFiles} file dengan total ukuran maksimal ${maxTotalMb} MB${field.autoCompress ? ' per laporan, termasuk statement dan bukti bank. Kompresi otomatis bila melebihi batas' : ''}.</div>
             ${help}
           </div>
         `;
@@ -4189,6 +4219,14 @@
       }
 
       const files = {};
+      if (byId('reportType').value === 'laporan_akun_bank') {
+        const prepared = await (bankUploadPreparation.promise || refreshBankUploadPreparation());
+        for (const entry of prepared.entries) {
+          const payloads = await readFiles([entry.file], 10);
+          (files[entry.field] ||= []).push(payloads[0]);
+        }
+        return { type: 'laporan_akun_bank', fields: fields, files: files };
+      }
       const fileInputs = Array.prototype.slice.call(document.querySelectorAll('[data-file-field]'));
       for (const input of fileInputs) {
         const field = input.dataset.fileField;
@@ -4297,6 +4335,51 @@
             }).join('')}</ol>
           </section>`;
         }).join('') : `<div class="shipment-receipt-description">${escapeHtml(payload.itemSummary || task.detailText || 'Rincian kiriman belum tersedia.')}</div>`);
+    }
+
+    function clearBankUploadPreparation() {
+      bankUploadPreparation.version += 1;
+      bankUploadPreparation.urls.forEach(function(url) { URL.revokeObjectURL(url); });
+      bankUploadPreparation.urls = [];
+      bankUploadPreparation.promise = null;
+      bankUploadPreparation.result = null;
+    }
+
+    function refreshBankUploadPreparation() {
+      clearBankUploadPreparation();
+      const version = bankUploadPreparation.version;
+      const entries = [];
+      document.querySelectorAll('[data-file-field]').forEach(function(input) {
+        Array.from(input.files || []).forEach(function(file) { entries.push({ field: input.dataset.fileField, file: file }); });
+      });
+      const status = document.querySelector('[data-bank-upload-status]');
+      const update = function(message) {
+        if (version === bankUploadPreparation.version && status) status.textContent = message;
+      };
+      update('Memeriksa ' + entries.length + ' file bank...');
+      const promise = KpiBankUpload.prepare(entries, function(message) {
+        if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
+        update(message);
+      }).then(function(result) {
+        if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
+        bankUploadPreparation.result = result;
+        update(result.entries.length + ' file, total ' + (result.bytes / 1048576).toFixed(2) + ' MB.' + (result.compressed ? ' ' + result.compressed + ' file dikompresi dari total ' + (result.originalBytes / 1048576).toFixed(2) + ' MB. Periksa hasil sebelum dikirim.' : ' Maksimal 50 file dan 10 MB total.'));
+        document.querySelectorAll('[data-file-count]').forEach(function(counter) {
+          const list = result.entries.filter(function(entry) { return entry.field === counter.dataset.fileCount; });
+          counter.innerHTML = list.length ? list.map(function(entry) {
+            const url = URL.createObjectURL(entry.file);
+            bankUploadPreparation.urls.push(url);
+            return '<div><a href="' + escapeAttr(url) + '" target="_blank" rel="noopener">Lihat ' + escapeHtml(entry.file.name) + '</a> · ' + (entry.file.size / 1048576).toFixed(2) + ' MB · <a href="' + escapeAttr(url) + '" download="' + escapeAttr(entry.file.name) + '">Unduh</a></div>';
+          }).join('') : 'Belum ada file dipilih.';
+        });
+        return result;
+      }).catch(function(error) {
+        update(error.message);
+        throw error;
+      });
+      promise.catch(function() {});
+      bankUploadPreparation.promise = promise;
+      return promise;
     }
 
     function readFiles(files, maxTotalMb) {
@@ -4526,3 +4609,4 @@
   </script>
 </body>
 </html>
+
