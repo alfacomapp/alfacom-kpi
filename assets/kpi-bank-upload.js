@@ -9,7 +9,7 @@
     return files.reduce((sum, file) => sum + file.size, 0);
   }
   function isPdf(file) {
-    return file.type === 'application/pdf' || (!file.type && /\.pdf$/i.test(file.name));
+    return file.type === 'application/pdf' || ((!file.type || file.type === 'application/octet-stream') && /\.pdf$/i.test(file.name));
   }
   async function validate(entries) {
     if (entries.length > MAX_FILES) throw new Error('Bukti dan statement bank maksimal 50 file per laporan.');
@@ -145,6 +145,9 @@
     return best;
   }
   async function prepare(entries, progress) {
+    entries = entries.map(entry => isPdf(entry.file) && entry.file.type !== 'application/pdf'
+      ? { field: entry.field, file: new File([entry.file], entry.file.name, { type: 'application/pdf', lastModified: entry.file.lastModified }) }
+      : entry);
     await validate(entries);
     const originalBytes = totalBytes(entries.map(entry => entry.file));
     if (originalBytes <= MAX_BYTES) return { entries, originalBytes, bytes: originalBytes, compressed: 0 };
