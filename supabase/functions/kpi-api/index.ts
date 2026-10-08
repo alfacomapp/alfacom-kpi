@@ -154,6 +154,12 @@ const REPORT_TYPES = {
     roles: [],
     timeLimitHours: 24
   },
+  kasbon_di_atas_limit: {
+    label: 'Upload Bukti Persetujuan Pengambilan Kasbon di Atas Limit',
+    roles: ['owner', 'auditor', 'admin_kendari', 'admin_raha', 'sales_director', 'user'],
+    timeLimitHours: 0,
+    excludeFromKpi: true
+  },
   pendapatan_harian: {
     label: 'Pendapatan Harian',
     roles: ['admin_kendari', 'admin_raha'],
@@ -270,6 +276,7 @@ const BANK_ACCOUNT_BANKS = {
 };
 
 const REPORT_FILE_LIMITS = {
+  kasbon_di_atas_limit: { approvalProof: [10, 10] },
   pendapatan_harian: { physicalCash: [10, 10], cashierState: [10, 10], notaAttachments: [10, 10], bankProof: [1, 10] },
   bukti_storan_bank: { bankProof: [1, 8] },
   laporan_akun_bank: { bankAccountProof: [50, 10], bankStatement: [50, 10] },
@@ -643,7 +650,8 @@ function apiCreateNote(token, request, assigneeId) {
       AssignedToId: assignee ? assignee.Id : '',
       AssignedToName: assignee ? assignee.Name : '',
       AssignedTaskId: task ? task.id : '',
-      AttachmentUrlsJson: JSON.stringify(savedFiles)
+      AttachmentUrlsJson: JSON.stringify(savedFiles),
+      CommentsJson: '[]'
     });
 
     touchDataVersion_();
@@ -725,6 +733,35 @@ function apiDeleteNote(token, noteId) {
     deleteObjectById_('notes', id);
     touchDataVersion_();
     return ok_({ message: 'Note dihapus.' });
+  } catch (error) {
+    return fail_(error);
+  }
+}
+
+function apiAddNoteComment(token, noteId, commentText) {
+  try {
+    const user = requireUser_(token);
+    const id = String(noteId || '').trim();
+    const text = String(commentText || '').replace(/\s+/g, ' ').trim();
+    if (!id) throw new Error('Note tidak ditemukan.');
+    if (!text) throw new Error('Komentar belum diisi.');
+    if (text.length > 1000) throw new Error('Komentar maksimal 1000 karakter.');
+
+    updateObjectById_('notes', id, function(row) {
+      const comments = parseJsonSafe_(row.CommentsJson, []);
+      const safeComments = Array.isArray(comments) ? comments.slice(-199) : [];
+      safeComments.push({
+        id: makeId_('CMT'), text: text, createdById: user.Id,
+        createdByName: user.Name, createdAt: toIso_(new Date())
+      });
+      row.CommentsJson = JSON.stringify(safeComments);
+      row.UpdatedAt = new Date();
+      row.UpdatedById = user.Id;
+      return row;
+    });
+
+    touchDataVersion_();
+    return ok_({ message: 'Komentar tersimpan.' });
   } catch (error) {
     return fail_(error);
   }
@@ -874,7 +911,7 @@ function apiGetReportMeta(token) {
         return enrichTask_(task, now, attendanceMap);
       })
       .filter(function(task) {
-        return task.status === 'berjalan' && isReportTaskAssignedToUser_(user, task);
+        return task.status === 'berjalan' && !isDeprecatedTaskForKpi_(task) && isReportTaskAssignedToUser_(user, task);
       })
       .sort(sortTasks_);
 
@@ -1252,13 +1289,7 @@ function sanitizeUser_(user) {
 }
 
 function menusForUser_(user) {
-  if (user.Role === 'owner') {
-    return ['dashboard', 'profil'];
-  }
-  if (user.Role === 'auditor' || user.Role === 'sales_director' || isAdminRole_(user.Role)) {
-    return ['dashboard', 'laporan', 'profil'];
-  }
-  return ['dashboard', 'profil'];
+  return ['dashboard', 'laporan', 'profil'];
 }
 
 function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
@@ -1274,8 +1305,15 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
     }
   });
 
+  const taskTypeById = {};
+  readObjects_('tasks').forEach(function(task) {
+    if (task.Id) taskTypeById[task.Id] = String(task.TaskType || '');
+  });
+
   return (sourceNotes || readObjects_('notes'))
     .filter(function(note) {
+      if (note.AssignedTaskId && taskTypeById[note.AssignedTaskId] === 'sales_penawaran') return false;
+
       if (filter === '__all') {
         return true;
       }
@@ -1305,6 +1343,17 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
         assignedToName: note.AssignedToName || '',
         assignedTaskId: note.AssignedTaskId || '',
         attachments: attachmentMetadataGroups_(parseJsonSafe_(note.AttachmentUrlsJson, {})),
+        comments: (function() {
+          const comments = parseJsonSafe_(note.CommentsJson, []);
+          return (Array.isArray(comments) ? comments : []).map(function(comment) {
+            return {
+              id: String(comment.id || ''), text: String(comment.text || ''),
+              createdById: String(comment.createdById || ''),
+              createdByName: String(comment.createdByName || ''),
+              createdAt: String(comment.createdAt || '')
+            };
+          });
+        })(),
         createdAt: toIso_(note.CreatedAt),
         updatedAt: toIso_(note.UpdatedAt)
       };
@@ -1429,11 +1478,14 @@ function buildCardMetric_(card, allTasks) {
 }
 
 function countTaskMetric_(tasks) {
-  const total = tasks.length;
-  const tepatWaktu = tasks.filter(function(task) {
+  const includedTasks = tasks.filter(function(task) {
+    return !task.excludedFromKpi;
+  });
+  const total = includedTasks.length;
+  const tepatWaktu = includedTasks.filter(function(task) {
     return task.kpiStatus === 'tepat_waktu';
   }).length;
-  const meleset = tasks.filter(function(task) {
+  const meleset = includedTasks.filter(function(task) {
     return task.kpiStatus === 'meleset';
   }).length;
   const performance = total ? Math.round((tepatWaktu / total) * 100) : 0;
@@ -1550,6 +1602,8 @@ function tasksForCard_(allTasks, card) {
 }
 
 function isDeprecatedTaskForKpi_(task) {
+  if (isSundayScheduledTask_(task)) return true;
+
   const taskType = task.taskType || task.TaskType;
   const location = task.assigneeLocation || normalizeLocation_(task.AssigneeLocation);
   const periodKey = String(task.periodKey || task.PeriodKey || '');
@@ -1559,6 +1613,14 @@ function isDeprecatedTaskForKpi_(task) {
   }
 
   return location === 'kendari' || /:p[12]$/.test(periodKey);
+}
+
+function isSundayScheduledTask_(task) {
+  const type = String(task.taskType || task.TaskType || '');
+  const dailyTypes = ['pendapatan_harian', 'laporan_keadaan_kas_bank', 'sales_upload_harian_10', 'sales_upload_harian_1_10', 'audit_harian'];
+  if (dailyTypes.indexOf(type) === -1) return false;
+  const startedAt = parseDate_(task.startedAt || task.StartedAt || task.createdAt || task.CreatedAt);
+  return Boolean(startedAt && startedAt.getDay() === 0);
 }
 
 function uniqueTaskTypes_(tasks) {
@@ -1584,15 +1646,17 @@ function enrichTask_(task, now, attendanceMap) {
   const type = String(task.TaskType || '');
   let kpiStatus = normalizeKpiStatus_(task.KpiStatus || 'berjalan');
   const status = String(task.Status || 'berjalan');
+  const payload = parseJsonSafe_(task.PayloadJson, {});
+  const excludedFromKpi = Boolean(payload.excludeFromKpi || (REPORT_TYPES[type] && REPORT_TYPES[type].excludeFromKpi));
   const timer = buildTaskTimer_(task, now, attendanceMap);
-  if (status === 'berjalan' && kpiStatus === 'berjalan' && timer.remainingMs < 0) {
+  if (!excludedFromKpi && status === 'berjalan' && kpiStatus === 'berjalan' && timer.remainingMs < 0) {
     kpiStatus = 'meleset';
   }
-  const payload = parseJsonSafe_(task.PayloadJson, {});
-  const displayKpiStatus = status === 'berjalan' && kpiStatus === 'berjalan' && timer.isPaused ? 'pause' : kpiStatus;
+  const displayKpiStatus = excludedFromKpi ? 'data' : (status === 'berjalan' && kpiStatus === 'berjalan' && timer.isPaused ? 'pause' : kpiStatus);
 
   return {
     id: String(task.Id || ''),
+    referenceNumber: Number(task.ReferenceNumber || task.__Sequence || 0),
     taskType: type,
     taskLabel: REPORT_TYPES[type] ? REPORT_TYPES[type].label : type,
     title: String(task.Title || ''),
@@ -1606,7 +1670,8 @@ function enrichTask_(task, now, attendanceMap) {
     kpiStatus: kpiStatus,
     kpiLabel: KPI_LABELS[kpiStatus] || kpiStatus,
     displayKpiStatus: displayKpiStatus,
-    displayKpiLabel: displayKpiStatus === 'pause' ? 'Pause' : (KPI_LABELS[kpiStatus] || kpiStatus),
+    displayKpiLabel: excludedFromKpi ? 'Data' : (displayKpiStatus === 'pause' ? 'Pause' : (KPI_LABELS[kpiStatus] || kpiStatus)),
+    excludedFromKpi: excludedFromKpi,
     createdByName: String(task.CreatedByName || ''),
     createdAt: toIso_(task.CreatedAt),
     updatedAt: toIso_(task.UpdatedAt),
@@ -1670,7 +1735,10 @@ function buildTaskDetailText_(task, payload) {
     parts.push('Deadline: ' + Utilities.formatDate(parseDate_(detail.deadlineAt), getScriptTimeZone_(), 'dd/MM/yyyy HH:mm'));
   }
   if (detail.amount) {
-    const amountLabel = String(task.TaskType || '') === 'rekap_storan_setengah_bulan' ? 'Speedometer' : 'Nominal';
+    const taskType = String(task.TaskType || '');
+    const amountLabel = taskType === 'rekap_storan_setengah_bulan'
+      ? 'Speedometer'
+      : (taskType === 'kasbon_di_atas_limit' ? 'Nominal kasbon' : 'Nominal');
     parts.push(amountLabel + ': ' + detail.amount);
   }
 
@@ -1678,13 +1746,12 @@ function buildTaskDetailText_(task, payload) {
 }
 
 function sortTasks_(a, b) {
-  const rank = { berjalan: 0, meleset: 1, tepat_waktu: 2 };
-  const aRank = rank[a.kpiStatus] || 9;
-  const bRank = rank[b.kpiStatus] || 9;
-  if (aRank !== bRank) {
-    return aRank - bRank;
+  const newestFirst = new Date(b.createdAt || b.startedAt || b.completedAt || 0) -
+    new Date(a.createdAt || a.startedAt || a.completedAt || 0);
+  if (newestFirst !== 0) {
+    return newestFirst;
   }
-  return new Date(b.createdAt || b.startedAt || 0) - new Date(a.createdAt || a.startedAt || 0);
+  return String(b.id || '').localeCompare(String(a.id || ''));
 }
 
 function canUserSeeTask_(user, task) {
@@ -1738,6 +1805,12 @@ function ensureReportPermission_(user, type) {
 }
 
 function validateReportPayload_(user, type, fields, files) {
+  if (type === 'kasbon_di_atas_limit') {
+    requireNumber_(fields.amount, 'Nominal kasbon wajib diisi.');
+    requireFile_(files, 'approvalProof', 'Bukti persetujuan pengambilan kasbon di atas limit wajib diupload.');
+    return;
+  }
+
   if (type === 'pendapatan_harian') {
     requireNumber_(fields.amount, 'Total setoran harian wajib diisi.');
     requireFile_(files, 'physicalCash', 'Foto uang fisik wajib diupload.');
@@ -1855,6 +1928,23 @@ function processReportTasks_(user, report, fields, savedFiles) {
   const type = report.TaskType;
   const results = [];
   const now = parseDate_(report.CreatedAt);
+
+  if (type === 'kasbon_di_atas_limit') {
+    results.push(createTask_({
+      taskType: type,
+      title: REPORT_TYPES[type].label,
+      assigneeRole: user.Role,
+      assigneeLocation: getUserLocation_(user),
+      assigneeName: user.Name,
+      relatedReportId: report.Id,
+      timeLimitHours: 0,
+      startedAt: now,
+      createdBy: user,
+      payload: Object.assign({}, fields, { excludeFromKpi: true, noDeadline: true }),
+      attachments: savedFiles,
+      completeNow: true
+    }));
+  }
 
   if (type === 'pendapatan_harian') {
     const startedAt = startOfDay_(parseDate_(fields.reportDate || report.ReportDate || now));
@@ -2114,7 +2204,7 @@ function createTask_(options) {
     AssigneeLocation: normalizeLocation_(options.assigneeLocation || ''),
     AssigneeName: options.assigneeName || findPrimaryAssigneeName_(options.assigneeRole, options.assigneeLocation),
     RelatedReportId: options.relatedReportId || '',
-    TimeLimitHours: Number(options.timeLimitHours || 24),
+    TimeLimitHours: Number(options.timeLimitHours == null ? 24 : options.timeLimitHours),
     StartedAt: options.startedAt || now,
     Status: 'berjalan',
     KpiStatus: 'berjalan',
@@ -2131,7 +2221,7 @@ function createTask_(options) {
   };
 
   if (options.completeNow) {
-    const status = calculateKpiStatus_(task, now);
+    const status = payload.excludeFromKpi ? 'tepat_waktu' : calculateKpiStatus_(task, now);
     task.Status = 'selesai';
     task.KpiStatus = status;
     task.CompletedAt = now;
@@ -2380,6 +2470,9 @@ function buildTaskTimer_(task, now, attendanceMap) {
   const endAt = completedAt || now;
   const payload = parseJsonSafe_(task.PayloadJson, {});
   const deadlineAt = parseDate_(payload.deadlineAt);
+  if (payload.noDeadline || payload.excludeFromKpi || (REPORT_TYPES[task.TaskType] && REPORT_TYPES[task.TaskType].excludeFromKpi)) {
+    return { limitMs: 0, workedMs: 0, remainingMs: 0, overdueMs: 0, deadlineAt: '', isPaused: false, pauseReason: '', noDeadline: true, serverNow: now.toISOString() };
+  }
   const activeAttendanceMap = attendanceMap || getAttendanceMap_();
   const isRunning = String(task.Status || 'berjalan') === 'berjalan';
   const pausePolicy = taskPausePolicy_(task, startedAt, deadlineAt);
@@ -2387,13 +2480,14 @@ function buildTaskTimer_(task, now, attendanceMap) {
   const workedMs = effectiveWorkedMs_(startedAt, endAt, task.AssigneeName, activeAttendanceMap, pausePolicy);
   const effectiveLimitMs = taskLimitMs_(task, startedAt, deadlineAt);
   const remainingMs = effectiveLimitMs - workedMs;
+  const effectiveDeadline = effectiveDeadlineAt_(startedAt, effectiveLimitMs, task.AssigneeName, activeAttendanceMap, pausePolicy);
 
   return {
     limitMs: effectiveLimitMs,
     workedMs: workedMs,
     remainingMs: remainingMs,
     overdueMs: remainingMs < 0 ? Math.abs(remainingMs) : 0,
-    deadlineAt: deadlineAt ? deadlineAt.toISOString() : '',
+    deadlineAt: effectiveDeadline ? effectiveDeadline.toISOString() : (deadlineAt ? deadlineAt.toISOString() : ''),
     isPaused: pauseState.paused,
     pauseReason: pauseState.reason,
     serverNow: now.toISOString()
@@ -2402,6 +2496,7 @@ function buildTaskTimer_(task, now, attendanceMap) {
 
 function calculateKpiStatus_(task, endAt, attendanceMap) {
   const payload = parseJsonSafe_(task.PayloadJson, {});
+  if (payload.noDeadline || payload.excludeFromKpi || (REPORT_TYPES[task.TaskType] && REPORT_TYPES[task.TaskType].excludeFromKpi)) return 'tepat_waktu';
   const deadlineAt = parseDate_(payload.deadlineAt);
   const startedAt = parseDate_(task.StartedAt || task.CreatedAt || endAt);
   const activeAttendanceMap = attendanceMap || getAttendanceMap_();
@@ -2427,9 +2522,32 @@ function taskPausePolicy_(task, startedAt, deadlineAt) {
   const limitMs = Number(task.TimeLimitHours || 0) * 60 * 60 * 1000;
   const spanMs = explicitDeadline && start ? explicitDeadline.getTime() - start.getTime() : limitMs;
   return {
-    pauseSunday: Number(spanMs || 0) < 6 * 24 * 60 * 60 * 1000,
+    pauseSunday: true,
     useFullDay: true
   };
+}
+
+function effectiveDeadlineAt_(startAt, limitMs, assigneeName, attendanceMap, pausePolicy) {
+  const start = parseDate_(startAt);
+  let remaining = Math.max(0, Number(limitMs || 0));
+  if (!start || !remaining) return null;
+
+  let cursor = new Date(start);
+  let guard = 0;
+  while (remaining > 0 && guard < 4000) {
+    const day = startOfDay_(cursor);
+    if (isCountingDay_(day, assigneeName, attendanceMap, pausePolicy)) {
+      const window = workWindowForDate_(day, pausePolicy);
+      const segmentStart = cursor > window.start ? cursor : window.start;
+      const available = Math.max(0, window.end.getTime() - segmentStart.getTime());
+      if (remaining <= available) return new Date(segmentStart.getTime() + remaining);
+      remaining -= available;
+    }
+    cursor = startOfDay_(day);
+    cursor.setDate(cursor.getDate() + 1);
+    guard += 1;
+  }
+  return null;
 }
 
 function effectiveWorkedMs_(startAt, endAt, assigneeName, attendanceMap, pausePolicy) {
@@ -2537,8 +2655,71 @@ function getAttendanceMap_() {
     if (rows.length < 1000) break;
     offset += rows.length;
   }
+  const leaveRequests = supabaseKpiRequest_('get', 'pengajuan_cuti', 'select=*') || [];
+  applyLeaveRequestsToAttendanceMap_(map, leaveRequests);
+
   try { cache.put(cacheKey, JSON.stringify(map), 60); } catch (error) {}
   return map;
+}
+
+function firstDefinedValue_(row, keys) {
+  for (let index = 0; index < keys.length; index += 1) {
+    const value = row && row[keys[index]];
+    if (value !== null && typeof value !== 'undefined' && String(value).trim()) return value;
+  }
+  return '';
+}
+
+function isApprovedLeaveRequest_(row) {
+  const approval = String(firstDefinedValue_(row, ['status_pengajuan', 'status_persetujuan', 'approval_status', 'status_approval', 'status']) || '').trim().toLowerCase();
+  if (!approval) return true;
+  if (/tolak|reject|batal|cancel|pending|menunggu|proses/.test(approval)) return false;
+  return /setuju|approve|terima|selesai|aktif|izin|sakit|libur|cuti/.test(approval);
+}
+
+function leaveTypeForRow_(row) {
+  const raw = String(firstDefinedValue_(row, ['jenis_cuti', 'jenis_pengajuan', 'jenis_izin', 'tipe_cuti', 'tipe_absen', 'status_kehadiran', 'kategori', 'alasan', 'status']) || '').trim().toLowerCase();
+  if (raw.indexOf('sakit') !== -1) return 'sakit';
+  if (raw.indexOf('libur') !== -1) return 'libur';
+  if (raw.indexOf('izin') !== -1 || raw.indexOf('cuti') !== -1) return 'izin';
+  return '';
+}
+
+function leaveAliasesForRow_(row) {
+  const aliases = [];
+  ['nama_pegawai', 'nama_karyawan', 'nama', 'employee_name', 'pemohon', 'username', 'username_login', 'user_name'].forEach(function(key) {
+    const alias = normalizeName_(row && row[key]);
+    if (alias && aliases.indexOf(alias) === -1) aliases.push(alias);
+  });
+  const role = String(firstDefinedValue_(row, ['role', 'jabatan']) || '').trim().toLowerCase();
+  const branch = String(firstDefinedValue_(row, ['cabang', 'hak_akses_cabang', 'lokasi']) || '').trim().toLowerCase();
+  if (role === 'admin' && branch === 'kendari') aliases.push('admin kendari');
+  if (role === 'admin_raha' || (role === 'admin' && branch === 'raha')) aliases.push('admin raha');
+  if (role === 'manager' || role === 'auditor') aliases.push('auditor');
+  if (role === 'sales' || role === 'sales_director') aliases.push('sales director');
+  if (role === 'direktur' || role === 'owner') aliases.push('owner');
+  return aliases.filter(function(alias, index, list) { return alias && list.indexOf(alias) === index; });
+}
+
+function applyLeaveRequestsToAttendanceMap_(map, rows) {
+  (rows || []).forEach(function(row) {
+    if (!isApprovedLeaveRequest_(row)) return;
+    const leaveType = leaveTypeForRow_(row);
+    if (!leaveType) return;
+    const start = parseDate_(firstDefinedValue_(row, ['tanggal_mulai', 'tgl_mulai', 'mulai', 'start_date', 'date_from', 'tanggal', 'tanggal_cuti']));
+    const end = parseDate_(firstDefinedValue_(row, ['tanggal_selesai', 'tgl_selesai', 'selesai', 'end_date', 'date_to', 'sampai'])) || start;
+    const aliases = leaveAliasesForRow_(row);
+    if (!start || !end || !aliases.length || end < start) return;
+
+    const cursor = startOfDay_(start);
+    const finish = startOfDay_(end);
+    let guard = 0;
+    while (cursor <= finish && guard < 367) {
+      aliases.forEach(function(alias) { map[alias + '|' + dateKey_(cursor)] = leaveType; });
+      cursor.setDate(cursor.getDate() + 1);
+      guard += 1;
+    }
+  });
 }
 
 function createPeriodicTasks_() {
@@ -2729,7 +2910,7 @@ function dailyBackfillDates_(now) {
   const dates = [];
 
   while (cursor.getTime() <= today.getTime()) {
-    dates.push(new Date(cursor));
+    if (cursor.getDay() !== 0) dates.push(new Date(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
 
@@ -3434,7 +3615,7 @@ function fail_(error) {
   }
   function readObjects_(sheetKey) {
     if (!ctx.tables[sheetKey]) throw new Error('Tabel KPI tidak dikenal: ' + sheetKey);
-    return ctx.tables[sheetKey].map(item => item.record);
+    return ctx.tables[sheetKey].map(item => Object.assign({}, item.record, { __Sequence: Number(item.seq || 0) }));
   }
   function readRecentObjects_(sheetKey, maxRows) {
     const limit = Math.max(1, Number(maxRows || 200));
@@ -3464,11 +3645,12 @@ function fail_(error) {
     touchDataVersion_();
   }
   function supabaseKpiRequest_(method, table, query) {
-    if (method !== 'get' || table !== 'absensi') throw new Error('Operasi database sinkron tidak diizinkan.');
+    if (method !== 'get' || (table !== 'absensi' && table !== 'pengajuan_cuti')) throw new Error('Operasi database sinkron tidak diizinkan.');
     const params = new URLSearchParams(query || '');
     const offset = Number(params.get('offset') || 0);
     const limit = Number(params.get('limit') || 1000);
-    return ctx.absensi.slice(offset, offset + limit);
+    const source = table === 'pengajuan_cuti' ? (ctx.leaveRequests || []) : (ctx.absensi || []);
+    return source.slice(offset, offset + limit);
   }
   function saveUploadedFiles_(files) {
     const stamp = Utilities.formatDate(new Date(), 'Asia/Makassar', 'yyyyMMdd_HHmmss');
@@ -3488,7 +3670,7 @@ function fail_(error) {
 
   const actions = {
     apiLogout, apiLogActivity, apiGetSession, apiGetDashboard,
-    apiCreateNote, apiUpdateNote, apiDeleteNote, apiUpdateTaskStatus,
+    apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiUpdateTaskStatus,
     apiGetReportMeta, apiSubmitReport, apiUpdateProfile
   };
   const tableNames = {
@@ -3812,10 +3994,12 @@ Deno.serve(async request => {
       for (const key of Object.keys(KPI_TABLES)) tables[key] ||= [];
       const start = Math.min(...tables.tasks.map(item => +new Date(item.record.StartedAt || item.record.CreatedAt)).filter(Number.isFinite), Date.now());
       const from = new Date(Math.max(Date.UTC(2026, 0, 1), start - 45 * 86400000)).toISOString();
-      const absensi = await restRows('absensi',
-        'select=waktu_absen,nama_pegawai,role,tipe_absen,cabang&waktu_absen=gte.' + encodeURIComponent(from) + '&order=waktu_absen.asc');
+      const [absensi, leaveRequests] = await Promise.all([
+        restRows('absensi', 'select=waktu_absen,nama_pegawai,role,tipe_absen,cabang&waktu_absen=gte.' + encodeURIComponent(from) + '&order=waktu_absen.asc'),
+        restRows('pengajuan_cuti', 'select=*')
+      ]);
       const ctx = { jwt: '', expiresAt: 0, userRecord: { Id: 'system', Name: 'System' },
-        tables, original: structuredClone(tables), absensi, uploads: [], maxSeq: 0, version: 0 };
+        tables, original: structuredClone(tables), absensi, leaveRequests, uploads: [], maxSeq: 0, version: 0 };
       const engine = createKpiEngine(ctx);
       engine.runDailyMaintenance();
       const changes = engine.changes();
@@ -3841,14 +4025,17 @@ Deno.serve(async request => {
     const userRecord = findKpiUser(tables.users, identity);
     const needsAttendance = !['apiGetSession', 'apiLogout', 'apiLogActivity', 'apiUpdateProfile'].includes(action);
     let absensi = [];
+    let leaveRequests = [];
     if (needsAttendance) {
       const start = Math.min(...tables.tasks.map(item => +new Date(item.record.StartedAt || item.record.CreatedAt)).filter(Number.isFinite), Date.now());
       const from = new Date(Math.max(Date.UTC(2026, 0, 1), start - 45 * 86400000)).toISOString();
-      absensi = await restRows('absensi',
-        'select=waktu_absen,nama_pegawai,role,tipe_absen,cabang&waktu_absen=gte.' + encodeURIComponent(from) + '&order=waktu_absen.asc');
+      [absensi, leaveRequests] = await Promise.all([
+        restRows('absensi', 'select=waktu_absen,nama_pegawai,role,tipe_absen,cabang&waktu_absen=gte.' + encodeURIComponent(from) + '&order=waktu_absen.asc'),
+        restRows('pengajuan_cuti', 'select=*')
+      ]);
     }
     const ctx = { jwt, expiresAt: identity.expiresAt, userRecord, tables,
-      original: structuredClone(tables), absensi, uploads: [], maxSeq: 0, version: 0 };
+      original: structuredClone(tables), absensi, leaveRequests, uploads: [], maxSeq: 0, version: 0 };
     const engine = createKpiEngine(ctx);
     if (action === 'apiGetUploadedFile') {
       const id = String(args[1] || '');

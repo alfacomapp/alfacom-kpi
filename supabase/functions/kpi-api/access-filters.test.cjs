@@ -39,7 +39,7 @@ function task(id, assignee, status) {
   };
 }
 
-function engineFor(currentUser, users, notes = [], tasks = []) {
+function engineFor(currentUser, users, notes = [], tasks = [], leaveRequests = []) {
   const tables = {
     users: users.map(record),
     notes: notes.map(record),
@@ -54,6 +54,7 @@ function engineFor(currentUser, users, notes = [], tasks = []) {
     tables,
     original: structuredClone(tables),
     absensi: [],
+    leaveRequests,
     uploads: [],
     maxSeq: 10,
     version: 0
@@ -122,7 +123,7 @@ test('dashboard splits pending and completed late tasks', () => {
   assert.deepEqual(done.tasks.map(item => item.id), ['late-done']);
 });
 
-test('weekly Kendari bank task completes only after three different banks are reported', () => {
+test('weekly Kendari bank task completes only after all five banks are reported', () => {
   const admin = user('adm', 'Admin Kendari', 'admin_kendari', 'kendari');
   const auditor = user('aud', 'Auditor A', 'auditor', 'all');
   const weeklyTask = {
@@ -135,7 +136,7 @@ test('weekly Kendari bank task completes only after three different banks are re
   const { engine, ctx } = engineFor(admin, [admin, auditor], [], [weeklyTask]);
   const proof = { name: 'bank.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' };
 
-  ['bri', 'mandiri'].forEach(bankName => {
+  ['bri_kendari', 'bri_raha', 'mandiri', 'bank_sultra'].forEach(bankName => {
     const result = engine.execute('apiSubmitReport', ['test-jwt', {
       type: 'laporan_akun_bank',
       fields: { reportDate: '2026-09-15', bankName },
@@ -147,28 +148,29 @@ test('weekly Kendari bank task completes only after three different banks are re
 
   const finalResult = engine.execute('apiSubmitReport', ['test-jwt', {
     type: 'laporan_akun_bank',
-    fields: { reportDate: '2026-09-15', bankName: 'bank_sultra' },
+    fields: { reportDate: '2026-09-15', bankName: 'aladin_syariah' },
     files: { bankAccountProof: [proof] }
   }]);
   assert.equal(finalResult.ok, true);
   const completedTask = ctx.tables.tasks.find(item => item.record.Id === 'bank-week').record;
   assert.equal(completedTask.Status, 'selesai');
-  assert.equal(Object.keys(JSON.parse(completedTask.PayloadJson).bankReports).length, 3);
+  assert.equal(Object.keys(JSON.parse(completedTask.PayloadJson).bankReports).length, 5);
   assert.equal(ctx.tables.tasks.filter(item => item.record.TaskType === 'audit_pekanan').length, 1);
 });
 
-test('report upload total size follows the configured multi-file limit', () => {
+test('report upload total size follows the decoded multi-file limit', () => {
   const admin = user('adm', 'Admin Kendari', 'admin_kendari', 'kendari');
   const { engine } = engineFor(admin, [admin]);
+  const decoded = Buffer.alloc(10 * 1024 * 1024 + 1, 1);
   const tooLarge = {
     name: 'oversize.jpg',
     mimeType: 'image/jpeg',
-    size: 11 * 1024 * 1024,
-    data: 'data:image/jpeg;base64,YQ=='
+    size: decoded.length,
+    data: 'data:image/jpeg;base64,' + decoded.toString('base64')
   };
   const result = engine.execute('apiSubmitReport', ['test-jwt', {
     type: 'laporan_akun_bank',
-    fields: { reportDate: '2026-09-15', bankName: 'bri' },
+    fields: { reportDate: '2026-09-15', bankName: 'bri_kendari' },
     files: { bankAccountProof: [tooLarge] }
   }]);
   assert.equal(result.ok, false);
@@ -216,7 +218,7 @@ test('shipment report stores repeated item details and creates arrival task', ()
   assert.equal(ctx.uploads.length, 1);
 });
 
-test('legacy weekly bank task is reopened until all three named banks are complete', () => {
+test('closed legacy weekly bank report keeps its original completed history', () => {
   const admin = user('adm', 'Admin Kendari', 'admin_kendari', 'kendari');
   const legacyTask = {
     ...task('legacy-bank-week', admin, 'selesai'),
@@ -228,12 +230,137 @@ test('legacy weekly bank task is reopened until all three named banks are comple
   const { engine, ctx } = engineFor(admin, [admin], [], [legacyTask]);
   const result = engine.execute('apiSubmitReport', ['test-jwt', {
     type: 'laporan_akun_bank',
-    fields: { reportDate: '2026-09-15', bankName: 'bri' },
+    fields: { reportDate: '2026-09-15', bankName: 'bri_kendari' },
     files: { bankAccountProof: [{ name: 'bri.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' }] }
   }]);
-  assert.equal(result.ok, true);
-  const reopened = ctx.tables.tasks.find(item => item.record.Id === 'legacy-bank-week').record;
-  assert.equal(reopened.Status, 'berjalan');
-  assert.equal(reopened.CompletedAt, '');
-  assert.deepEqual(Object.keys(JSON.parse(reopened.PayloadJson).bankReports), ['bri']);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /sudah lengkap atau ditutup/);
+  const closed = ctx.tables.tasks.find(item => item.record.Id === 'legacy-bank-week').record;
+  assert.equal(closed.Status, 'selesai');
+  assert.equal(closed.CompletedAt, stamp);
+  assert.deepEqual(JSON.parse(closed.PayloadJson), {});
+});
+
+test('cash advance proof is available to every role and stored as non-KPI data without a deadline', () => {
+  const roles = ['owner', 'auditor', 'admin_kendari', 'admin_raha', 'sales_director', 'user'];
+  roles.forEach((role, index) => {
+    const current = user('role-' + index, 'User ' + index, role, role === 'admin_raha' ? 'raha' : 'kendari');
+    const { engine } = engineFor(current, [current]);
+    const meta = engine.execute('apiGetReportMeta', ['test-jwt']);
+    assert.equal(meta.ok, true);
+    assert.ok(meta.reportTypes.some(item => item.value === 'kasbon_di_atas_limit'));
+  });
+
+  const admin = user('adm-kasbon', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const { engine, ctx } = engineFor(admin, [admin]);
+  const missing = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'kasbon_di_atas_limit',
+    fields: { amount: 2500000, description: 'Kasbon operasional' },
+    files: {}
+  }]);
+  assert.equal(missing.ok, false);
+  assert.match(missing.message, /Bukti persetujuan/);
+
+  const saved = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'kasbon_di_atas_limit',
+    fields: { amount: 2500000, description: 'Kasbon operasional' },
+    files: { approvalProof: [{ name: 'setuju.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' }] }
+  }]);
+  assert.equal(saved.ok, true);
+  const row = ctx.tables.tasks.find(item => item.record.TaskType === 'kasbon_di_atas_limit').record;
+  const payload = JSON.parse(row.PayloadJson);
+  assert.equal(row.Status, 'selesai');
+  assert.equal(row.TimeLimitHours, 0);
+  assert.equal(payload.excludeFromKpi, true);
+  assert.equal(payload.noDeadline, true);
+
+  const date = new Date(row.StartedAt);
+  const dashboard = engine.execute('apiGetDashboard', ['test-jwt', {
+    cardKey: 'kendari', month: date.getMonth() + 1, year: date.getFullYear()
+  }]);
+  const rendered = dashboard.tasks.find(item => item.id === row.Id);
+  assert.equal(rendered.displayKpiStatus, 'data');
+  assert.equal(rendered.timer.noDeadline, true);
+  assert.equal(dashboard.cards.find(card => card.key === 'kendari').total, 0);
+});
+
+test('approved leave pauses the assigned user task', () => {
+  const auditor = user('aud-leave', 'Auditor A', 'auditor', 'all');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const day = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  const active = {
+    ...task('leave-paused', auditor, 'berjalan'),
+    KpiStatus: 'berjalan',
+    StartedAt: today.toISOString(),
+    CreatedAt: today.toISOString()
+  };
+  const leaveRows = [{
+    nama_pegawai: auditor.Name,
+    jenis_cuti: 'sakit',
+    status_pengajuan: 'disetujui',
+    tanggal_mulai: day,
+    tanggal_selesai: day
+  }];
+  const { engine } = engineFor(auditor, [auditor], [], [active], leaveRows);
+  const dashboard = engine.execute('apiGetDashboard', ['test-jwt', {
+    cardKey: 'auditor', month: today.getMonth() + 1, year: today.getFullYear()
+  }]);
+  const rendered = dashboard.tasks.find(item => item.id === active.Id);
+  assert.equal(rendered.timer.isPaused, true);
+  assert.equal(rendered.timer.pauseReason, 'sakit');
+  assert.equal(rendered.displayKpiStatus, 'pause');
+});
+
+test('daily Sunday tasks are hidden and a 48-hour deadline skips Sunday', () => {
+  const auditor = user('aud-calendar', 'Auditor Calendar', 'auditor', 'all');
+  const sunday = {
+    ...task('sunday-daily', auditor, 'berjalan'),
+    KpiStatus: 'berjalan',
+    StartedAt: new Date(2026, 9, 4, 8, 0, 0).toISOString(),
+    CreatedAt: new Date(2026, 9, 4, 8, 0, 0).toISOString()
+  };
+  const saturday = {
+    ...task('saturday-48h', auditor, 'berjalan'),
+    TaskType: 'audit_pekanan',
+    KpiStatus: 'berjalan',
+    TimeLimitHours: 48,
+    StartedAt: new Date(2026, 9, 10, 0, 0, 0).toISOString(),
+    CreatedAt: new Date(2026, 9, 10, 0, 0, 0).toISOString()
+  };
+  const { engine } = engineFor(auditor, [auditor], [], [sunday, saturday]);
+  const report = engine.execute('apiGetReportMeta', ['test-jwt']);
+  assert.equal(report.openTasks.some(item => item.id === sunday.Id), false);
+  const dashboard = engine.execute('apiGetDashboard', ['test-jwt', {
+    cardKey: 'auditor', month: 10, year: 2026
+  }]);
+  assert.equal(dashboard.tasks.some(item => item.id === sunday.Id), false);
+  const deadline = new Date(dashboard.tasks.find(item => item.id === saturday.Id).timer.deadlineAt);
+  assert.equal(deadline.getDay(), 2);
+});
+
+test('note comments persist while Sales Director offer assignments stay out of the feed', () => {
+  const admin = user('adm-notes', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const sales = user('sales-notes', 'Sales Director', 'sales_director', 'all');
+  const offerTask = {
+    ...task('offer-task', sales, 'berjalan'),
+    TaskType: 'sales_penawaran',
+    KpiStatus: 'berjalan'
+  };
+  const notes = [
+    { Id: 'comment-note', Text: 'Catatan umum', CreatedById: admin.Id, CreatedByName: admin.Name,
+      CreatedAt: stamp, UpdatedAt: stamp, CommentsJson: '[]' },
+    { Id: 'offer-note', Text: 'Buat penawaran', CreatedById: admin.Id, CreatedByName: admin.Name,
+      AssignedToId: sales.Id, AssignedToName: sales.Name, AssignedTaskId: offerTask.Id,
+      CreatedAt: stamp, UpdatedAt: stamp, CommentsJson: '[]' }
+  ];
+  const { engine } = engineFor(admin, [admin, sales], notes, [offerTask]);
+  const saved = engine.execute('apiAddNoteComment', ['test-jwt', 'comment-note', 'Sudah diperiksa']);
+  assert.equal(saved.ok, true);
+  const dashboard = engine.execute('apiGetDashboard', ['test-jwt', {
+    creatorId: '__all', cardKey: 'admin_kendari', ...period
+  }]);
+  assert.deepEqual(dashboard.notes.map(item => item.id), ['comment-note']);
+  assert.equal(dashboard.notes[0].comments.length, 1);
+  assert.equal(dashboard.notes[0].comments[0].text, 'Sudah diperiksa');
 });

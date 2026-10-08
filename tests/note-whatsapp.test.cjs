@@ -33,6 +33,8 @@ function fixture(options={}) {
     if(parsed.pathname==='/auth/v1/user')return Response.json({id:'auth-1',email:'adminraha@alfacom.local'});
     if(parsed.pathname==='/rest/v1/users')return Response.json(parsed.searchParams.has('username_login')?[profiles[0]]:profiles);
     if(parsed.pathname==='/rest/v1/absensi')return Response.json([]);
+    if(parsed.pathname==='/rest/v1/pengajuan_cuti')return Response.json([]);
+
     if(parsed.pathname==='/rest/v1/rpc/kpi_apply_changes') {
       if(options.saveFailure)return Response.json({message:'failed'},{status:500});
       const changes=JSON.parse(request.body).changes;

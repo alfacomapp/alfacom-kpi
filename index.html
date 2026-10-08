@@ -704,6 +704,7 @@
     .notes-list {
       display: grid;
       gap: 10px;
+      height: 390px;
       max-height: 390px;
       overflow: auto;
       padding-right: 4px;
@@ -754,6 +755,91 @@
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
+      align-items: center;
+    }
+
+    .note-comment-toggle {
+      min-width: 34px;
+      width: 34px;
+      min-height: 32px;
+      padding: 6px;
+      position: relative;
+      justify-content: center;
+    }
+
+    .note-comment-toggle svg {
+      width: 17px;
+      height: 17px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .note-comment-count {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: var(--green);
+      color: #fff;
+      font-size: 10px;
+      line-height: 18px;
+      text-align: center;
+    }
+
+    .note-comments {
+      min-width: 0;
+      max-width: 100%;
+      border-top: 1px solid var(--line);
+      padding-top: 9px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .note-comments-list {
+      display: grid;
+      gap: 7px;
+      max-height: 150px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 3px;
+    }
+
+    .note-comment {
+      min-width: 0;
+      max-width: 100%;
+      padding: 7px 9px;
+      border-radius: 7px;
+      background: #f6f8f7;
+      overflow-wrap: anywhere;
+    }
+
+    .note-comment strong,
+    .note-comment span {
+      display: block;
+      font-size: 11px;
+    }
+
+    .note-comment span {
+      margin-top: 3px;
+      color: var(--text);
+    }
+
+    .note-comment-composer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .note-comment-composer input {
+      width: 100%;
+      min-width: 0;
     }
 
     .attachment-list {
@@ -841,7 +927,7 @@
 
     .task-title-wrap {
       display: grid;
-      grid-template-columns: 28px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) 28px;
       gap: 8px;
       align-items: start;
     }
@@ -874,12 +960,20 @@
     }
 
     .task-title-content {
+      grid-column: 1;
+      grid-row: 1;
       min-width: 0;
+    }
+
+    .task-row-toggle {
+      grid-column: 2;
+      grid-row: 1;
     }
 
     .task-hidden-label {
       display: none;
-      grid-column: 2;
+      grid-column: 1;
+      grid-row: 1;
       color: var(--muted);
       font-size: 12px;
       font-weight: 800;
@@ -1152,6 +1246,11 @@
       color: var(--gold);
     }
 
+    .status.data {
+      background: #edf2ef;
+      color: var(--muted);
+    }
+
     .task-detail {
       margin-top: 6px;
       color: var(--muted);
@@ -1233,13 +1332,23 @@
 
     .report-task-filters {
       flex: 1 1 auto;
+      min-width: 0;
+      flex-wrap: nowrap;
       justify-content: flex-end;
+      gap: 5px;
     }
 
     .report-task-filters select {
-      min-width: 112px;
-      flex: 0 1 136px;
+      min-width: 0;
+      width: auto;
+      padding-left: 6px;
+      padding-right: 22px;
+      font-size: 11px;
     }
+
+    #reportMonthFilter { flex: 0 1 58px; }
+    #reportYearFilter { flex: 0 1 68px; }
+    #reportTaskStatusFilter { flex: 1 1 108px; }
 
     .form-grid {
       display: grid;
@@ -1385,6 +1494,94 @@
       font-size: 13px;
     }
 
+    .image-viewer {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr) 52px;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 10px;
+      padding: 14px;
+      background: rgba(8, 14, 11, .92);
+      color: #fff;
+    }
+
+    .image-viewer-head {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .image-viewer-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .image-viewer-stage {
+      grid-column: 2;
+      grid-row: 2;
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+
+    .image-viewer-stage img {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      border-radius: 6px;
+    }
+
+    .image-viewer-nav,
+    .image-viewer-close {
+      border: 1px solid rgba(255,255,255,.32);
+      background: rgba(255,255,255,.1);
+      color: #fff;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .image-viewer-nav {
+      align-self: center;
+      width: 44px;
+      height: 44px;
+    }
+
+    .image-viewer-prev { grid-column: 1; grid-row: 2; }
+    .image-viewer-next { grid-column: 3; grid-row: 2; }
+
+    .image-viewer-close {
+      flex: 0 0 36px;
+      width: 36px;
+      height: 36px;
+      font-size: 22px;
+    }
+
+    .image-viewer-counter {
+      grid-column: 1 / -1;
+      grid-row: 3;
+      text-align: center;
+      font-size: 12px;
+      color: rgba(255,255,255,.78);
+    }
+
+    .image-viewer-loading {
+      color: rgba(255,255,255,.76);
+    }
+
     .empty {
       border: 1px dashed var(--line);
       border-radius: 8px;
@@ -1466,17 +1663,29 @@
 
       .sidebar .brand-row {
         width: auto;
-        min-width: min(150px, 42vw);
+        min-width: min(116px, 34vw);
         flex-direction: row;
-        gap: 7px;
+        gap: 4px;
         margin: 0;
         text-align: left;
       }
 
       .sidebar .brand-mark {
-        width: 34px;
-        height: 34px;
-        flex: 0 0 34px;
+        width: 32px;
+        height: 32px;
+        flex: 0 0 32px;
+      }
+
+      .sidebar .brand-row > div:last-child {
+        min-width: 0;
+      }
+
+      .sidebar .brand-row strong,
+      .sidebar .user-pill {
+        max-width: 100%;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
       }
 
       .sidebar .brand-row strong {
@@ -2299,6 +2508,10 @@
       reportSection: 'tasks',
       kpiPanelCollapsed: false,
       hiddenTaskIds: {},
+      openNoteComments: {},
+      imageViewerFiles: [],
+      imageViewerIndex: 0,
+      imageViewerUrls: {},
       shipmentItemSeq: 0,
       shipmentSupplierSeq: 0,
       dashboardSection: 'notes',
@@ -2317,7 +2530,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-07-daily-multi-photo';
+    const CLIENT_CACHE_VERSION = '2026-10-08-kasbon-comments-gallery-calendar';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2333,6 +2546,11 @@
     };
 
     const REPORT_FORMS = {
+      kasbon_di_atas_limit: [
+        { kind: 'number', field: 'amount', label: 'Nominal kasbon', required: true },
+        { kind: 'file', field: 'approvalProof', label: 'Bukti persetujuan pengambilan kasbon di atas limit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
       pendapatan_harian: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'number', field: 'amount', label: 'Total setoran harian', required: true },
@@ -2621,6 +2839,18 @@
         if (event.target === byId('infoDialog')) {
           closeInfoBox();
         }
+      });
+      byId('imageViewerClose').addEventListener('click', closeImageViewer);
+      byId('imageViewerPrev').addEventListener('click', function() { moveImageViewer(-1); });
+      byId('imageViewerNext').addEventListener('click', function() { moveImageViewer(1); });
+      byId('imageViewer').addEventListener('click', function(event) {
+        if (event.target === byId('imageViewer')) closeImageViewer();
+      });
+      document.addEventListener('keydown', function(event) {
+        if (byId('imageViewer').classList.contains('hidden')) return;
+        if (event.key === 'Escape') closeImageViewer();
+        if (event.key === 'ArrowLeft') moveImageViewer(-1);
+        if (event.key === 'ArrowRight') moveImageViewer(1);
       });
       byId('profileForm').addEventListener('submit', saveProfile);
     }
@@ -3140,8 +3370,6 @@
       const list = byId('notesList');
 
       list.classList.remove('hidden');
-      list.style.maxHeight = '';
-
       if (!notes.length) {
         list.innerHTML = '<div class="empty">Belum ada note.</div>';
         return;
@@ -3152,6 +3380,11 @@
           ? `<span>Ditugaskan ke ${escapeHtml(note.assignedToName)}${note.assignedTaskId ? ' &middot; ' + escapeHtml(note.assignedTaskId) : ''}</span>`
           : '<span>Note umum</span>';
         const attachments = renderAttachmentDisclosure(note.attachments);
+        const comments = Array.isArray(note.comments) ? note.comments : [];
+        const commentsOpen = Boolean(state.openNoteComments[note.id]);
+        const commentItems = comments.length ? comments.map(function(comment) {
+          return `<div class="note-comment"><strong>${escapeHtml(comment.createdByName || '-')} &middot; ${formatDate(comment.createdAt)}</strong><span>${escapeHtml(comment.text)}</span></div>`;
+        }).join('') : '<div class="muted">Belum ada komentar.</div>';
         return `
           <article class="note-item ${note.done ? 'done' : ''}">
             <div class="note-meta">
@@ -3164,17 +3397,48 @@
             <div class="note-buttons">
               <button class="btn btn-mini btn-ghost" type="button" onclick="editNote('${escapeAttr(note.id)}')">Edit</button>
               ${state.user && note.createdById === state.user.Id ? `<button class="btn btn-mini btn-danger" type="button" onclick="deleteNote('${escapeAttr(note.id)}')">Hapus</button>` : ''}
+              <button class="btn btn-mini btn-ghost note-comment-toggle" type="button" title="Komentar" aria-label="Komentar" aria-expanded="${commentsOpen ? 'true' : 'false'}" onclick="toggleNoteComments('${escapeAttr(note.id)}')">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"></path></svg>
+                ${comments.length ? `<span class="note-comment-count">${comments.length}</span>` : ''}
+              </button>
+            </div>
+            <div class="note-comments ${commentsOpen ? '' : 'hidden'}">
+              <div class="note-comments-list" data-note-comments-list="${escapeAttr(note.id)}">${commentItems}</div>
+              <div class="note-comment-composer">
+                <input id="note-comment-${escapeAttr(note.id)}" type="text" maxlength="1000" placeholder="Tulis komentar..." onkeydown="if(event.key==='Enter'){event.preventDefault();submitNoteComment('${escapeAttr(note.id)}', this.nextElementSibling)}">
+                <button class="btn btn-mini btn-primary" type="button" onclick="submitNoteComment('${escapeAttr(note.id)}', this)">Kirim</button>
+              </div>
             </div>
           </article>
         `;
       }).join('');
-      if (state.noteCreatorId === '__all') {
-        const visibleNotes = Array.prototype.slice.call(list.querySelectorAll('.note-item'), 0, 2);
-        const gap = parseFloat(getComputedStyle(list).rowGap) || 0;
-        list.style.maxHeight = Math.ceil(visibleNotes.reduce(function(total, item) {
-          return total + item.getBoundingClientRect().height;
-        }, 0) + Math.max(0, visibleNotes.length - 1) * gap) + 'px';
+    }
+
+    function toggleNoteComments(id) {
+      state.openNoteComments[id] = !state.openNoteComments[id];
+      renderNotes();
+      if (state.openNoteComments[id]) {
+        const comments = document.querySelector('[data-note-comments-list="' + id + '"]');
+        if (comments) comments.scrollTop = comments.scrollHeight;
       }
+    }
+
+    function submitNoteComment(id, button) {
+      const input = byId('note-comment-' + id);
+      const text = String(input && input.value || '').trim();
+      if (!text) {
+        toast('Isi komentar dulu.');
+        return;
+      }
+      if (button) button.disabled = true;
+      state.openNoteComments[id] = true;
+      api('apiAddNoteComment', state.token, id, text)
+        .then(function(response) {
+          toast(response.message || 'Komentar tersimpan.');
+          return loadDashboard();
+        })
+        .catch(showError)
+        .finally(function() { if (button) button.disabled = false; });
     }
 
     function saveNote() {
@@ -3511,7 +3775,7 @@
       const safeFiles = files || [];
       const buttons = safeFiles.map(function(file) {
         const label = file.name || 'Buka file';
-        const open = `<button class="btn btn-mini btn-ghost attachment-button" type="button" data-file-id="${escapeAttr(file.id)}" title="${escapeAttr(label)}" onclick="openUploadedFile('${escapeAttr(file.id)}', this)">${escapeHtml(label)}</button>`;
+        const open = `<button class="btn btn-mini btn-ghost attachment-button" type="button" data-file-id="${escapeAttr(file.id)}" data-file-name="${escapeAttr(label)}" data-file-mime="${escapeAttr(file.mimeType || '')}" title="${escapeAttr(label)}" onclick="openUploadedFile('${escapeAttr(file.id)}', this)">${escapeHtml(label)}</button>`;
         const pdf = String(file.mimeType || '').toLowerCase() === 'application/pdf' || /\.pdf$/i.test(label);
         return open + (pdf ? `<button class="btn btn-mini btn-ghost" type="button" title="Unduh ${escapeAttr(label)}" onclick="downloadUploadedFile('${escapeAttr(file.id)}', this)">Unduh PDF</button>` : '');
       });
@@ -3569,17 +3833,46 @@
       button.textContent = open ? 'Tutup' : 'Detail';
     }
 
-    function openAllAttachmentFiles(button) {
-      const disclosure = button && button.closest('.attachment-disclosure');
-      const fileButtons = disclosure
-        ? Array.prototype.slice.call(disclosure.querySelectorAll('.attachment-button[data-file-id]'))
+    function attachmentDescriptorFromButton(button) {
+      return {
+        id: String(button && button.dataset.fileId || ''),
+        name: String(button && button.dataset.fileName || 'Lampiran'),
+        mimeType: String(button && button.dataset.fileMime || '')
+      };
+    }
+
+    function isImageAttachment(file) {
+      const mimeType = String(file && file.mimeType || '').toLowerCase();
+      const name = String(file && file.name || '').toLowerCase();
+      return mimeType.indexOf('image/') === 0 || /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)$/i.test(name);
+    }
+
+    function attachmentButtonsInScope(button) {
+      const scope = button && (button.closest('.attachment-disclosure') || button.closest('.task-chip') || button.parentElement);
+      return scope
+        ? Array.prototype.slice.call(scope.querySelectorAll('.attachment-button[data-file-id]'))
         : [];
+    }
+
+    function openAllAttachmentFiles(button) {
+      const fileButtons = attachmentButtonsInScope(button);
       if (!fileButtons.length) {
         toast('Tidak ada lampiran yang bisa dibuka.');
         return;
       }
+
+      const imageFiles = fileButtons
+        .map(attachmentDescriptorFromButton)
+        .filter(isImageAttachment);
+      if (imageFiles.length) {
+        openImageViewer(imageFiles, 0);
+      }
+
       fileButtons.forEach(function(fileButton) {
-        openUploadedFile(fileButton.dataset.fileId, fileButton);
+        const file = attachmentDescriptorFromButton(fileButton);
+        if (!isImageAttachment(file)) {
+          openUploadedFile(file.id, fileButton);
+        }
       });
     }
 
@@ -3600,6 +3893,20 @@
     }
 
     function openUploadedFile(fileId, button) {
+      const selected = attachmentDescriptorFromButton(button);
+      selected.id = String(fileId || selected.id || '');
+      if (isImageAttachment(selected)) {
+        const images = attachmentButtonsInScope(button)
+          .map(attachmentDescriptorFromButton)
+          .filter(isImageAttachment);
+        const files = images.length ? images : [selected];
+        const selectedIndex = Math.max(0, files.findIndex(function(file) {
+          return file.id === selected.id;
+        }));
+        openImageViewer(files, selectedIndex);
+        return;
+      }
+
       const preview = window.open('', '_blank');
       if (preview) {
         preview.document.write('<!doctype html><title>Memuat file</title><p style="font-family:system-ui;padding:24px">Memuat file...</p>');
@@ -3633,6 +3940,100 @@
             button.disabled = false;
           }
         });
+    }
+
+    function openImageViewer(files, index) {
+      const unique = [];
+      (files || []).forEach(function(file) {
+        if (file && file.id && !unique.some(function(entry) { return entry.id === file.id; })) {
+          unique.push(file);
+        }
+      });
+      if (!unique.length) {
+        toast('Gambar tidak tersedia.');
+        return;
+      }
+
+      state.imageViewerFiles = unique;
+      state.imageViewerIndex = Math.min(Math.max(Number(index || 0), 0), unique.length - 1);
+      state.imageViewerPreviousOverflow = document.body.style.overflow || '';
+      document.body.style.overflow = 'hidden';
+      byId('imageViewer').classList.remove('hidden');
+      renderImageViewer();
+    }
+
+    function renderImageViewer() {
+      const files = state.imageViewerFiles || [];
+      if (!files.length) {
+        closeImageViewer();
+        return;
+      }
+
+      state.imageViewerIndex = (state.imageViewerIndex + files.length) % files.length;
+      const file = files[state.imageViewerIndex];
+      const image = byId('imageViewerImage');
+      const loading = byId('imageViewerLoading');
+      byId('imageViewerTitle').textContent = file.name || 'Lampiran gambar';
+      byId('imageViewerCounter').textContent = (state.imageViewerIndex + 1) + ' / ' + files.length;
+      byId('imageViewerPrev').disabled = files.length <= 1;
+      byId('imageViewerNext').disabled = files.length <= 1;
+
+      image.classList.add('hidden');
+      image.removeAttribute('src');
+      loading.classList.remove('hidden');
+      loading.textContent = 'Memuat gambar...';
+
+      const cachedUrl = state.imageViewerUrls[file.id];
+      if (cachedUrl) {
+        image.src = cachedUrl;
+        image.classList.remove('hidden');
+        loading.classList.add('hidden');
+        return;
+      }
+
+      const requestedId = file.id;
+      api('apiGetUploadedFile', state.token, requestedId)
+        .then(function(response) {
+          const current = state.imageViewerFiles[state.imageViewerIndex];
+          const loaded = response.file || {};
+          const url = blobUrlFromBase64(loaded.data || '', loaded.mimeType || file.mimeType || 'image/jpeg');
+          if (byId('imageViewer').classList.contains('hidden') || !current || current.id !== requestedId) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          state.imageViewerUrls[requestedId] = url;
+          byId('imageViewerTitle').textContent = loaded.name || file.name || 'Lampiran gambar';
+          image.src = url;
+          image.classList.remove('hidden');
+          loading.classList.add('hidden');
+        })
+        .catch(function(error) {
+          const current = state.imageViewerFiles[state.imageViewerIndex];
+          if (current && current.id === requestedId) {
+            loading.textContent = 'Gambar gagal dimuat.';
+          }
+          showError(error);
+        });
+    }
+
+    function moveImageViewer(delta) {
+      if (!state.imageViewerFiles.length) {
+        return;
+      }
+      state.imageViewerIndex += Number(delta || 0);
+      renderImageViewer();
+    }
+
+    function closeImageViewer() {
+      byId('imageViewer').classList.add('hidden');
+      byId('imageViewerImage').removeAttribute('src');
+      Object.keys(state.imageViewerUrls || {}).forEach(function(fileId) {
+        URL.revokeObjectURL(state.imageViewerUrls[fileId]);
+      });
+      state.imageViewerUrls = {};
+      state.imageViewerFiles = [];
+      state.imageViewerIndex = 0;
+      document.body.style.overflow = state.imageViewerPreviousOverflow || '';
     }
 
     function downloadUploadedFile(fileId, button) {
@@ -3684,18 +4085,18 @@
 
       return `
         <tr class="${collapsed ? 'task-row-collapsed' : ''}">
-          <td class="${state.dashboard.canEditTaskStatus ? 'id-cell' : ''}" data-label="No"><strong>${Number(index || 0) + 1}</strong></td>
+          <td class="${state.dashboard.canEditTaskStatus ? 'id-cell' : ''}" data-label="No"><strong>${Number(task.referenceNumber || 0) || Number(index || 0) + 1}</strong></td>
           <td data-label="Tugas">
             <div class="task-title-wrap">
-              <button class="btn btn-mini btn-ghost task-row-toggle" type="button" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? 'Tampilkan tugas' : 'Sembunyikan tugas'}" aria-label="${collapsed ? 'Tampilkan tugas' : 'Sembunyikan tugas'}" onclick="toggleTaskRow('${escapeAttr(task.id)}')">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
-              </button>
               <div class="task-title-content">
                 <strong>${escapeHtml(displayTaskDate(task))}</strong><br>
                 <span class="muted">${escapeHtml(task.taskLabel)}</span>
                 ${deadline}
                 ${detail}
               </div>
+              <button class="btn btn-mini btn-ghost task-row-toggle" type="button" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? 'Tampilkan tugas' : 'Sembunyikan tugas'}" aria-label="${collapsed ? 'Tampilkan tugas' : 'Sembunyikan tugas'}" onclick="toggleTaskRow('${escapeAttr(task.id)}')">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+              </button>
               <span class="task-hidden-label">Tugas disembunyikan</span>
             </div>
           </td>
@@ -3736,8 +4137,12 @@
     }
 
     function taskDeadlineText(task) {
+      const timer = task && task.timer || {};
+      if (timer.noDeadline) {
+        return '';
+      }
       const payload = task && task.payload || {};
-      let deadline = payload.deadlineAt || task && task.timer && task.timer.deadlineAt || '';
+      let deadline = timer.deadlineAt || payload.deadlineAt || '';
       if (!deadline && task && task.startedAt && Number(task.timeLimitHours || 0) > 0) {
         const start = new Date(task.startedAt);
         if (!isNaN(start.getTime())) {
@@ -3772,11 +4177,14 @@
     }
 
     function renderTimerCell(task) {
+      const timer = task.timer || {};
+      if (timer.noDeadline) {
+        return '<span class="muted">Tanpa tenggat</span>';
+      }
       if (task.status !== 'berjalan') {
         return '<span class="muted">Selesai</span>';
       }
 
-      const timer = task.timer || {};
       const paused = timer.isPaused ? 'true' : 'false';
       const extraClass = timer.isPaused ? 'paused' : (timer.remainingMs < 0 ? 'overdue' : '');
       return `
@@ -3924,13 +4332,14 @@
 
       wrap.innerHTML = tasks.slice(0, 80).map(function(task) {
         const detail = task.detailText ? `<div class="task-detail">${escapeHtml(task.detailText)}</div>` : '';
-        const attachments = renderAttachmentButtons(task.attachments);
+        const attachments = renderTaskAttachmentCell(task);
+        const taskNumber = Number(task.referenceNumber || 0);
         return `
           <div class="task-chip">
-            <strong>${escapeHtml(task.title || task.taskLabel)}</strong>
-            <span>${escapeHtml(task.id)} &middot; ${escapeHtml(task.taskLabel)}</span>
+            <strong>No. ${taskNumber || '-'} &middot; ${escapeHtml(task.title || task.taskLabel)}</strong>
+            <span>${escapeHtml(task.taskLabel)}</span>
             ${detail}
-            ${attachments}
+            <div class="task-chip-attachments"><span class="muted">Lampiran</span>${attachments}</div>
             <div class="inline-actions">
               <span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.displayKpiLabel || task.kpiLabel)}</span>
               ${renderTimerCell(task)}
@@ -4032,7 +4441,7 @@
             <select data-field="${escapeAttr(field.field)}" ${required}>
               <option value="">Pilih tugas</option>
               ${tasks.map(function(task) {
-                return `<option value="${escapeAttr(task.id)}">${escapeHtml(task.id + ' - ' + (task.title || task.taskLabel))}</option>`;
+                return `<option value="${escapeAttr(task.id)}">${escapeHtml('No. ' + (Number(task.referenceNumber || 0) || '-') + ' - ' + (task.title || task.taskLabel))}</option>`;
               }).join('')}
             </select>
             ${help}
