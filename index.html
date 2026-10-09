@@ -2261,6 +2261,20 @@
     </div>
   </div>
 
+  <div id="imageViewer" class="image-viewer hidden" role="dialog" aria-modal="true" aria-label="Pratinjau gambar">
+    <div class="image-viewer-head">
+      <span id="imageViewerTitle" class="image-viewer-title">Lampiran gambar</span>
+      <button id="imageViewerClose" class="image-viewer-close" type="button" aria-label="Tutup pratinjau">×</button>
+    </div>
+    <button id="imageViewerPrev" class="image-viewer-nav image-viewer-prev" type="button" aria-label="Gambar sebelumnya">‹</button>
+    <div class="image-viewer-stage">
+      <span id="imageViewerLoading" class="image-viewer-loading" role="status">Memuat gambar...</span>
+      <img id="imageViewerImage" class="hidden" alt="Lampiran gambar">
+    </div>
+    <button id="imageViewerNext" class="image-viewer-nav image-viewer-next" type="button" aria-label="Gambar berikutnya">›</button>
+    <div id="imageViewerCounter" class="image-viewer-counter" aria-live="polite"></div>
+  </div>
+
   <section id="loginView" class="auth-shell">
     <div class="matrix-rain" aria-hidden="true">
       <span style="--i:0">010110101101011001010011</span><span style="--i:1">101001101001011010110101</span>
