@@ -365,7 +365,7 @@ test('auditor gets separate Kendari and Raha tasks and finishing one leaves the 
   assert.match(duplicate.message, /sudah selesai/);
 });
 
-test('auditor report cards show source files from legacy and Bank Jago reports', () => {
+test('auditor report cards show direct source files but not unrelated Bank Jago files', () => {
   const auditor = user('aud-source', 'Auditor', 'auditor', 'all');
   const legacy = { ...task('legacy-audit', auditor, 'berjalan'), RelatedReportId: 'source-report' };
   const bank = { ...task('bank-audit', auditor, 'berjalan'),
@@ -384,7 +384,33 @@ test('auditor report cards show source files from legacy and Bank Jago reports',
   const legacyCard = meta.openTasks.find(item => item.id === legacy.Id);
   const bankCard = meta.openTasks.find(item => item.id === bank.Id);
   assert.ok(Object.values(legacyCard.attachments).flat().some(file => file.id === 'nota-file'));
-  assert.ok(Object.values(bankCard.attachments).flat().some(file => file.id === 'saldo-file'));
+  assert.equal(Object.values(bankCard.attachments).flat().length, 0);
+});
+
+test('only the comment author can edit a note comment', () => {
+  const author = user('comment-author', 'Penulis', 'admin_kendari', 'kendari');
+  const other = user('comment-other', 'Pengguna lain', 'auditor', 'all');
+  const note = { Id: 'comment-edit-note', Text: 'Note bersama', CreatedById: other.Id,
+    CreatedByName: other.Name, CreatedAt: stamp, UpdatedAt: stamp,
+    CommentsJson: JSON.stringify([{ id: 'comment-1', text: 'Teks lama',
+      createdById: author.Id, createdByName: author.Name, createdAt: stamp }]) };
+  const deniedSession = engineFor(other, [author, other], [note]);
+  const denied = deniedSession.engine.execute('apiEditNoteComment',
+    ['test-jwt', note.Id, 'comment-1', 'Diubah orang lain']);
+  assert.equal(denied.ok, false);
+  assert.match(denied.message, /Hanya penulis komentar/);
+  assert.equal(JSON.parse(deniedSession.ctx.tables.notes[0].record.CommentsJson)[0].text, 'Teks lama');
+
+  const authorSession = engineFor(author, [author, other], [note]);
+  const saved = authorSession.engine.execute('apiEditNoteComment',
+    ['test-jwt', note.Id, 'comment-1', 'Teks baru']);
+  assert.equal(saved.ok, true);
+  const dashboard = authorSession.engine.execute('apiGetDashboard',
+    ['test-jwt', { creatorId: '__all', cardKey: 'admin_kendari', ...period }]);
+  const comment = dashboard.notes.find(item => item.id === note.Id).comments[0];
+  assert.equal(comment.text, 'Teks baru');
+  assert.equal(comment.createdById, author.Id);
+  assert.ok(comment.editedAt);
 });
 
 test('approved leave pauses the assigned user task', () => {

@@ -781,6 +781,39 @@ function apiAddNoteComment(token, noteId, commentText) {
   }
 }
 
+function apiEditNoteComment(token, noteId, commentId, commentText) {
+  try {
+    const user = requireUser_(token);
+    const id = String(noteId || '').trim();
+    const targetId = String(commentId || '').trim();
+    const text = String(commentText || '').replace(/\s+/g, ' ').trim();
+    if (!id || !targetId) throw new Error('Komentar tidak ditemukan.');
+    if (!text) throw new Error('Komentar belum diisi.');
+    if (text.length > 1000) throw new Error('Komentar maksimal 1000 karakter.');
+
+    updateObjectById_('notes', id, function(row) {
+      const comments = parseJsonSafe_(row.CommentsJson, []);
+      if (!Array.isArray(comments)) throw new Error('Komentar tidak ditemukan.');
+      const comment = comments.find(function(item) { return String(item.id || '') === targetId; });
+      if (!comment) throw new Error('Komentar tidak ditemukan.');
+      if (String(comment.createdById || '') !== user.Id) {
+        throw new Error('Hanya penulis komentar yang dapat mengedit komentar ini.');
+      }
+      comment.text = text;
+      comment.editedAt = toIso_(new Date());
+      row.CommentsJson = JSON.stringify(comments);
+      row.UpdatedAt = new Date();
+      row.UpdatedById = user.Id;
+      return row;
+    });
+
+    touchDataVersion_();
+    return ok_({ message: 'Komentar diperbarui.' });
+  } catch (error) {
+    return fail_(error);
+  }
+}
+
 function getNoteAssignee_(assigneeId) {
   const id = String(assigneeId || '').trim();
   if (!id) {
@@ -943,26 +976,18 @@ function apiGetReportMeta(token) {
 }
 
 function indexAuditSourceReports_(reports) {
-  const index = { byId: {}, bankJagoByPeriod: {} };
+  const index = { byId: {} };
   (reports || []).forEach(function(report) {
     if (report.Id) index.byId[report.Id] = report;
-    if (report.TaskType !== 'laporan_saldo_bank_jago') return;
-    const reportDate = parseDate_(report.ReportDate || report.CreatedAt);
-    if (!reportDate) return;
-    const periodKey = periodKeyForThreeDay_(threeDayPeriodStart_(reportDate), 'audit_bank_jago');
-    (index.bankJagoByPeriod[periodKey] ||= []).push(report);
   });
   return index;
 }
 
 function attachSourceFilesForAuditor_(task, sourceIndex) {
-  if (task.assigneeRole !== 'auditor') return task;
+  if (task.assigneeRole !== 'auditor' || task.taskType === 'audit_bank_jago') return task;
   const sourceReports = [];
   const direct = sourceIndex.byId[task.relatedReportId];
   if (direct) sourceReports.push(direct);
-  if (task.taskType === 'audit_bank_jago') {
-    sourceReports.push(...(sourceIndex.bankJagoByPeriod[task.periodKey] || []));
-  }
   const knownIds = {};
   Object.keys(task.attachments || {}).forEach(function(field) {
     (task.attachments[field] || []).forEach(function(file) { if (file.id) knownIds[file.id] = true; });
@@ -1430,7 +1455,8 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
               id: String(comment.id || ''), text: String(comment.text || ''),
               createdById: String(comment.createdById || ''),
               createdByName: String(comment.createdByName || ''),
-              createdAt: String(comment.createdAt || '')
+              createdAt: String(comment.createdAt || ''),
+              editedAt: String(comment.editedAt || '')
             };
           });
         })(),
@@ -3820,7 +3846,7 @@ function fail_(error) {
 
   const actions = {
     apiLogout, apiLogActivity, apiGetSession, apiGetDashboard,
-    apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiUpdateTaskStatus,
+    apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiUpdateTaskStatus,
     apiGetReportMeta, apiSubmitReport, apiUpdateProfile, apiUpdateTaskColumnPreferences
   };
   const tableNames = {

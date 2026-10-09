@@ -830,6 +830,25 @@
       color: var(--text);
     }
 
+    .note-comment-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .note-comment-head .btn { flex: 0 0 auto; }
+
+    .note-comment-edit {
+      display: grid;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .note-comment-edit input { width: 100%; min-width: 0; }
+
+    .note-comment-edit-actions { display: flex; gap: 6px; }
+
     .note-comment-composer {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -1124,7 +1143,14 @@
     }
 
     #tasksTable th.task-column-hidden .task-column-label { display: none; }
-    #tasksTable td.task-column-hidden { visibility: hidden; overflow: hidden; }
+    #tasksTable td.task-column-hidden {
+      visibility: hidden;
+      overflow: hidden;
+      white-space: nowrap;
+      font-size: 0;
+      line-height: 0;
+    }
+    #tasksTable td.task-column-hidden > * { display: none !important; }
 
     .task-column-header {
       display: inline-flex;
@@ -1522,6 +1548,7 @@
     .image-viewer-stage {
       grid-column: 2;
       grid-row: 2;
+      position: relative;
       min-width: 0;
       min-height: 0;
       display: grid;
@@ -1531,8 +1558,10 @@
 
     .image-viewer-stage img {
       display: block;
-      max-width: 100%;
-      max-height: 100%;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       object-fit: contain;
       border-radius: 6px;
       transform: scale(var(--image-zoom, .7));
@@ -1581,7 +1610,7 @@
 
     .report-warning {
       color: #b42318;
-      font-weight: 800;
+      font-weight: 400;
       line-height: 1.5;
     }
 
@@ -2568,6 +2597,7 @@
       kpiPanelCollapsed: false,
       hiddenTaskColumns: {},
       openNoteComments: {},
+      editingNoteComment: null,
       imageViewerFiles: [],
       imageViewerIndex: 0,
       imageViewerZoom: .7,
@@ -3474,7 +3504,21 @@
         const comments = Array.isArray(note.comments) ? note.comments : [];
         const commentsOpen = Boolean(state.openNoteComments[note.id]);
         const commentItems = comments.length ? comments.map(function(comment) {
-          return `<div class="note-comment"><strong>${escapeHtml(comment.createdByName || '-')} &middot; ${formatDate(comment.createdAt)}</strong><span>${escapeHtml(comment.text)}</span></div>`;
+          const ownComment = state.user && comment.createdById === state.user.Id;
+          const editing = state.editingNoteComment && state.editingNoteComment.noteId === note.id && state.editingNoteComment.commentId === comment.id;
+          return `<div class="note-comment">
+            <div class="note-comment-head">
+              <strong>${escapeHtml(comment.createdByName || '-')} &middot; ${formatDate(comment.createdAt)}${comment.editedAt ? ' &middot; diedit' : ''}</strong>
+              ${ownComment && !editing ? `<button class="btn btn-mini btn-ghost" type="button" onclick="startEditNoteComment('${escapeAttr(note.id)}', '${escapeAttr(comment.id)}')">Edit</button>` : ''}
+            </div>
+            ${editing ? `<div class="note-comment-edit">
+              <input id="edit-comment-${escapeAttr(comment.id)}" type="text" maxlength="1000" value="${escapeAttr(comment.text)}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitNoteCommentEdit('${escapeAttr(note.id)}', '${escapeAttr(comment.id)}', this.nextElementSibling.firstElementChild)}">
+              <div class="note-comment-edit-actions">
+                <button class="btn btn-mini btn-primary" type="button" onclick="submitNoteCommentEdit('${escapeAttr(note.id)}', '${escapeAttr(comment.id)}', this)">Simpan</button>
+                <button class="btn btn-mini btn-ghost" type="button" onclick="cancelEditNoteComment()">Batal</button>
+              </div>
+            </div>` : `<span>${escapeHtml(comment.text)}</span>`}
+          </div>`;
         }).join('') : '<div class="muted">Belum ada komentar.</div>';
         return `
           <article class="note-item ${note.done ? 'done' : ''}">
@@ -3512,6 +3556,38 @@
         const comments = document.querySelector('[data-note-comments-list="' + id + '"]');
         if (comments) comments.scrollTop = comments.scrollHeight;
       }
+    }
+
+    function startEditNoteComment(noteId, commentId) {
+      state.editingNoteComment = { noteId: noteId, commentId: commentId };
+      state.openNoteComments[noteId] = true;
+      renderNotes();
+      const input = byId('edit-comment-' + commentId);
+      if (input) input.focus();
+    }
+
+    function cancelEditNoteComment() {
+      state.editingNoteComment = null;
+      renderNotes();
+    }
+
+    function submitNoteCommentEdit(noteId, commentId, button) {
+      const input = byId('edit-comment-' + commentId);
+      const text = String(input && input.value || '').trim();
+      if (!text) {
+        toast('Isi komentar dulu.');
+        return;
+      }
+      if (button) button.disabled = true;
+      api('apiEditNoteComment', state.token, noteId, commentId, text)
+        .then(function(response) {
+          state.editingNoteComment = null;
+          state.openNoteComments[noteId] = true;
+          toast(response.message || 'Komentar diperbarui.');
+          return loadDashboard();
+        })
+        .catch(showError)
+        .finally(function() { if (button) button.disabled = false; });
     }
 
     function submitNoteComment(id, button) {
