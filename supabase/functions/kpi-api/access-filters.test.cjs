@@ -107,7 +107,9 @@ test('report task list includes only tasks assigned to the signed-in user', () =
   const { engine } = engineFor(auditor, [auditor, admin, otherAuditor], [], tasks);
   const result = engine.execute('apiGetReportMeta', ['test-jwt']);
   assert.equal(result.ok, true);
-  assert.deepEqual(result.openTasks.map(item => item.id), ['mine']);
+  assert.ok(result.openTasks.some(item => item.id === 'mine'));
+  assert.equal(result.openTasks.some(item => item.id === 'admin-task' || item.id === 'other-auditor'), false);
+  assert.equal(result.openTasks.filter(item => ['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].includes(item.taskType)).length, 6);
 });
 
 test('dashboard splits pending and completed late tasks', () => {
@@ -155,7 +157,10 @@ test('weekly Kendari bank task completes only after all five banks are reported'
   const completedTask = ctx.tables.tasks.find(item => item.record.Id === 'bank-week').record;
   assert.equal(completedTask.Status, 'selesai');
   assert.equal(Object.keys(JSON.parse(completedTask.PayloadJson).bankReports).length, 5);
-  assert.equal(ctx.tables.tasks.filter(item => item.record.TaskType === 'audit_pekanan').length, 1);
+  const bankAudits = ctx.tables.tasks.filter(item => item.record.TaskType === 'audit_pekanan');
+  assert.equal(bankAudits.length, 1);
+  const auditFiles = JSON.parse(bankAudits[0].record.AttachmentUrlsJson);
+  assert.equal(Object.keys(auditFiles).filter(key => key.startsWith('bankAccountProof_') && auditFiles[key].length).length, 5);
 });
 
 test('report upload total size follows the decoded multi-file limit', () => {
@@ -282,6 +287,85 @@ test('cash advance proof is available to every role and stored as non-KPI data w
   assert.equal(rendered.displayKpiStatus, 'data');
   assert.equal(rendered.timer.noDeadline, true);
   assert.equal(dashboard.cards.find(card => card.key === 'kendari').total, 0);
+  const audit = ctx.tables.tasks.find(item => item.record.TaskType === 'audit_kasbon').record;
+  assert.equal(audit.TimeLimitHours, 24);
+  assert.equal(audit.Status, 'berjalan');
+  assert.match(audit.Title, /Admin Kendari.*Kendari/);
+  assert.equal(JSON.parse(audit.AttachmentUrlsJson).approvalProof.length, 1);
+});
+
+test('arrival report starts a 48-hour auditor task with the reporter proof', () => {
+  const admin = user('raha-arrival', 'Admin Raha', 'admin_raha', 'raha');
+  const auditor = user('aud-arrival', 'Auditor', 'auditor', 'all');
+  const arrival = {
+    ...task('arrival-source', admin, 'berjalan'),
+    TaskType: 'rincian_barang_tiba',
+    KpiStatus: 'berjalan'
+  };
+  const { engine, ctx } = engineFor(admin, [admin, auditor], [], [arrival]);
+  const proof = { name: 'tiba.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' };
+  const result = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'rincian_barang_tiba',
+    fields: { relatedTaskId: arrival.Id, arrivedSummary: 'Semua barang diterima' },
+    files: { arrivalProof: [proof] }
+  }]);
+  assert.equal(result.ok, true);
+  const audit = ctx.tables.tasks.find(item => item.record.TaskType === 'audit_barang_tiba').record;
+  assert.equal(audit.TimeLimitHours, 48);
+  assert.equal(audit.Status, 'berjalan');
+  assert.match(audit.Title, /Admin Raha.*Raha/);
+  assert.equal(JSON.parse(audit.AttachmentUrlsJson).arrivalProof.length, 1);
+});
+
+test('auditor gets separate Kendari and Raha tasks and finishing one leaves the other open', () => {
+  const auditor = user('aud-split', 'Auditor', 'auditor', 'all');
+  const { engine, ctx } = engineFor(auditor, [auditor]);
+  const initial = engine.execute('apiGetReportMeta', ['test-jwt']);
+  assert.equal(initial.ok, true);
+  for (const type of ['audit_nota_ipos', 'audit_piutang', 'audit_hutang']) {
+    const matching = initial.openTasks.filter(item => item.taskType === type);
+    assert.deepEqual(matching.map(item => item.assigneeLocation).sort(), ['kendari', 'raha']);
+    assert.ok(matching.every(item => item.title.includes(item.assigneeLocation === 'kendari' ? 'Kendari' : 'Raha')));
+  }
+  const proof = { name: 'audit.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' };
+  const submitted = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'audit_nota_ipos',
+    fields: { auditLocation: 'kendari', auditStatus: 'aman' },
+    files: { auditProof: [proof] }
+  }]);
+  assert.equal(submitted.ok, true);
+  const rows = ctx.tables.tasks.filter(item => item.record.TaskType === 'audit_nota_ipos').map(item => item.record);
+  assert.equal(rows.find(item => item.AssigneeLocation === 'kendari').Status, 'selesai');
+  assert.equal(rows.find(item => item.AssigneeLocation === 'raha').Status, 'berjalan');
+  const duplicate = engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'audit_nota_ipos',
+    fields: { auditLocation: 'kendari', auditStatus: 'aman' },
+    files: { auditProof: [proof] }
+  }]);
+  assert.equal(duplicate.ok, false);
+  assert.match(duplicate.message, /sudah selesai/);
+});
+
+test('auditor report cards show source files from legacy and Bank Jago reports', () => {
+  const auditor = user('aud-source', 'Auditor', 'auditor', 'all');
+  const legacy = { ...task('legacy-audit', auditor, 'berjalan'), RelatedReportId: 'source-report' };
+  const bank = { ...task('bank-audit', auditor, 'berjalan'),
+    TaskType: 'audit_bank_jago', PeriodKey: 'audit_bank_jago:2026-09:d13' };
+  const { engine, ctx } = engineFor(auditor, [auditor], [], [legacy, bank]);
+  ctx.tables.reports.push(record({
+    Id: 'source-report', TaskType: 'pendapatan_harian', ReportDate: stamp, CreatedAt: stamp,
+    AttachmentUrlsJson: JSON.stringify({ notaAttachments: [{ id: 'nota-file', name: 'nota.jpg', mimeType: 'image/jpeg' }] })
+  }));
+  ctx.tables.reports.push(record({
+    Id: 'bank-report', TaskType: 'laporan_saldo_bank_jago', ReportDate: stamp, CreatedAt: stamp,
+    AttachmentUrlsJson: JSON.stringify({ saldoProof: [{ id: 'saldo-file', name: 'saldo.jpg', mimeType: 'image/jpeg' }] })
+  }));
+  const meta = engine.execute('apiGetReportMeta', ['test-jwt']);
+  assert.equal(meta.ok, true);
+  const legacyCard = meta.openTasks.find(item => item.id === legacy.Id);
+  const bankCard = meta.openTasks.find(item => item.id === bank.Id);
+  assert.ok(Object.values(legacyCard.attachments).flat().some(file => file.id === 'nota-file'));
+  assert.ok(Object.values(bankCard.attachments).flat().some(file => file.id === 'saldo-file'));
 });
 
 test('approved leave pauses the assigned user task', () => {

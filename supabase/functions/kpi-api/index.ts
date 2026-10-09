@@ -238,8 +238,18 @@ const REPORT_TYPES = {
     roles: ['auditor'],
     timeLimitHours: 168
   },
+  audit_kasbon: {
+    label: 'Pemeriksaan Persetujuan Kasbon',
+    roles: ['auditor'],
+    timeLimitHours: 24
+  },
+  audit_barang_tiba: {
+    label: 'Pemeriksaan Rincian Barang Tiba',
+    roles: ['auditor'],
+    timeLimitHours: 48
+  },
   audit_nota_ipos: {
-    label: 'Audit Nota IPOS',
+    label: 'Sinkronisasi Data Pekerjaan Masuk dengan IPOS',
     roles: ['auditor'],
     timeLimitHours: 336
   },
@@ -291,6 +301,8 @@ const REPORT_FILE_LIMITS = {
   audit_harian: { auditProof: [10, 10] },
   audit_pekanan: { auditProof: [10, 10] },
   audit_bank_jago: { auditProof: [10, 10] },
+  audit_kasbon: { auditProof: [10, 10] },
+  audit_barang_tiba: { auditProof: [10, 10] },
   audit_nota_ipos: { auditProof: [10, 10] },
   audit_piutang: { auditProof: [10, 10] },
   audit_hutang: { auditProof: [10, 10] },
@@ -533,6 +545,7 @@ function apiGetSession(token) {
 function apiGetDashboard(token, filters) {
   try {
     const user = requireUser_(token);
+    if (user.Role === 'auditor') ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
 
     const safeFilters = filters || {};
     const period = normalizeDashboardPeriod_(safeFilters);
@@ -902,13 +915,16 @@ function truncateText_(value, maxLength) {
 function apiGetReportMeta(token) {
   try {
     const user = requireUser_(token);
+    if (user.Role === 'auditor') ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
 
     const reportTypes = getReportTypesForUser_(user);
     const now = new Date();
     const attendanceMap = getAttendanceMap_();
+    const sourceIndex = user.Role === 'auditor' ? indexAuditSourceReports_(readObjects_('reports')) : null;
     const openTasks = readObjects_('tasks')
       .map(function(task) {
-        return enrichTask_(task, now, attendanceMap);
+        const enriched = enrichTask_(task, now, attendanceMap);
+        return sourceIndex ? attachSourceFilesForAuditor_(enriched, sourceIndex) : enriched;
       })
       .filter(function(task) {
         return task.status === 'berjalan' && !isDeprecatedTaskForKpi_(task) && isReportTaskAssignedToUser_(user, task);
@@ -923,6 +939,45 @@ function apiGetReportMeta(token) {
   } catch (error) {
     return fail_(error);
   }
+}
+
+function indexAuditSourceReports_(reports) {
+  const index = { byId: {}, bankJagoByPeriod: {} };
+  (reports || []).forEach(function(report) {
+    if (report.Id) index.byId[report.Id] = report;
+    if (report.TaskType !== 'laporan_saldo_bank_jago') return;
+    const reportDate = parseDate_(report.ReportDate || report.CreatedAt);
+    if (!reportDate) return;
+    const periodKey = periodKeyForThreeDay_(threeDayPeriodStart_(reportDate), 'audit_bank_jago');
+    (index.bankJagoByPeriod[periodKey] ||= []).push(report);
+  });
+  return index;
+}
+
+function attachSourceFilesForAuditor_(task, sourceIndex) {
+  if (task.assigneeRole !== 'auditor') return task;
+  const sourceReports = [];
+  const direct = sourceIndex.byId[task.relatedReportId];
+  if (direct) sourceReports.push(direct);
+  if (task.taskType === 'audit_bank_jago') {
+    sourceReports.push(...(sourceIndex.bankJagoByPeriod[task.periodKey] || []));
+  }
+  const knownIds = {};
+  Object.keys(task.attachments || {}).forEach(function(field) {
+    (task.attachments[field] || []).forEach(function(file) { if (file.id) knownIds[file.id] = true; });
+  });
+  sourceReports.forEach(function(report) {
+    const groups = attachmentMetadataGroups_(parseJsonSafe_(report.AttachmentUrlsJson, {}));
+    Object.keys(groups).forEach(function(field) {
+      const files = (groups[field] || []).filter(function(file) {
+        if (!file.id || knownIds[file.id]) return false;
+        knownIds[file.id] = true;
+        return true;
+      });
+      if (files.length) task.attachments['source_' + report.Id + '_' + field] = files;
+    });
+  });
+  return task;
 }
 
 function apiSubmitReport(token, request) {
@@ -1608,6 +1663,9 @@ function isDeprecatedTaskForKpi_(task) {
   const location = task.assigneeLocation || normalizeLocation_(task.AssigneeLocation);
   const periodKey = String(task.periodKey || task.PeriodKey || '');
 
+  if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(taskType) !== -1 &&
+      location === 'all' && String(task.status || task.Status || 'berjalan') === 'berjalan') return true;
+
   if (taskType !== 'rekap_storan_setengah_bulan') {
     return taskType === 'bukti_storan_bank' && location === 'kendari';
   }
@@ -1653,13 +1711,19 @@ function enrichTask_(task, now, attendanceMap) {
     kpiStatus = 'meleset';
   }
   const displayKpiStatus = excludedFromKpi ? 'data' : (status === 'berjalan' && kpiStatus === 'berjalan' && timer.isPaused ? 'pause' : kpiStatus);
+  let taskTitle = String(task.Title || '').replace(/^Audit Nota IPOS/i, REPORT_TYPES.audit_nota_ipos.label);
+  const sourceLocation = normalizeLocation_(payload.location || '');
+  if (type === 'audit_harian' && (sourceLocation === 'kendari' || sourceLocation === 'raha') &&
+      taskTitle.toLowerCase().indexOf(sourceLocation) === -1) {
+    taskTitle += ' (' + titleCaseLocation_(sourceLocation) + ')';
+  }
 
   return {
     id: String(task.Id || ''),
     referenceNumber: Number(task.ReferenceNumber || task.__Sequence || 0),
     taskType: type,
     taskLabel: REPORT_TYPES[type] ? REPORT_TYPES[type].label : type,
-    title: String(task.Title || ''),
+    title: taskTitle,
     assigneeRole: normalizeRole_(task.AssigneeRole),
     assigneeLocation: normalizeLocation_(task.AssigneeLocation),
     assigneeName: String(task.AssigneeName || ''),
@@ -1910,6 +1974,21 @@ function validateReportPayload_(user, type, fields, files) {
   }
 
   if (type.indexOf('audit_') === 0) {
+    if (type === 'audit_kasbon' || type === 'audit_barang_tiba') {
+      requireText_(fields.relatedTaskId, 'Pilih tugas yang akan diperiksa.');
+      const related = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
+      if (!related || related.TaskType !== type || String(related.Status || 'berjalan') !== 'berjalan') {
+        throw new Error('Tugas pemeriksaan terkait tidak ditemukan atau sudah selesai.');
+      }
+    }
+    if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
+      const location = normalizeLocation_(fields.auditLocation);
+      if (location !== 'kendari' && location !== 'raha') throw new Error('Pilih pekerjaan Kendari atau Raha.');
+      const periodKey = periodKeyForSemiMonth_(new Date(), type, location);
+      if (readObjects_('tasks').some(function(task) {
+        return task.TaskType === type && task.PeriodKey === periodKey && String(task.Status || '') === 'selesai';
+      })) throw new Error('Pemeriksaan ' + titleCaseLocation_(location) + ' untuk periode ini sudah selesai.');
+    }
     if (type === 'audit_bank_jago') {
       requireText_(fields.reportDate, 'Tanggal laporan audit Bank Jago wajib diisi.');
     }
@@ -1944,6 +2023,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
       attachments: savedFiles,
       completeNow: true
     }));
+    results.push(createSourceAuditTask_('audit_kasbon', user, report, savedFiles, now));
   }
 
   if (type === 'pendapatan_harian') {
@@ -1997,7 +2077,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
 
     results.push(createTask_({
       taskType: 'audit_harian',
-      title: 'Audit pendapatan harian ' + user.Name,
+      title: 'Audit pendapatan harian ' + user.Name + ' (' + titleCaseLocation_(getUserLocation_(user)) + ')',
       assigneeRole: 'auditor',
       assigneeLocation: 'all',
       assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
@@ -2006,7 +2086,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
       startedAt: now,
       createdBy: user,
       payload: { sourceReportId: report.Id, reporter: user.Name, location: getUserLocation_(user) },
-      attachments: {}
+      attachments: savedFiles
     }));
   }
 
@@ -2020,6 +2100,8 @@ function processReportTasks_(user, report, fields, savedFiles) {
     results.push(bankResult);
 
     if (bankResult.completed) {
+      const bankTask = readObjects_('tasks').find(function(task) { return task.Id === bankResult.id; });
+      const sourceAttachments = bankTask ? parseJsonSafe_(bankTask.AttachmentUrlsJson, {}) : savedFiles;
       results.push(createTask_({
         taskType: 'audit_pekanan',
         title: 'Audit laporan akun bank pekanan Kendari',
@@ -2031,7 +2113,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
         startedAt: now,
         createdBy: user,
         payload: { sourceReportId: report.Id, location: 'kendari', banksComplete: true },
-        attachments: {}
+        attachments: sourceAttachments
       }));
     }
   }
@@ -2144,10 +2226,24 @@ function processReportTasks_(user, report, fields, savedFiles) {
 
   if (type === 'rincian_barang_tiba') {
     results.push(completeTaskFromReport_(fields.relatedTaskId, user, report, savedFiles));
+    results.push(createSourceAuditTask_('audit_barang_tiba', user, report, savedFiles, now));
   }
 
   if (type.indexOf('audit_') === 0) {
-    if (fields.relatedTaskId) {
+    if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
+      const location = normalizeLocation_(fields.auditLocation);
+      const periodStart = semiMonthStart_(now);
+      const periodKey = periodKeyForSemiMonth_(periodStart, type, location);
+      results.push(completeOpenTaskByTypePeriod_(type, periodKey, user, report, savedFiles, {
+        title: REPORT_TYPES[type].label + ' ' + titleCaseLocation_(location),
+        assigneeRole: 'auditor',
+        assigneeLocation: location,
+        assigneeName: user.Name,
+        timeLimitHours: REPORT_TYPES[type].timeLimitHours,
+        startedAt: periodStart,
+        payload: fields
+      }));
+    } else if (fields.relatedTaskId) {
       results.push(completeTaskFromReport_(fields.relatedTaskId, user, report, savedFiles));
     } else {
       const reportDate = parseDate_(fields.reportDate || now);
@@ -2187,6 +2283,23 @@ function processReportTasks_(user, report, fields, savedFiles) {
   }
 
   return results;
+}
+
+function createSourceAuditTask_(taskType, user, report, sourceFiles, startedAt) {
+  const location = getUserLocation_(user);
+  return createTask_({
+    taskType: taskType,
+    title: REPORT_TYPES[taskType].label + ' ' + user.Name + (location && location !== 'all' ? ' (' + titleCaseLocation_(location) + ')' : ''),
+    assigneeRole: 'auditor',
+    assigneeLocation: 'all',
+    assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
+    relatedReportId: report.Id,
+    timeLimitHours: REPORT_TYPES[taskType].timeLimitHours,
+    startedAt: startedAt,
+    createdBy: user,
+    payload: { sourceReportId: report.Id, reporter: user.Name, location: location },
+    attachments: sourceFiles
+  });
 }
 
 function createTask_(options) {
@@ -2849,19 +2962,7 @@ function createPeriodicTasks_() {
     });
   }
 
-  ['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].forEach(function(type) {
-    ensurePeriodicTask_(tasks, {
-      taskType: type,
-      periodKey: periodKeyForSemiMonth_(now, type),
-      title: REPORT_TYPES[type].label,
-      assigneeRole: 'auditor',
-      assigneeLocation: 'all',
-      assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
-      timeLimitHours: REPORT_TYPES[type].timeLimitHours,
-      startedAt: semiMonthStart_(now),
-      createdBy: owner
-    });
-  });
+  ensureCurrentLocationAudits_(now, tasks, owner);
 
   threeDayPeriodStartsThisMonth_(now).forEach(function(periodStart) {
     ensurePeriodicTask_(tasks, {
@@ -2892,6 +2993,30 @@ function createPeriodicTasks_() {
       createdBy: owner
     });
   });
+}
+
+function ensureCurrentLocationAudits_(now, tasks, owner) {
+  ['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].forEach(function(type) {
+    ['kendari', 'raha'].forEach(function(location) {
+      ensurePeriodicTask_(tasks, {
+        taskType: type,
+        periodKey: periodKeyForSemiMonth_(now, type, location),
+        title: REPORT_TYPES[type].label + ' ' + titleCaseLocation_(location),
+        assigneeRole: 'auditor',
+        assigneeLocation: location,
+        assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
+        timeLimitHours: REPORT_TYPES[type].timeLimitHours,
+        startedAt: semiMonthStart_(now),
+        payload: { auditLocation: location },
+        createdBy: owner
+      });
+    });
+  });
+}
+
+function titleCaseLocation_(location) {
+  const value = normalizeLocation_(location);
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function ensurePeriodicTask_(existingTasks, options) {

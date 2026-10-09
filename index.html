@@ -926,13 +926,10 @@
     }
 
     .task-title-wrap {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 28px;
-      gap: 8px;
-      align-items: start;
+      display: block;
+      min-width: 0;
     }
 
-    .task-row-toggle,
     .kpi-panel-toggle,
     .shipment-add-button,
     .shipment-remove-button {
@@ -944,7 +941,6 @@
       justify-content: center;
     }
 
-    .task-row-toggle svg,
     .kpi-panel-toggle svg,
     .shipment-add-button svg,
     .shipment-remove-button svg,
@@ -960,41 +956,7 @@
     }
 
     .task-title-content {
-      grid-column: 1;
-      grid-row: 1;
       min-width: 0;
-    }
-
-    .task-row-toggle {
-      grid-column: 2;
-      grid-row: 1;
-    }
-
-    .task-hidden-label {
-      display: none;
-      grid-column: 1;
-      grid-row: 1;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .task-row-collapsed td:not([data-label="No"]):not([data-label="Tugas"]) {
-      display: none;
-    }
-
-    .task-row-collapsed .task-title-content {
-      display: none;
-    }
-
-    .task-row-collapsed .task-hidden-label {
-      display: inline-flex;
-      align-items: center;
-      min-height: 32px;
-    }
-
-    .task-row-collapsed .task-row-toggle svg {
-      transform: rotate(180deg);
     }
 
     .task-deadline {
@@ -1148,9 +1110,42 @@
     }
 
     #tasksTable table {
-      width: max(100%, 1180px);
+      width: max(100%, var(--task-table-width));
+      min-width: 0;
       table-layout: fixed;
     }
+
+    #tasksTable th.task-column-hidden,
+    #tasksTable td.task-column-hidden {
+      width: 32px !important;
+      min-width: 32px !important;
+      max-width: 32px !important;
+      padding: 4px !important;
+    }
+
+    #tasksTable th.task-column-hidden .task-column-label { display: none; }
+    #tasksTable td.task-column-hidden { visibility: hidden; overflow: hidden; }
+
+    .task-column-header {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .task-column-toggle {
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #fff;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      min-width: 22px;
+      min-height: 22px;
+      padding: 1px 3px;
+    }
+
+    .task-column-controls { display: none; }
 
     #tasksTable th:nth-child(1) { width: 58px; }
     #tasksTable th:nth-child(2) { width: 310px; }
@@ -1540,6 +1535,8 @@
       max-height: 100%;
       object-fit: contain;
       border-radius: 6px;
+      transform: scale(var(--image-zoom, .7));
+      transform-origin: center;
     }
 
     .image-viewer-nav,
@@ -1580,6 +1577,31 @@
 
     .image-viewer-loading {
       color: rgba(255,255,255,.76);
+    }
+
+    .report-warning {
+      color: #b42318;
+      font-weight: 800;
+      line-height: 1.5;
+    }
+
+    .image-viewer-zoom {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-left: 14px;
+    }
+
+    .image-viewer-zoom button {
+      width: 30px;
+      height: 30px;
+      border: 1px solid rgba(255,255,255,.4);
+      border-radius: 50%;
+      background: rgba(255,255,255,.1);
+      color: #fff;
+      cursor: pointer;
+      font-size: 20px;
     }
 
     .empty {
@@ -2134,7 +2156,23 @@
 
       #tasksTable table {
         min-width: 0;
+        width: 100%;
         background: transparent;
+      }
+
+      #tasksTable td.task-column-hidden { display: none !important; }
+
+      .task-column-controls {
+        display: flex;
+        gap: 5px;
+        overflow-x: auto;
+        padding-bottom: 8px;
+      }
+
+      .task-column-controls .task-column-toggle {
+        flex: 0 0 auto;
+        padding: 5px 8px;
+        font-size: 11px;
       }
 
       #tasksTable thead {
@@ -2267,12 +2305,19 @@
       <button id="imageViewerClose" class="image-viewer-close" type="button" aria-label="Tutup pratinjau">×</button>
     </div>
     <button id="imageViewerPrev" class="image-viewer-nav image-viewer-prev" type="button" aria-label="Gambar sebelumnya">‹</button>
-    <div class="image-viewer-stage">
+    <div id="imageViewerStage" class="image-viewer-stage">
       <span id="imageViewerLoading" class="image-viewer-loading" role="status">Memuat gambar...</span>
       <img id="imageViewerImage" class="hidden" alt="Lampiran gambar">
     </div>
     <button id="imageViewerNext" class="image-viewer-nav image-viewer-next" type="button" aria-label="Gambar berikutnya">›</button>
-    <div id="imageViewerCounter" class="image-viewer-counter" aria-live="polite"></div>
+    <div class="image-viewer-counter" aria-live="polite">
+      <span id="imageViewerCounter"></span>
+      <span class="image-viewer-zoom">
+        <button id="imageViewerZoomOut" type="button" aria-label="Perkecil gambar">−</button>
+        <span id="imageViewerZoomLabel">70%</span>
+        <button id="imageViewerZoomIn" type="button" aria-label="Perbesar gambar">+</button>
+      </span>
+    </div>
   </div>
 
   <section id="loginView" class="auth-shell">
@@ -2521,10 +2566,11 @@
       reportYear: new Date().getFullYear(),
       reportSection: 'tasks',
       kpiPanelCollapsed: false,
-      hiddenTaskIds: {},
+      hiddenTaskColumns: {},
       openNoteComments: {},
       imageViewerFiles: [],
       imageViewerIndex: 0,
+      imageViewerZoom: .7,
       imageViewerUrls: {},
       shipmentItemSeq: 0,
       shipmentSupplierSeq: 0,
@@ -2544,7 +2590,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-08-kasbon-comments-gallery-calendar';
+    const CLIENT_CACHE_VERSION = '2026-10-09-audit-columns-zoom';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2561,6 +2607,7 @@
 
     const REPORT_FORMS = {
       kasbon_di_atas_limit: [
+        { kind: 'notice', text: '* Limit bulanan kasbon Rp700.000. Bila lebih dari itu, wajib upload screenshot bukti chat persetujuan Abu Caca. Tugas ini berlaku untuk semua karyawan. *' },
         { kind: 'number', field: 'amount', label: 'Nominal kasbon', required: true },
         { kind: 'file', field: 'approvalProof', label: 'Bukti persetujuan pengambilan kasbon di atas limit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
@@ -2648,20 +2695,32 @@
         { kind: 'file', field: 'auditProof', label: 'Bukti laporan audit Bank Jago', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
+      audit_kasbon: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Kasbon yang diperiksa', required: true, match: ['audit_kasbon'] },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'file', field: 'auditProof', label: 'Bukti pemeriksaan kasbon', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      audit_barang_tiba: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Rincian barang tiba yang diperiksa', required: true, match: ['audit_barang_tiba'] },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'file', field: 'auditProof', label: 'Bukti pemeriksaan barang tiba', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
       audit_nota_ipos: [
-        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_nota_ipos'] },
+        { kind: 'select', field: 'auditLocation', label: 'Pekerjaan', required: true, options: [['', 'Pilih lokasi'], ['kendari', 'Kendari'], ['raha', 'Raha']] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
         { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_piutang: [
-        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_piutang'] },
+        { kind: 'select', field: 'auditLocation', label: 'Pekerjaan', required: true, options: [['', 'Pilih lokasi'], ['kendari', 'Kendari'], ['raha', 'Raha']] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
         { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', help: 'Piutang lebih dari satu bulan harus di-follow up.', full: true }
       ],
       audit_hutang: [
-        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_hutang'] },
+        { kind: 'select', field: 'auditLocation', label: 'Pekerjaan', required: true, options: [['', 'Pilih lokasi'], ['kendari', 'Kendari'], ['raha', 'Raha']] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
         { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
@@ -2854,9 +2913,19 @@
           closeInfoBox();
         }
       });
+      byId('tasksTable').addEventListener('click', function(event) {
+        const button = event.target.closest('[data-task-column]');
+        if (button) toggleTaskColumn(button.dataset.taskColumn);
+      });
       byId('imageViewerClose').addEventListener('click', closeImageViewer);
       byId('imageViewerPrev').addEventListener('click', function() { moveImageViewer(-1); });
       byId('imageViewerNext').addEventListener('click', function() { moveImageViewer(1); });
+      byId('imageViewerZoomIn').addEventListener('click', function() { setImageViewerZoom(state.imageViewerZoom + .1); });
+      byId('imageViewerZoomOut').addEventListener('click', function() { setImageViewerZoom(state.imageViewerZoom - .1); });
+      byId('imageViewerStage').addEventListener('wheel', function(event) {
+        event.preventDefault();
+        setImageViewerZoom(state.imageViewerZoom + (event.deltaY < 0 ? .1 : -.1));
+      }, { passive: false });
       byId('imageViewer').addEventListener('click', function(event) {
         if (event.target === byId('imageViewer')) closeImageViewer();
       });
@@ -2986,6 +3055,11 @@
     }
 
     function showApp() {
+      try {
+        state.hiddenTaskColumns = JSON.parse(localStorage.getItem('kpi_hidden_task_columns_' + state.user.Id) || '{}') || {};
+      } catch (_) {
+        state.hiddenTaskColumns = {};
+      }
       byId('loginView').classList.add('hidden');
       byId('appView').classList.remove('hidden');
       renderShell();
@@ -3078,7 +3152,7 @@
       state.reportYear = new Date().getFullYear();
       state.reportSection = 'tasks';
       state.kpiPanelCollapsed = false;
-      state.hiddenTaskIds = {};
+      state.hiddenTaskColumns = {};
       state.shipmentItemSeq = 0;
       state.shipmentSupplierSeq = 0;
       state.dashboardSection = 'notes';
@@ -3691,20 +3765,17 @@
         return;
       }
 
+      const columns = [['no', 'No', 58], ['tugas', 'Tugas', 310], ['penanggung', 'Penanggung Jawab', 160], ['status', 'Status KPI', 130], ['timer', 'Timer', 150], ['dibuat', 'Dibuat', 150], ['selesai', 'Selesai', 150], ['file', 'File', 120], ['catatan', 'Catatan', 180]];
+      const tableWidth = columns.reduce(function(total, column) {
+        return total + (state.hiddenTaskColumns[column[0]] ? 32 : column[2]);
+      }, state.dashboard.canEditTaskStatus ? 178 : 0);
       wrap.innerHTML = `
+        ${renderTaskColumnControls(columns)}
         <div class="table-wrap">
-          <table class="${state.dashboard.canEditTaskStatus ? 'owner-task-table' : ''}">
+          <table class="${state.dashboard.canEditTaskStatus ? 'owner-task-table' : ''}" style="--task-table-width:${tableWidth}px">
             <thead>
               <tr>
-                <th class="${state.dashboard.canEditTaskStatus ? 'id-col' : ''}">No</th>
-                <th>Tugas</th>
-                <th>Penanggung Jawab</th>
-                <th>Status KPI</th>
-                <th>Timer</th>
-                <th>Dibuat</th>
-                <th>Selesai</th>
-                <th>File</th>
-                <th>Catatan</th>
+                ${columns.map(function(column) { return renderTaskColumnHeader(column[0], column[1]); }).join('')}
                 ${state.dashboard.canEditTaskStatus ? '<th class="action-col">Aksi</th>' : ''}
               </tr>
             </thead>
@@ -3716,6 +3787,28 @@
           </table>
         </div>
       `;
+    }
+
+    function renderTaskColumnHeader(key, label) {
+      const hidden = Boolean(state.hiddenTaskColumns[key]);
+      const action = (hidden ? 'Tampilkan' : 'Sembunyikan') + ' kolom ' + label;
+      return '<th class="' + (hidden ? 'task-column-hidden' : '') + '"><span class="task-column-header"><span class="task-column-label">' + escapeHtml(label) + '</span><button class="task-column-toggle" type="button" data-task-column="' + escapeAttr(key) + '" aria-label="' + escapeAttr(action) + '" title="' + escapeAttr(action) + '" aria-pressed="' + hidden + '">' + (hidden ? '›' : '‹') + '</button></span></th>';
+    }
+
+    function renderTaskColumnControls(columns) {
+      return '<div class="task-column-controls" aria-label="Atur kolom rincian tugas">' + columns.map(function(column) {
+        const hidden = Boolean(state.hiddenTaskColumns[column[0]]);
+        return '<button class="task-column-toggle" type="button" data-task-column="' + escapeAttr(column[0]) + '" aria-pressed="' + hidden + '">' + (hidden ? 'Tampilkan ' : 'Sembunyikan ') + escapeHtml(column[1]) + '</button>';
+      }).join('') + '</div>';
+    }
+
+    function toggleTaskColumn(key) {
+      if (['no', 'tugas', 'penanggung', 'status', 'timer', 'dibuat', 'selesai', 'file', 'catatan'].indexOf(key) === -1) return;
+      state.hiddenTaskColumns[key] = !state.hiddenTaskColumns[key];
+      try {
+        localStorage.setItem('kpi_hidden_task_columns_' + state.user.Id, JSON.stringify(state.hiddenTaskColumns));
+      } catch (_) {}
+      renderTasksTable();
     }
 
     function currentDetailTasks() {
@@ -3782,10 +3875,10 @@
         return '';
       }
 
-      return renderAttachmentButtonList(files, { openAll: false });
+      return renderAttachmentButtonList(files);
     }
 
-    function renderAttachmentButtonList(files, options) {
+    function renderAttachmentButtonList(files) {
       const safeFiles = files || [];
       const buttons = safeFiles.map(function(file) {
         const label = file.name || 'Buka file';
@@ -3793,9 +3886,6 @@
         const pdf = String(file.mimeType || '').toLowerCase() === 'application/pdf' || /\.pdf$/i.test(label);
         return open + (pdf ? `<button class="btn btn-mini btn-ghost" type="button" title="Unduh ${escapeAttr(label)}" onclick="downloadUploadedFile('${escapeAttr(file.id)}', this)">Unduh PDF</button>` : '');
       });
-      if (options && options.openAll) {
-        buttons.push('<button class="btn btn-mini btn-primary attachment-open-all" type="button" onclick="openAllAttachmentFiles(this)">Open all</button>');
-      }
       return `<div class="attachment-list">${buttons.join('')}</div>`;
     }
 
@@ -3813,7 +3903,7 @@
       }
       const list = options && options.textOnly
         ? renderAttachmentTextList(safeFiles)
-        : renderAttachmentButtonList(safeFiles, { openAll: true });
+        : renderAttachmentButtonList(safeFiles);
       return `
         <div class="attachment-disclosure">
           <button class="btn btn-mini btn-ghost" type="button" aria-expanded="false" onclick="toggleAttachmentDetails(this)">Detail</button>
@@ -3866,28 +3956,6 @@
       return scope
         ? Array.prototype.slice.call(scope.querySelectorAll('.attachment-button[data-file-id]'))
         : [];
-    }
-
-    function openAllAttachmentFiles(button) {
-      const fileButtons = attachmentButtonsInScope(button);
-      if (!fileButtons.length) {
-        toast('Tidak ada lampiran yang bisa dibuka.');
-        return;
-      }
-
-      const imageFiles = fileButtons
-        .map(attachmentDescriptorFromButton)
-        .filter(isImageAttachment);
-      if (imageFiles.length) {
-        openImageViewer(imageFiles, 0);
-      }
-
-      fileButtons.forEach(function(fileButton) {
-        const file = attachmentDescriptorFromButton(fileButton);
-        if (!isImageAttachment(file)) {
-          openUploadedFile(file.id, fileButton);
-        }
-      });
     }
 
     function isOwnerOnlyTaskFile(task) {
@@ -3991,6 +4059,7 @@
       byId('imageViewerCounter').textContent = (state.imageViewerIndex + 1) + ' / ' + files.length;
       byId('imageViewerPrev').disabled = files.length <= 1;
       byId('imageViewerNext').disabled = files.length <= 1;
+      setImageViewerZoom(.7);
 
       image.classList.add('hidden');
       image.removeAttribute('src');
@@ -4028,6 +4097,12 @@
           }
           showError(error);
         });
+    }
+
+    function setImageViewerZoom(value) {
+      state.imageViewerZoom = Math.min(5, Math.max(.25, Math.round(value * 10) / 10));
+      byId('imageViewerImage').style.setProperty('--image-zoom', String(state.imageViewerZoom));
+      byId('imageViewerZoomLabel').textContent = Math.round(state.imageViewerZoom * 100) + '%';
     }
 
     function moveImageViewer(delta) {
@@ -4080,8 +4155,11 @@
       return URL.createObjectURL(new Blob(chunks, { type: mimeType }));
     }
 
+    function taskColumnClass(key) {
+      return state.hiddenTaskColumns[key] ? 'task-column-hidden' : '';
+    }
+
     function renderTaskRow(task, index) {
-      const collapsed = Boolean(state.hiddenTaskIds[task.id]);
       const detail = renderTaskDetail(task);
       const deadline = renderTaskDeadline(task);
       const ownerAction = state.dashboard.canEditTaskStatus ? `
@@ -4098,40 +4176,28 @@
       ` : '';
 
       return `
-        <tr class="${collapsed ? 'task-row-collapsed' : ''}">
-          <td class="${state.dashboard.canEditTaskStatus ? 'id-cell' : ''}" data-label="No"><strong>${Number(task.referenceNumber || 0) || Number(index || 0) + 1}</strong></td>
-          <td data-label="Tugas">
+        <tr>
+          <td class="${state.dashboard.canEditTaskStatus ? 'id-cell' : ''} ${taskColumnClass('no')}" data-label="No"><strong>${Number(task.referenceNumber || 0) || Number(index || 0) + 1}</strong></td>
+          <td class="${taskColumnClass('tugas')}" data-label="Tugas">
             <div class="task-title-wrap">
               <div class="task-title-content">
                 <strong>${escapeHtml(displayTaskDate(task))}</strong><br>
-                <span class="muted">${escapeHtml(task.taskLabel)}</span>
+                <span class="muted">${escapeHtml(task.title || task.taskLabel)}</span>
                 ${deadline}
                 ${detail}
               </div>
-              <button class="btn btn-mini btn-ghost task-row-toggle" type="button" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? 'Tampilkan tugas' : 'Sembunyikan tugas'}" aria-label="${collapsed ? 'Tampilkan tugas' : 'Sembunyikan tugas'}" onclick="toggleTaskRow('${escapeAttr(task.id)}')">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
-              </button>
-              <span class="task-hidden-label">Tugas disembunyikan</span>
             </div>
           </td>
-          <td data-label="Penanggung Jawab">${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
-          <td data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.kpiStatus === 'meleset' && task.status === 'selesai' ? 'Meleset (done)' : (task.displayKpiLabel || task.kpiLabel))}</span></td>
-          <td data-label="Timer">${renderTimerCell(task)}</td>
-          <td data-label="Dibuat">${formatDate(task.createdAt || task.startedAt)}</td>
-          <td data-label="Selesai">${task.completedAt ? formatDate(task.completedAt) : '-'}</td>
-          <td data-label="File">${renderTaskAttachmentCell(task)}</td>
-          <td data-label="Catatan">${escapeHtml(task.notes || '-')}</td>
+          <td class="${taskColumnClass('penanggung')}" data-label="Penanggung Jawab">${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
+          <td class="${taskColumnClass('status')}" data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.kpiStatus === 'meleset' && task.status === 'selesai' ? 'Meleset (done)' : (task.displayKpiLabel || task.kpiLabel))}</span></td>
+          <td class="${taskColumnClass('timer')}" data-label="Timer">${renderTimerCell(task)}</td>
+          <td class="${taskColumnClass('dibuat')}" data-label="Dibuat">${formatDate(task.createdAt || task.startedAt)}</td>
+          <td class="${taskColumnClass('selesai')}" data-label="Selesai">${task.completedAt ? formatDate(task.completedAt) : '-'}</td>
+          <td class="${taskColumnClass('file')}" data-label="File">${renderTaskAttachmentCell(task)}</td>
+          <td class="${taskColumnClass('catatan')}" data-label="Catatan">${escapeHtml(task.notes || '-')}</td>
           ${ownerAction}
         </tr>
       `;
-    }
-
-    function toggleTaskRow(id) {
-      if (!id) {
-        return;
-      }
-      state.hiddenTaskIds[id] = !state.hiddenTaskIds[id];
-      renderTasksTable();
     }
 
     function renderTaskDetail(task) {
@@ -4417,6 +4483,9 @@
     }
 
     function renderField(field) {
+      if (field.kind === 'notice') {
+        return '<div class="field full"><p class="report-warning">' + escapeHtml(field.text) + '</p></div>';
+      }
       const required = field.required ? 'required' : '';
       const full = field.full || field.kind === 'textarea' || field.kind === 'file' ? ' full' : '';
       const help = field.help ? `<small>${escapeHtml(field.help)}</small>` : '';
