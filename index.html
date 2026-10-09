@@ -1704,17 +1704,18 @@
         top: 0;
         z-index: 20;
         height: auto;
-        padding: 8px 12px;
+        padding: 8px;
+        padding-right: 84px;
         flex-direction: row;
         justify-content: flex-start;
-        gap: 10px;
+        gap: 6px;
         overflow-x: auto;
-        padding-right: 54px;
       }
 
       .sidebar .brand-row {
-        width: auto;
-        min-width: min(116px, 34vw);
+        width: min(100px, 30vw);
+        min-width: min(100px, 30vw);
+        flex: 0 0 min(100px, 30vw);
         flex-direction: row;
         gap: 4px;
         margin: 0;
@@ -1757,17 +1758,18 @@
       .nav {
         width: auto;
         min-width: 0;
-        flex: 1 1 auto;
+        flex: 0 0 auto;
         flex-direction: row;
         justify-content: flex-start;
+        gap: 4px;
         overflow-x: auto;
       }
 
       .nav button {
-        width: 42px;
-        min-width: 42px;
-        min-height: 42px;
-        padding: 8px;
+        width: 38px;
+        min-width: 38px;
+        min-height: 38px;
+        padding: 7px;
         box-shadow: none;
       }
 
@@ -1777,10 +1779,10 @@
       }
 
       .lobby-link {
-        flex: 0 0 34px;
-        width: 34px;
+        flex: 0 0 32px;
+        width: 32px;
         margin: 0;
-        min-height: 34px;
+        min-height: 32px;
         padding: 5px;
       }
 
@@ -1793,8 +1795,8 @@
         display: inline-flex;
         position: fixed;
         z-index: 30;
-        top: 50px;
-        right: 10px;
+        top: 10px;
+        right: 50px;
         width: 32px;
         height: 32px;
         min-height: 32px;
@@ -1863,8 +1865,8 @@
         display: inline-flex;
         position: fixed;
         z-index: 30;
-        top: 50px;
-        right: 10px;
+        top: 10px;
+        right: 50px;
         width: 32px;
         height: 32px;
         min-height: 32px;
@@ -2647,7 +2649,7 @@
         { kind: 'number', field: 'amount', label: 'Total setoran harian', required: true },
         { kind: 'file', field: 'physicalCash', label: 'Foto uang fisik', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*' },
         { kind: 'file', field: 'cashierState', label: 'Foto keadaan kas aplikasi kasir', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*' },
-        { kind: 'file', field: 'notaAttachments', label: 'Foto nota', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'notaAttachments', label: 'Foto nota (opsional)', multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf' },
         { kind: 'file', field: 'bankProof', label: 'Bukti storan bank', maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf', locations: ['raha'], help: 'Wajib bila setoran lebih dari 1 juta. Bisa menyusul maksimal 1x24 jam.' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],

@@ -98,6 +98,22 @@ test('notes filter uses assigned user and includes all creators by default', () 
   assert.deepEqual(filtered.notes.map(item => item.id), ['n1']);
 });
 
+test('notes assignee filter has the requested labels and order', () => {
+  const users = [
+    user('sales', 'Sales Director Person', 'sales_director', 'all'),
+    user('raha', 'Admin Raha Person', 'admin_raha', 'raha'),
+    user('aud', 'Abu Abdillah', 'auditor', 'all'),
+    user('kendari', 'Admin Kendari Person', 'admin_kendari', 'kendari'),
+    user('owner', 'Owner Person', 'owner', 'all')
+  ];
+  const { engine } = engineFor(users[2], users);
+  const dashboard = engine.execute('apiGetDashboard', ['test-jwt', { creatorId: '__all', ...period }]);
+  assert.equal(dashboard.ok, true);
+  assert.deepEqual(dashboard.noteCreators.map(item => item.name), [
+    'Semua pembuat', 'Umum', 'Owner', 'Auditor', 'Admin Kendari', 'Admin Raha', 'Sales Director'
+  ]);
+});
+
 test('hidden task columns persist in the signed-in KPI account', () => {
   const auditor = user('aud-columns', 'Auditor', 'auditor', 'all');
   const other = user('other-columns', 'Admin Raha', 'admin_raha', 'raha');
@@ -129,6 +145,22 @@ test('report task list includes only tasks assigned to the signed-in user', () =
   assert.ok(result.openTasks.some(item => item.id === 'mine'));
   assert.equal(result.openTasks.some(item => item.id === 'admin-task' || item.id === 'other-auditor'), false);
   assert.equal(result.openTasks.filter(item => ['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].includes(item.taskType)).length, 6);
+});
+
+test('report tasks are ordered by shortest remaining time with no-deadline tasks last', () => {
+  const admin = user('deadline-admin', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const startedAt = new Date().toISOString();
+  const makeTimed = (id, hours) => ({ ...task(id, admin, 'berjalan'),
+    StartedAt: startedAt, CreatedAt: startedAt, TimeLimitHours: hours,
+    KpiStatus: 'berjalan' });
+  const tasks = [makeTimed('due-24', 24), makeTimed('due-2', 2),
+    { ...makeTimed('without-deadline', 0), PayloadJson: '{"noDeadline":true}' },
+    makeTimed('due-8', 8)];
+  const { engine } = engineFor(admin, [admin], [], tasks);
+  const meta = engine.execute('apiGetReportMeta', ['test-jwt']);
+  assert.equal(meta.ok, true);
+  assert.deepEqual(meta.openTasks.map(item => item.id),
+    ['due-2', 'due-8', 'due-24', 'without-deadline']);
 });
 
 test('dashboard splits pending and completed late tasks', () => {

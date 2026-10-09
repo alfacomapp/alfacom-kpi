@@ -77,8 +77,20 @@ test('total includes optional Raha bank proof and that group retains its one-fil
   assert.equal(submit(oversized, overGroups, 1500000).ok, false);
   assert.equal(oversized.uploads().length, 0);
 });
-test('required evidence remains mandatory', () => {
-  for (const field of ['physicalCash', 'cashierState', 'notaAttachments']) {
+test('nota photos are optional for Kendari and Raha daily reports', () => {
+  for (const location of ['kendari', 'raha']) {
+    const e = engine(location);
+    const groups = files();
+    delete groups.notaAttachments;
+    const result = submit(e, groups);
+    assert.equal(result.ok, true, result.message);
+    const report = e.changes().find(row => row.table === 'kpi_reports').record;
+    assert.equal(JSON.parse(report.AttachmentUrlsJson).notaAttachments, undefined);
+  }
+});
+
+test('required cash evidence remains mandatory', () => {
+  for (const field of ['physicalCash', 'cashierState']) {
     const e = engine(); const groups = files(); groups[field] = [];
     const result = submit(e, groups); assert.equal(result.ok, false); assert.match(result.message, /wajib/); assert.equal(e.uploads().length, 0);
   }

@@ -963,7 +963,7 @@ function apiGetReportMeta(token) {
       .filter(function(task) {
         return task.status === 'berjalan' && !isDeprecatedTaskForKpi_(task) && isReportTaskAssignedToUser_(user, task);
       })
-      .sort(sortTasks_);
+      .sort(sortReportTasksByDeadline_);
 
     return ok_({
       user: user,
@@ -1472,15 +1472,20 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
 
 function getNoteCreators_(sourceUsers) {
   const users = sourceUsers || getActiveUsers_();
+  const roleOrder = { owner: 0, auditor: 1, admin_kendari: 2, admin_raha: 3, sales_director: 4 };
   const assignees = users.map(function(user) {
+    const role = normalizeRole_(user.Role);
     return {
       id: 'assignee:' + user.Id,
-      name: (user.Name || user.Username || user.Id) + ' (' + (ROLE_LABELS[normalizeRole_(user.Role)] || user.Role) + ')'
+      name: ROLE_LABELS[role] || user.Name || user.Username || user.Id,
+      order: Object.prototype.hasOwnProperty.call(roleOrder, role) ? roleOrder[role] : 5
     };
   }).sort(function(a, b) {
-    return a.name.localeCompare(b.name);
+    return a.order - b.order || a.name.localeCompare(b.name);
+  }).map(function(user) {
+    return { id: user.id, name: user.name };
   });
-  return [{ id: '__all', name: 'Semua pembuat' }, { id: '__unassigned', name: 'Tanpa penugasan' }].concat(assignees);
+  return [{ id: '__all', name: 'Semua pembuat' }, { id: '__unassigned', name: 'Umum' }].concat(assignees);
 }
 
 function getActiveUsers_() {
@@ -1529,8 +1534,8 @@ function getVisibleCards_(user, activeUsers) {
   const cards = [
     { key: 'owner', label: 'Owner', role: 'owner', location: 'all' },
     { key: 'auditor', label: 'Auditor', role: 'auditor', location: 'all' },
-    { key: 'kendari', label: 'User Kendari', role: 'admin', location: 'kendari' },
-    { key: 'raha', label: 'User Raha', role: 'admin', location: 'raha' },
+    { key: 'kendari', label: 'Admin Kendari', role: 'admin', location: 'kendari' },
+    { key: 'raha', label: 'Admin Raha', role: 'admin', location: 'raha' },
     { key: 'sales_director', label: 'Sales Director', role: 'sales_director', location: 'sales' }
   ];
 
@@ -1860,6 +1865,17 @@ function buildTaskDetailText_(task, payload) {
   return parts.join('\n');
 }
 
+function sortReportTasksByDeadline_(a, b) {
+  const remaining = function(task) {
+    const timer = task && task.timer || {};
+    return timer.noDeadline || !Number.isFinite(Number(timer.remainingMs))
+      ? Number.POSITIVE_INFINITY : Number(timer.remainingMs);
+  };
+  const aRemaining = remaining(a);
+  const bRemaining = remaining(b);
+  return aRemaining === bRemaining ? sortTasks_(a, b) : (aRemaining < bRemaining ? -1 : 1);
+}
+
 function sortTasks_(a, b) {
   const newestFirst = new Date(b.createdAt || b.startedAt || b.completedAt || 0) -
     new Date(a.createdAt || a.startedAt || a.completedAt || 0);
@@ -1930,7 +1946,6 @@ function validateReportPayload_(user, type, fields, files) {
     requireNumber_(fields.amount, 'Total setoran harian wajib diisi.');
     requireFile_(files, 'physicalCash', 'Foto uang fisik wajib diupload.');
     requireFile_(files, 'cashierState', 'Foto keadaan kas di aplikasi kasir wajib diupload.');
-    requireFile_(files, 'notaAttachments', 'Minimal 1 foto nota wajib diupload.');
     limitFiles_(files, 'notaAttachments', 10, 'Foto nota maksimal 10 lampiran.');
     return;
   }
