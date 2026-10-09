@@ -98,6 +98,25 @@ test('notes filter uses assigned user and includes all creators by default', () 
   assert.deepEqual(filtered.notes.map(item => item.id), ['n1']);
 });
 
+test('hidden task columns persist in the signed-in KPI account', () => {
+  const auditor = user('aud-columns', 'Auditor', 'auditor', 'all');
+  const other = user('other-columns', 'Admin Raha', 'admin_raha', 'raha');
+  const { engine, ctx } = engineFor(auditor, [auditor, other]);
+  const saved = engine.execute('apiUpdateTaskColumnPreferences', ['test-jwt', {
+    file: true, status: true, unknown: true
+  }]);
+  assert.equal(saved.ok, true);
+  assert.deepEqual(saved.hiddenTaskColumns, { status: true, file: true });
+  assert.deepEqual(ctx.tables.users.find(item => item.record.Id === auditor.Id).record.HiddenTaskColumns,
+    { status: true, file: true });
+  assert.equal(ctx.tables.users.find(item => item.record.Id === other.Id).record.HiddenTaskColumns, undefined);
+  const session = engine.execute('apiGetSession', ['test-jwt']);
+  assert.deepEqual(session.user.HiddenTaskColumns, { status: true, file: true });
+  const reopened = engine.execute('apiUpdateTaskColumnPreferences', ['test-jwt', {}]);
+  assert.equal(reopened.ok, true);
+  assert.deepEqual(engine.execute('apiGetSession', ['test-jwt']).user.HiddenTaskColumns, {});
+});
+
 test('report task list includes only tasks assigned to the signed-in user', () => {
   const auditor = user('aud', 'Auditor A', 'auditor', 'all');
   const admin = user('adm', 'Admin Kendari', 'admin_kendari', 'kendari');

@@ -347,6 +347,7 @@ function doPost(e) {
       'apiSubmitReport',
       'apiGetUploadedFile',
       'apiUpdateProfile',
+      'apiUpdateTaskColumnPreferences',
       'apiLogActivity'
     ];
 
@@ -1108,6 +1109,29 @@ function apiUpdateTaskStatus(token, taskId, kpiStatus, note) {
 }
 
 
+function normalizeHiddenTaskColumns_(input) {
+  const allowed = ['no', 'tugas', 'penanggung', 'status', 'timer', 'dibuat', 'selesai', 'file', 'catatan'];
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const normalized = {};
+  allowed.forEach(function(key) { if (source[key] === true) normalized[key] = true; });
+  return normalized;
+}
+
+function apiUpdateTaskColumnPreferences(token, hiddenColumns) {
+  try {
+    const user = requireUser_(token);
+    const normalized = normalizeHiddenTaskColumns_(hiddenColumns);
+    updateObjectById_('users', user.Id, function(row) {
+      row.HiddenTaskColumns = normalized;
+      row.UpdatedAt = new Date();
+      return row;
+    });
+    return ok_({ hiddenTaskColumns: normalized });
+  } catch (error) {
+    return fail_(error);
+  }
+}
+
 function apiUpdateProfile(token, payload) {
   try {
     const sessionUser = requireUser_(token);
@@ -1339,7 +1363,8 @@ function sanitizeUser_(user) {
     RoleLabel: ROLE_LABELS[normalizeRole_(user.Role)] || String(user.Role || ''),
     Location: getUserLocation_(user),
     Email: String(user.Email || ''),
-    Phone: String(user.Phone || '')
+    Phone: String(user.Phone || ''),
+    HiddenTaskColumns: typeof user.HiddenTaskColumns === 'undefined' ? null : normalizeHiddenTaskColumns_(user.HiddenTaskColumns)
   };
 }
 
@@ -3796,7 +3821,7 @@ function fail_(error) {
   const actions = {
     apiLogout, apiLogActivity, apiGetSession, apiGetDashboard,
     apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiUpdateTaskStatus,
-    apiGetReportMeta, apiSubmitReport, apiUpdateProfile
+    apiGetReportMeta, apiSubmitReport, apiUpdateProfile, apiUpdateTaskColumnPreferences
   };
   const tableNames = {
     users: 'kpi_users', notes: 'kpi_notes', reports: 'kpi_reports',
@@ -4141,14 +4166,14 @@ Deno.serve(async request => {
 
     const tableKeys = action === 'apiGetSession' || action === 'apiLogout'
       ? ['users'] : action === 'apiLogActivity'
-        ? ['users', 'activityLogs'] : action === 'apiUpdateProfile'
+        ? ['users', 'activityLogs'] : ['apiUpdateProfile', 'apiUpdateTaskColumnPreferences'].includes(action)
           ? ['users'] : Object.keys(KPI_TABLES);
     const fetched = await Promise.all(tableKeys.map(async key => [key,
       await restRows(KPI_TABLES[key], 'select=id,record,revision,seq&order=seq.asc')]));
     const tables = Object.fromEntries(fetched);
     for (const key of Object.keys(KPI_TABLES)) tables[key] ||= [];
     const userRecord = findKpiUser(tables.users, identity);
-    const needsAttendance = !['apiGetSession', 'apiLogout', 'apiLogActivity', 'apiUpdateProfile'].includes(action);
+    const needsAttendance = !['apiGetSession', 'apiLogout', 'apiLogActivity', 'apiUpdateProfile', 'apiUpdateTaskColumnPreferences'].includes(action);
     let absensi = [];
     let leaveRequests = [];
     if (needsAttendance) {

@@ -2590,7 +2590,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-09-audit-columns-zoom';
+    const CLIENT_CACHE_VERSION = '2026-10-09-audit-columns-account';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -3055,11 +3055,14 @@
     }
 
     function showApp() {
+      let localColumns = {};
       try {
-        state.hiddenTaskColumns = JSON.parse(localStorage.getItem('kpi_hidden_task_columns_' + state.user.Id) || '{}') || {};
-      } catch (_) {
-        state.hiddenTaskColumns = {};
-      }
+        localColumns = JSON.parse(localStorage.getItem('kpi_hidden_task_columns_' + state.user.Id) || '{}') || {};
+      } catch (_) {}
+      const accountColumns = state.user.HiddenTaskColumns;
+      state.hiddenTaskColumns = accountColumns && typeof accountColumns === 'object'
+        ? Object.assign({}, accountColumns) : localColumns;
+      if (accountColumns == null && Object.keys(localColumns).length) saveHiddenTaskColumns();
       byId('loginView').classList.add('hidden');
       byId('appView').classList.remove('hidden');
       renderShell();
@@ -3802,12 +3805,26 @@
       }).join('') + '</div>';
     }
 
+    function saveHiddenTaskColumns() {
+      const userId = state.user.Id;
+      const token = state.token;
+      const selected = Object.assign({}, state.hiddenTaskColumns);
+      state.taskColumnSaveQueue = (state.taskColumnSaveQueue || Promise.resolve())
+        .catch(function() {})
+        .then(function() { return api('apiUpdateTaskColumnPreferences', token, selected); })
+        .then(function(response) {
+          if (state.user && state.user.Id === userId) state.user.HiddenTaskColumns = response.hiddenTaskColumns;
+        })
+        .catch(showError);
+    }
+
     function toggleTaskColumn(key) {
       if (['no', 'tugas', 'penanggung', 'status', 'timer', 'dibuat', 'selesai', 'file', 'catatan'].indexOf(key) === -1) return;
       state.hiddenTaskColumns[key] = !state.hiddenTaskColumns[key];
       try {
         localStorage.setItem('kpi_hidden_task_columns_' + state.user.Id, JSON.stringify(state.hiddenTaskColumns));
       } catch (_) {}
+      saveHiddenTaskColumns();
       renderTasksTable();
     }
 
