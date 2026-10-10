@@ -416,6 +416,7 @@ function peranKpiDariSla_(profil, login) {
   const username = String(login || '').trim().toLowerCase();
   if (role === 'direktur') return { role: 'owner', location: 'all' };
   if (role === 'manager') return { role: 'auditor', location: 'all' };
+  if (role === 'teknisi' && username === 'alif') return { role: 'admin_raha', location: 'raha' };
   if (role === 'admin_raha' || (role === 'admin' && branch === 'raha'))
     return { role: 'admin_raha', location: 'raha' };
   if (role === 'admin' && ['', 'semua', 'kendari'].indexOf(branch) !== -1)
@@ -3995,6 +3996,7 @@ async function verifyIdentity(jwt) {
   let access;
   if (role === 'direktur') access = ['owner', 'all'];
   else if (role === 'manager') access = ['auditor', 'all'];
+  else if (role === 'teknisi' && login === 'alif') access = ['admin_raha', 'raha'];
   else if (role === 'admin_raha' || (role === 'admin' && branch === 'raha')) access = ['admin_raha', 'raha'];
   else if (role === 'admin' && ['', 'semua', 'kendari'].includes(branch)) access = ['admin_kendari', 'kendari'];
   else if (role === 'sales' && login === 'juna' && branch === 'kendari') access = ['sales_director', 'sales'];
