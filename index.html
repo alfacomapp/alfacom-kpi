@@ -905,6 +905,23 @@
       justify-items: start;
     }
 
+    .attachment-disclosure-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .bank-attachment-label {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .bank-attachment-groups {
+      display: grid;
+      gap: 8px;
+    }
+
     .attachment-actions {
       display: flex;
       gap: 6px;
@@ -2330,6 +2347,18 @@
     </div>
   </div>
 
+  <div id="notePasswordDialog" class="info-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="notePasswordTitle">
+    <form id="notePasswordForm" class="info-dialog-card">
+      <h3 id="notePasswordTitle">Konfirmasi ceklis note</h3>
+      <p>Masukkan password login akun Anda untuk mengubah ceklis note.</p>
+      <input id="notePasswordInput" type="password" autocomplete="current-password" maxlength="256" required aria-label="Password login">
+      <div class="inline-actions">
+        <button id="notePasswordConfirm" class="btn btn-primary" type="submit">Konfirmasi</button>
+        <button id="notePasswordCancel" class="btn btn-ghost" type="button">Batal</button>
+      </div>
+    </form>
+  </div>
+
   <div id="imageViewer" class="image-viewer hidden" role="dialog" aria-modal="true" aria-label="Pratinjau gambar">
     <div class="image-viewer-head">
       <span id="imageViewerTitle" class="image-viewer-title">Lampiran gambar</span>
@@ -2600,6 +2629,7 @@
       hiddenTaskColumns: {},
       openNoteComments: {},
       editingNoteComment: null,
+      pendingNoteToggle: null,
       imageViewerFiles: [],
       imageViewerIndex: 0,
       imageViewerZoom: .7,
@@ -2622,7 +2652,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-09-audit-columns-account';
+    const CLIENT_CACHE_VERSION = '2026-10-11-task-notes-bank';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2945,6 +2975,11 @@
           closeInfoBox();
         }
       });
+      byId('notePasswordForm').addEventListener('submit', confirmNoteToggle);
+      byId('notePasswordCancel').addEventListener('click', closeNotePasswordDialog);
+      byId('notePasswordDialog').addEventListener('click', function(event) {
+        if (event.target === byId('notePasswordDialog') && !byId('notePasswordConfirm').disabled) closeNotePasswordDialog();
+      });
       byId('tasksTable').addEventListener('click', function(event) {
         const button = event.target.closest('[data-task-column]');
         if (button) toggleTaskColumn(button.dataset.taskColumn);
@@ -2962,6 +2997,10 @@
         if (event.target === byId('imageViewer')) closeImageViewer();
       });
       document.addEventListener('keydown', function(event) {
+        if (!byId('notePasswordDialog').classList.contains('hidden')) {
+          if (event.key === 'Escape' && !byId('notePasswordConfirm').disabled) closeNotePasswordDialog();
+          return;
+        }
         if (byId('imageViewer').classList.contains('hidden')) return;
         if (event.key === 'Escape') closeImageViewer();
         if (event.key === 'ArrowLeft') moveImageViewer(-1);
@@ -3526,7 +3565,7 @@
           <article class="note-item ${note.done ? 'done' : ''}">
             <div class="note-meta">
               <span>${escapeHtml(note.createdByName || '-')} &middot; ${formatDate(note.updatedAt || note.createdAt)}</span>
-              <input type="checkbox" ${note.done ? 'checked' : ''} aria-label="Ceklis note" onchange="toggleNote('${escapeAttr(note.id)}', this.checked)">
+              <input type="checkbox" ${note.done ? 'checked' : ''} aria-label="Ceklis note" onchange="toggleNote('${escapeAttr(note.id)}', this.checked, this)">
             </div>
             <div class="note-meta">${assignment}</div>
             <div class="note-text">${escapeHtml(note.text)}</div>
@@ -3647,12 +3686,41 @@
         });
     }
 
-    function toggleNote(id, done) {
-      api('apiUpdateNote', state.token, id, { done: done })
+    function toggleNote(id, done, checkbox) {
+      if (checkbox) checkbox.checked = !done;
+      state.pendingNoteToggle = { id: id, done: done };
+      byId('notePasswordInput').value = '';
+      byId('notePasswordDialog').classList.remove('hidden');
+      byId('notePasswordInput').focus();
+    }
+
+    function closeNotePasswordDialog() {
+      state.pendingNoteToggle = null;
+      byId('notePasswordInput').value = '';
+      byId('notePasswordDialog').classList.add('hidden');
+    }
+
+    function confirmNoteToggle(event) {
+      event.preventDefault();
+      const pending = state.pendingNoteToggle;
+      const password = byId('notePasswordInput').value;
+      if (!pending || !password) return;
+      const button = byId('notePasswordConfirm');
+      button.disabled = true;
+      byId('notePasswordCancel').disabled = true;
+      api('apiUpdateNote', state.token, pending.id, { done: pending.done, password: password })
         .then(function() {
-          loadDashboard();
+          closeNotePasswordDialog();
+          return loadDashboard();
         })
-        .catch(showError);
+        .catch(function(error) {
+          byId('notePasswordInput').value = '';
+          showError(error);
+        })
+        .finally(function() {
+          button.disabled = false;
+          byId('notePasswordCancel').disabled = false;
+        });
     }
 
     function editNote(id) {
@@ -4001,7 +4069,10 @@
         : renderAttachmentButtonList(safeFiles);
       return `
         <div class="attachment-disclosure">
-          <button class="btn btn-mini btn-ghost" type="button" aria-expanded="false" onclick="toggleAttachmentDetails(this)">Detail</button>
+          <div class="attachment-disclosure-head">
+            <button class="btn btn-mini btn-ghost" type="button" aria-expanded="false" onclick="toggleAttachmentDetails(this)">Detail</button>
+            ${options && options.label ? `<span class="bank-attachment-label">${escapeHtml(options.label)}</span>` : ''}
+          </div>
           ${list}
         </div>
       `;
@@ -4012,6 +4083,8 @@
     }
 
     function renderTaskAttachmentCell(task) {
+      const grouped = renderBankTaskAttachments(task);
+      if (grouped) return grouped;
       const files = flattenAttachmentFiles(task.attachments);
       if (!files.length) {
         return '<span class="muted">-</span>';
@@ -4020,6 +4093,33 @@
       return renderAttachmentDisclosureFromFiles(files, {
         textOnly: isOwnerOnlyTaskFile(task) && !isCurrentUserOwner()
       });
+    }
+
+    function renderBankTaskAttachments(task) {
+      const groups = task && task.attachments || {};
+      const isBankTask = task && (task.taskType === 'laporan_akun_bank' ||
+        (task.taskType === 'audit_pekanan' && /audit laporan akun bank pekanan/i.test(task.title || '')));
+      if (!isBankTask) return '';
+      const labels = {
+        bri: 'BRI (laporan lama)', bri_kendari: 'BRI Kendari', bri_raha: 'BRI Raha',
+        mandiri: 'Mandiri', bank_sultra: 'Bank Sultra', aladin_syariah: 'Bank Aladin Syariah'
+      };
+      const rendered = [];
+      const used = {};
+      Object.keys(labels).forEach(function(bank) {
+        const fields = ['bankAccountProof_' + bank, 'bankStatement_' + bank];
+        const files = fields.reduce(function(all, field) {
+          used[field] = true;
+          return all.concat(Array.isArray(groups[field]) ? groups[field] : []);
+        }, []);
+        if (files.length) rendered.push(renderAttachmentDisclosureFromFiles(files, { label: labels[bank] }));
+      });
+      const otherFiles = Object.keys(groups).reduce(function(all, field) {
+        return used[field] ? all : all.concat(Array.isArray(groups[field]) ? groups[field] : []);
+      }, []);
+      if (!rendered.length) return '';
+      if (otherFiles.length) rendered.push(renderAttachmentDisclosureFromFiles(otherFiles, { label: 'Lampiran lainnya' }));
+      return '<div class="bank-attachment-groups">' + rendered.join('') + '</div>';
     }
 
     function toggleAttachmentDetails(button) {
@@ -4314,7 +4414,7 @@
     function taskDeadlineText(task) {
       const timer = task && task.timer || {};
       if (timer.noDeadline) {
-        return '';
+        return 'Deadline: Tidak ada';
       }
       const payload = task && task.payload || {};
       let deadline = timer.deadlineAt || payload.deadlineAt || '';
@@ -4325,7 +4425,7 @@
           deadline = start.toISOString();
         }
       }
-      return deadline ? 'Deadline: ' + formatDate(deadline) : '';
+      return deadline ? 'Deadline: ' + formatDate(deadline) : 'Deadline: Belum ditentukan';
     }
 
     function displayTaskDate(task) {
@@ -4506,13 +4606,15 @@
       }
 
       wrap.innerHTML = tasks.slice(0, 80).map(function(task) {
-        const detail = task.detailText ? `<div class="task-detail">${escapeHtml(task.detailText)}</div>` : '';
+        const detail = renderTaskDetail(task);
+        const deadline = renderTaskDeadline(task);
         const attachments = renderTaskAttachmentCell(task);
         const taskNumber = Number(task.referenceNumber || 0);
         return `
           <div class="task-chip">
             <strong>No. ${taskNumber || '-'} &middot; ${escapeHtml(task.title || task.taskLabel)}</strong>
             <span>${escapeHtml(task.taskLabel)}</span>
+            ${deadline}
             ${detail}
             <div class="task-chip-attachments"><span class="muted">Lampiran</span>${attachments}</div>
             <div class="inline-actions">

@@ -156,7 +156,7 @@ const REPORT_TYPES = {
   },
   kasbon_di_atas_limit: {
     label: 'Upload Bukti Persetujuan Pengambilan Kasbon di Atas Limit',
-    roles: ['owner', 'auditor', 'admin_kendari', 'admin_raha', 'sales_director', 'user'],
+    roles: ['admin_kendari', 'admin_raha'],
     timeLimitHours: 0,
     excludeFromKpi: true
   },
@@ -691,6 +691,12 @@ function apiUpdateNote(token, noteId, patch) {
     const textChanged = typeof updates.text !== 'undefined';
     const doneChanged = typeof updates.done !== 'undefined';
 
+    if (doneChanged && typeof updates.done !== 'boolean') {
+      throw new Error('Nilai ceklis note tidak valid.');
+    }
+    if (doneChanged && !ctx.notePasswordVerified) {
+      throw new Error('Masukkan password login untuk mengubah ceklis note.');
+    }
     if (doneChanged && before.AssignedToId && user.Id !== before.AssignedToId && user.Role !== 'owner') {
       throw new Error('Hanya user yang ditugaskan atau owner yang dapat ceklis tugas note ini.');
     }
@@ -1513,7 +1519,7 @@ function getAssignableNoteUsers_(sourceUsers) {
   if (salesDirector) {
     options.push({
       id: '__sales_director_penawaran__',
-      name: 'Sales Director (Penawaran)',
+      name: 'Sales Director Penawaran (Tugas Wajib)',
       role: 'sales_director',
       roleLabel: ROLE_LABELS.sales_director,
       location: getUserLocation_(salesDirector)
@@ -1526,6 +1532,9 @@ function getAssignableNoteUsers_(sourceUsers) {
 }
 
 function noteAssigneeDisplayName_(user) {
+  if (normalizeRole_(user.Role) === 'sales_director') {
+    return 'Sales Director (Tugas Tambahan)';
+  }
   return normalizeRole_(user.Role) === 'auditor'
     ? ROLE_LABELS.auditor
     : (user.Name || user.Username || user.Id);
@@ -1706,7 +1715,7 @@ function tasksForCard_(allTasks, card) {
     }
 
     if (card.key === 'kendari' || card.key === 'raha') {
-      return task.assigneeLocation === card.location;
+      return task.assigneeRole === 'admin_' + card.location && task.assigneeLocation === card.location;
     }
 
     return task.assigneeRole === card.role || task.assigneeLocation === card.location;
@@ -1719,6 +1728,9 @@ function isDeprecatedTaskForKpi_(task) {
   const taskType = task.taskType || task.TaskType;
   const location = task.assigneeLocation || normalizeLocation_(task.AssigneeLocation);
   const periodKey = String(task.periodKey || task.PeriodKey || '');
+
+  if (taskType === 'kasbon_di_atas_limit' &&
+      ['admin_kendari', 'admin_raha'].indexOf(normalizeRole_(task.assigneeRole || task.AssigneeRole)) === -1) return true;
 
   if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(taskType) !== -1 &&
       location === 'all' && String(task.status || task.Status || 'berjalan') === 'berjalan') return true;
@@ -4007,6 +4019,23 @@ async function verifyIdentity(jwt) {
     throw new Error('Sesi SLA berakhir.');
   return { login, role: access[0], location: access[1], expiresAt };
 }
+async function verifyNotePassword(identity, jwt, password) {
+  const value = String(password || '');
+  if (!value || value.length > 256) throw new Error('Masukkan password login akun Anda.');
+  const response = await fetch(PROJECT_URL + '/auth/v1/token?grant_type=password', {
+    method: 'POST',
+    headers: { apikey: PUBLIC_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: identity.login + '@alfacom.local', password: value })
+  });
+  if (response.status === 429) throw new Error('Terlalu banyak percobaan password. Coba lagi nanti.');
+  if (!response.ok) throw new Error('Password login salah. Ceklis note belum diubah.');
+  const result = await response.json();
+  const claims = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  if (!result.user || result.user.id !== claims.sub ||
+      String(result.user.email || '').toLowerCase() !== identity.login + '@alfacom.local') {
+    throw new Error('Password tidak sesuai dengan akun yang sedang login.');
+  }
+}
 function findKpiUser(rows, identity) {
   const matches = rows.filter(item => {
     const row = item.record;
@@ -4206,6 +4235,9 @@ Deno.serve(async request => {
     const jwt = /^Bearer (.+)$/i.exec(authHeader)?.[1] || '';
     const identity = await verifyIdentity(jwt);
     if (args[0] !== jwt) throw new Error('Sesi SLA tidak sesuai.');
+    const notePatch = action === 'apiUpdateNote' && args[2] && typeof args[2] === 'object' ? args[2] : null;
+    const notePasswordVerified = Boolean(notePatch && Object.prototype.hasOwnProperty.call(notePatch, 'done'));
+    if (notePasswordVerified) await verifyNotePassword(identity, jwt, notePatch.password);
 
     const tableKeys = action === 'apiGetSession' || action === 'apiLogout'
       ? ['users'] : action === 'apiLogActivity'
@@ -4227,7 +4259,7 @@ Deno.serve(async request => {
         restRows('pengajuan_cuti', 'select=*')
       ]);
     }
-    const ctx = { jwt, expiresAt: identity.expiresAt, userRecord, tables,
+    const ctx = { jwt, expiresAt: identity.expiresAt, userRecord, notePasswordVerified, tables,
       original: structuredClone(tables), absensi, leaveRequests, uploads: [], maxSeq: 0, version: 0 };
     const engine = createKpiEngine(ctx);
     if (action === 'apiGetUploadedFile') {
@@ -4256,7 +4288,8 @@ Deno.serve(async request => {
     console.error('KPI Edge request failed:', error && error.message ? error.message : String(error));
     const message = error && error.message ? error.message : 'Permintaan KPI gagal.';
     const unauthorized = /Sesi SLA|Identitas SLA|Profil SLA|akses KPI|Origin/.test(message);
-    return jsonResponse({ ok: false, message }, unauthorized ? 401 : 500, origin);
+    const passwordRejected = /Password login|Password tidak sesuai|Masukkan password|percobaan password/.test(message);
+    return jsonResponse({ ok: false, message }, unauthorized ? 401 : (passwordRejected ? 403 : 500), origin);
   }
 });
 

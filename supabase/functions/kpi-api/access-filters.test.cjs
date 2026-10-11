@@ -112,6 +112,58 @@ test('notes assignee filter has the requested labels and order', () => {
   assert.deepEqual(dashboard.noteCreators.map(item => item.name), [
     'Semua pembuat', 'Umum', 'Owner', 'Auditor', 'Admin Kendari', 'Admin Raha', 'Sales Director'
   ]);
+  assert.ok(dashboard.assignableUsers.some(item => item.id === 'sales' && item.name === 'Sales Director (Tugas Tambahan)'));
+  assert.ok(dashboard.assignableUsers.some(item => item.id === '__sales_director_penawaran__' &&
+    item.name === 'Sales Director Penawaran (Tugas Wajib)'));
+});
+
+test('note checkbox changes require a verified password in the server engine', () => {
+  const admin = user('note-admin', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const note = { Id: 'note-check', Text: 'Periksa laporan', Done: false,
+    CreatedById: admin.Id, CreatedByName: admin.Name, CreatedAt: stamp, UpdatedAt: stamp };
+  const { engine, ctx } = engineFor(admin, [admin], [note]);
+  const denied = engine.execute('apiUpdateNote', ['test-jwt', note.Id, { done: true }]);
+  assert.equal(denied.ok, false);
+  assert.match(denied.message, /password login/);
+  assert.equal(ctx.tables.notes[0].record.Done, false);
+  ctx.notePasswordVerified = true;
+  assert.equal(engine.execute('apiUpdateNote', ['test-jwt', note.Id, { done: true }]).ok, true);
+  assert.equal(ctx.tables.notes[0].record.Done, true);
+  ctx.notePasswordVerified = false;
+  assert.equal(engine.execute('apiUpdateNote', ['test-jwt', note.Id, { done: false }]).ok, false);
+  assert.equal(ctx.tables.notes[0].record.Done, true);
+});
+
+test('note password verification accepts only the current SLA account', async () => {
+  const helperSource = source.slice(source.indexOf('async function verifyNotePassword'),
+    source.indexOf('function findKpiUser', source.indexOf('async function verifyNotePassword')));
+  const jwt = 'x.' + Buffer.from(JSON.stringify({ sub: 'auth-current' })).toString('base64url') + '.x';
+  const calls = [];
+  const verify = new Function('fetch', 'PROJECT_URL', 'PUBLIC_KEY',
+    helperSource + '\nreturn verifyNotePassword;')(
+    async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, json: async () => ({ user: { id: 'auth-current', email: 'admin@alfacom.local' } }) };
+    }, 'https://example.supabase.co', 'publishable-test');
+  await verify({ login: 'admin' }, jwt, 'secret-password');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(JSON.parse(calls[0].options.body),
+    { email: 'admin@alfacom.local', password: 'secret-password' });
+  await assert.rejects(verify({ login: 'other' }, jwt, 'secret-password'), /akun yang sedang login/);
+  await assert.rejects(verify({ login: 'admin' }, jwt, ''), /Masukkan password/);
+});
+
+test('admin dashboard detail excludes auditor tasks for the same location', () => {
+  const admin = user('adm-location', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const auditor = user('aud-location', 'Auditor', 'auditor', 'all');
+  const own = task('admin-own', admin, 'berjalan');
+  const audit = { ...task('auditor-location', auditor, 'berjalan'),
+    TaskType: 'audit_piutang', AssigneeLocation: 'kendari' };
+  const { engine } = engineFor(admin, [admin, auditor], [], [own, audit]);
+  const dashboard = engine.execute('apiGetDashboard', ['test-jwt', { cardKey: 'kendari', ...period }]);
+  assert.equal(dashboard.ok, true);
+  assert.ok(dashboard.cardTasks.some(item => item.id === own.Id));
+  assert.equal(dashboard.cardTasks.some(item => item.id === audit.Id), false);
 });
 
 test('hidden task columns persist in the signed-in KPI account', () => {
@@ -151,6 +203,7 @@ test('report tasks are ordered by shortest remaining time with no-deadline tasks
   const admin = user('deadline-admin', 'Admin Kendari', 'admin_kendari', 'kendari');
   const startedAt = new Date().toISOString();
   const makeTimed = (id, hours) => ({ ...task(id, admin, 'berjalan'),
+    TaskType: 'audit_pekanan',
     StartedAt: startedAt, CreatedAt: startedAt, TimeLimitHours: hours,
     KpiStatus: 'berjalan' });
   const tasks = [makeTimed('due-24', 24), makeTimed('due-2', 2),
@@ -297,15 +350,24 @@ test('closed legacy weekly bank report keeps its original completed history', ()
   assert.deepEqual(JSON.parse(closed.PayloadJson), {});
 });
 
-test('cash advance proof is available to every role and stored as non-KPI data without a deadline', () => {
+test('cash advance proof is limited to admins and stored as non-KPI data without a deadline', () => {
   const roles = ['owner', 'auditor', 'admin_kendari', 'admin_raha', 'sales_director', 'user'];
   roles.forEach((role, index) => {
     const current = user('role-' + index, 'User ' + index, role, role === 'admin_raha' ? 'raha' : 'kendari');
     const { engine } = engineFor(current, [current]);
     const meta = engine.execute('apiGetReportMeta', ['test-jwt']);
     assert.equal(meta.ok, true);
-    assert.ok(meta.reportTypes.some(item => item.value === 'kasbon_di_atas_limit'));
+    assert.equal(meta.reportTypes.some(item => item.value === 'kasbon_di_atas_limit'),
+      role === 'admin_kendari' || role === 'admin_raha');
   });
+
+  const auditor = user('aud-kasbon', 'Auditor', 'auditor', 'all');
+  const auditorSession = engineFor(auditor, [auditor]);
+  const rejected = auditorSession.engine.execute('apiSubmitReport', ['test-jwt', {
+    type: 'kasbon_di_atas_limit', fields: { amount: 1000000 }, files: {}
+  }]);
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.message, /tidak tersedia|tidak diizinkan|role/i);
 
   const admin = user('adm-kasbon', 'Admin Kendari', 'admin_kendari', 'kendari');
   const { engine, ctx } = engineFor(admin, [admin]);
@@ -452,6 +514,7 @@ test('approved leave pauses the assigned user task', () => {
   const day = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
   const active = {
     ...task('leave-paused', auditor, 'berjalan'),
+    TaskType: 'audit_pekanan',
     KpiStatus: 'berjalan',
     StartedAt: today.toISOString(),
     CreatedAt: today.toISOString()
@@ -469,7 +532,7 @@ test('approved leave pauses the assigned user task', () => {
   }]);
   const rendered = dashboard.tasks.find(item => item.id === active.Id);
   assert.equal(rendered.timer.isPaused, true);
-  assert.equal(rendered.timer.pauseReason, 'sakit');
+  assert.equal(rendered.timer.pauseReason, today.getDay() === 0 ? 'Minggu' : 'sakit');
   assert.equal(rendered.displayKpiStatus, 'pause');
 });
 
