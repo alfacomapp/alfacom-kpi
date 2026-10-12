@@ -1571,6 +1571,16 @@
       display: grid;
       place-items: center;
       overflow: hidden;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .image-viewer-stage.can-pan {
+      cursor: grab;
+    }
+
+    .image-viewer-stage.dragging {
+      cursor: grabbing;
     }
 
     .image-viewer-stage img {
@@ -1581,8 +1591,10 @@
       height: 100%;
       object-fit: contain;
       border-radius: 6px;
-      transform: scale(var(--image-zoom, .7));
+      transform: translate3d(var(--image-pan-x, 0px), var(--image-pan-y, 0px), 0) scale(var(--image-zoom, 1));
       transform-origin: center;
+      pointer-events: none;
+      -webkit-user-drag: none;
     }
 
     .image-viewer-nav,
@@ -2367,14 +2379,14 @@
     <button id="imageViewerPrev" class="image-viewer-nav image-viewer-prev" type="button" aria-label="Gambar sebelumnya">‹</button>
     <div id="imageViewerStage" class="image-viewer-stage">
       <span id="imageViewerLoading" class="image-viewer-loading" role="status">Memuat gambar...</span>
-      <img id="imageViewerImage" class="hidden" alt="Lampiran gambar">
+      <img id="imageViewerImage" class="hidden" draggable="false" alt="Lampiran gambar">
     </div>
     <button id="imageViewerNext" class="image-viewer-nav image-viewer-next" type="button" aria-label="Gambar berikutnya">›</button>
     <div class="image-viewer-counter" aria-live="polite">
       <span id="imageViewerCounter"></span>
       <span class="image-viewer-zoom">
         <button id="imageViewerZoomOut" type="button" aria-label="Perkecil gambar">−</button>
-        <span id="imageViewerZoomLabel">70%</span>
+        <span id="imageViewerZoomLabel">100%</span>
         <button id="imageViewerZoomIn" type="button" aria-label="Perbesar gambar">+</button>
       </span>
     </div>
@@ -2632,7 +2644,12 @@
       pendingNoteToggle: null,
       imageViewerFiles: [],
       imageViewerIndex: 0,
-      imageViewerZoom: .7,
+      imageViewerZoom: 1,
+      imageViewerPanX: 0,
+      imageViewerPanY: 0,
+      imageViewerPointers: {},
+      imageViewerDrag: null,
+      imageViewerPinch: null,
       imageViewerUrls: {},
       shipmentItemSeq: 0,
       shipmentSupplierSeq: 0,
@@ -2652,7 +2669,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-11-task-notes-bank';
+    const CLIENT_CACHE_VERSION = '2026-10-12-image-viewer-fit-pan';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2989,10 +3006,14 @@
       byId('imageViewerNext').addEventListener('click', function() { moveImageViewer(1); });
       byId('imageViewerZoomIn').addEventListener('click', function() { setImageViewerZoom(state.imageViewerZoom + .1); });
       byId('imageViewerZoomOut').addEventListener('click', function() { setImageViewerZoom(state.imageViewerZoom - .1); });
-      byId('imageViewerStage').addEventListener('wheel', function(event) {
-        event.preventDefault();
-        setImageViewerZoom(state.imageViewerZoom + (event.deltaY < 0 ? .1 : -.1));
-      }, { passive: false });
+      byId('imageViewerStage').addEventListener('wheel', handleImageViewerWheel, { passive: false });
+      byId('imageViewerStage').addEventListener('pointerdown', handleImageViewerPointerDown);
+      byId('imageViewerStage').addEventListener('pointermove', handleImageViewerPointerMove);
+      byId('imageViewerStage').addEventListener('pointerup', endImageViewerPointer);
+      byId('imageViewerStage').addEventListener('pointercancel', endImageViewerPointer);
+      byId('imageViewerStage').addEventListener('lostpointercapture', endImageViewerPointer);
+      byId('imageViewerImage').addEventListener('load', updateImageViewerTransform);
+      window.addEventListener('resize', updateImageViewerTransform);
       byId('imageViewer').addEventListener('click', function(event) {
         if (event.target === byId('imageViewer')) closeImageViewer();
       });
@@ -4254,7 +4275,7 @@
       byId('imageViewerCounter').textContent = (state.imageViewerIndex + 1) + ' / ' + files.length;
       byId('imageViewerPrev').disabled = files.length <= 1;
       byId('imageViewerNext').disabled = files.length <= 1;
-      setImageViewerZoom(.7);
+      resetImageViewerView();
 
       image.classList.add('hidden');
       image.removeAttribute('src');
@@ -4294,10 +4315,164 @@
         });
     }
 
-    function setImageViewerZoom(value) {
-      state.imageViewerZoom = Math.min(5, Math.max(.25, Math.round(value * 10) / 10));
-      byId('imageViewerImage').style.setProperty('--image-zoom', String(state.imageViewerZoom));
+    function imageViewerFitSize() {
+      const stage = byId('imageViewerStage');
+      const image = byId('imageViewerImage');
+      if (!image.naturalWidth || !image.naturalHeight || !stage.clientWidth || !stage.clientHeight) {
+        return { width: 0, height: 0 };
+      }
+      const scale = Math.min(stage.clientWidth / image.naturalWidth, stage.clientHeight / image.naturalHeight);
+      return { width: image.naturalWidth * scale, height: image.naturalHeight * scale };
+    }
+
+    function updateImageViewerTransform() {
+      const stage = byId('imageViewerStage');
+      const image = byId('imageViewerImage');
+      const fit = imageViewerFitSize();
+      const maxX = Math.max(0, (fit.width * state.imageViewerZoom - stage.clientWidth) / 2);
+      const maxY = Math.max(0, (fit.height * state.imageViewerZoom - stage.clientHeight) / 2);
+      state.imageViewerPanX = maxX ? Math.max(-maxX, Math.min(maxX, state.imageViewerPanX)) : 0;
+      state.imageViewerPanY = maxY ? Math.max(-maxY, Math.min(maxY, state.imageViewerPanY)) : 0;
+      image.style.setProperty('--image-zoom', String(state.imageViewerZoom));
+      image.style.setProperty('--image-pan-x', state.imageViewerPanX + 'px');
+      image.style.setProperty('--image-pan-y', state.imageViewerPanY + 'px');
       byId('imageViewerZoomLabel').textContent = Math.round(state.imageViewerZoom * 100) + '%';
+      byId('imageViewerZoomOut').disabled = state.imageViewerZoom <= 1;
+      byId('imageViewerZoomIn').disabled = state.imageViewerZoom >= 5;
+      stage.classList.toggle('can-pan', maxX > 0 || maxY > 0);
+      stage.classList.toggle('dragging', Boolean(state.imageViewerDrag) && (maxX > 0 || maxY > 0));
+    }
+
+    function imageViewerAnchorFromClient(clientX, clientY) {
+      const stage = byId('imageViewerStage');
+      const rect = stage.getBoundingClientRect();
+      const fit = imageViewerFitSize();
+      let x = clientX - rect.left;
+      let y = clientY - rect.top;
+      if (fit.width && fit.height) {
+        const width = fit.width * state.imageViewerZoom;
+        const height = fit.height * state.imageViewerZoom;
+        const left = (stage.clientWidth - width) / 2 + state.imageViewerPanX;
+        const top = (stage.clientHeight - height) / 2 + state.imageViewerPanY;
+        x = Math.max(left, Math.min(left + width, x));
+        y = Math.max(top, Math.min(top + height, y));
+      }
+      return { x: x, y: y };
+    }
+
+    function setImageViewerZoom(value, anchor) {
+      const previousZoom = state.imageViewerZoom || 1;
+      const zoom = Math.min(5, Math.max(1, Math.round(Number(value || 1) * 1000) / 1000));
+      const stage = byId('imageViewerStage');
+      const focusX = (anchor ? anchor.x : stage.clientWidth / 2) - stage.clientWidth / 2;
+      const focusY = (anchor ? anchor.y : stage.clientHeight / 2) - stage.clientHeight / 2;
+      const ratio = zoom / previousZoom;
+      state.imageViewerPanX = focusX - (focusX - state.imageViewerPanX) * ratio;
+      state.imageViewerPanY = focusY - (focusY - state.imageViewerPanY) * ratio;
+      state.imageViewerZoom = zoom;
+      updateImageViewerTransform();
+    }
+
+    function resetImageViewerGestures() {
+      const stage = byId('imageViewerStage');
+      const pointers = state.imageViewerPointers || {};
+      state.imageViewerPointers = {};
+      state.imageViewerDrag = null;
+      state.imageViewerPinch = null;
+      Object.keys(pointers).forEach(function(id) {
+        if (stage.hasPointerCapture && stage.hasPointerCapture(Number(id))) {
+          stage.releasePointerCapture(Number(id));
+        }
+      });
+      stage.classList.remove('dragging');
+    }
+
+    function resetImageViewerView() {
+      resetImageViewerGestures();
+      state.imageViewerZoom = 1;
+      state.imageViewerPanX = 0;
+      state.imageViewerPanY = 0;
+      updateImageViewerTransform();
+    }
+
+    function handleImageViewerWheel(event) {
+      event.preventDefault();
+      if (!byId('imageViewerImage').naturalWidth) return;
+      const speed = event.deltaMode === 1 ? .045 : (event.deltaMode === 2 ? .4 : .002);
+      const factor = Math.exp(-event.deltaY * speed);
+      setImageViewerZoom(state.imageViewerZoom * factor,
+        imageViewerAnchorFromClient(event.clientX, event.clientY));
+    }
+
+    function handleImageViewerPointerDown(event) {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      if (!byId('imageViewerImage').naturalWidth) return;
+      const stage = byId('imageViewerStage');
+      state.imageViewerPointers[String(event.pointerId)] = { x: event.clientX, y: event.clientY };
+      if (stage.setPointerCapture) stage.setPointerCapture(event.pointerId);
+      const points = Object.values(state.imageViewerPointers);
+      if (points.length === 1) {
+        state.imageViewerDrag = {
+          id: String(event.pointerId), x: event.clientX, y: event.clientY,
+          panX: state.imageViewerPanX, panY: state.imageViewerPanY
+        };
+        state.imageViewerPinch = null;
+      } else if (points.length === 2) {
+        state.imageViewerDrag = null;
+        state.imageViewerPinch = imageViewerPinchMetrics(points);
+      }
+      updateImageViewerTransform();
+      event.preventDefault();
+    }
+
+    function imageViewerPinchMetrics(points) {
+      return {
+        distance: Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y),
+        x: (points[0].x + points[1].x) / 2,
+        y: (points[0].y + points[1].y) / 2
+      };
+    }
+
+    function handleImageViewerPointerMove(event) {
+      const id = String(event.pointerId);
+      if (!state.imageViewerPointers[id]) return;
+      state.imageViewerPointers[id] = { x: event.clientX, y: event.clientY };
+      const points = Object.values(state.imageViewerPointers);
+      if (points.length === 2 && state.imageViewerPinch) {
+        const previous = state.imageViewerPinch;
+        const current = imageViewerPinchMetrics(points);
+        if (previous.distance > 0) {
+          setImageViewerZoom(state.imageViewerZoom * current.distance / previous.distance,
+            imageViewerAnchorFromClient(previous.x, previous.y));
+          state.imageViewerPanX += current.x - previous.x;
+          state.imageViewerPanY += current.y - previous.y;
+          updateImageViewerTransform();
+        }
+        state.imageViewerPinch = current;
+      } else if (points.length === 1 && state.imageViewerDrag && state.imageViewerDrag.id === id) {
+        state.imageViewerPanX = state.imageViewerDrag.panX + event.clientX - state.imageViewerDrag.x;
+        state.imageViewerPanY = state.imageViewerDrag.panY + event.clientY - state.imageViewerDrag.y;
+        updateImageViewerTransform();
+      }
+      event.preventDefault();
+    }
+
+    function endImageViewerPointer(event) {
+      const id = String(event.pointerId);
+      if (!state.imageViewerPointers[id]) return;
+      delete state.imageViewerPointers[id];
+      const stage = byId('imageViewerStage');
+      if (event.type !== 'lostpointercapture' && stage.hasPointerCapture && stage.hasPointerCapture(event.pointerId)) {
+        stage.releasePointerCapture(event.pointerId);
+      }
+      const points = Object.entries(state.imageViewerPointers);
+      state.imageViewerPinch = points.length === 2
+        ? imageViewerPinchMetrics(points.map(function(entry) { return entry[1]; })) : null;
+      state.imageViewerDrag = points.length === 1 ? {
+        id: points[0][0], x: points[0][1].x, y: points[0][1].y,
+        panX: state.imageViewerPanX, panY: state.imageViewerPanY
+      } : null;
+      updateImageViewerTransform();
     }
 
     function moveImageViewer(delta) {
@@ -4309,6 +4484,7 @@
     }
 
     function closeImageViewer() {
+      resetImageViewerGestures();
       byId('imageViewer').classList.add('hidden');
       byId('imageViewerImage').removeAttribute('src');
       Object.keys(state.imageViewerUrls || {}).forEach(function(fileId) {
