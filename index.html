@@ -701,6 +701,81 @@
       overflow-wrap: anywhere;
     }
 
+    .note-mentions-jump {
+      position: relative;
+      flex: 0 0 34px;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border: 1px solid var(--green);
+      border-radius: 8px;
+      background: #eef7f0;
+      color: var(--green);
+      font-size: 20px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .note-mentions-count {
+      position: absolute;
+      top: -7px;
+      right: -7px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: var(--red);
+      color: #fff;
+      font-size: 10px;
+      line-height: 18px;
+    }
+
+    .note-mention {
+      color: var(--green);
+      font-weight: 700;
+    }
+
+    .note-comment .note-mention { display: inline; font-size: inherit; }
+
+    .note-mention-target {
+      border-color: var(--green) !important;
+      box-shadow: 0 0 0 3px rgba(26, 112, 63, .15);
+    }
+
+    .note-mention-picker {
+      position: fixed;
+      z-index: 1100;
+      width: min(280px, calc(100vw - 24px));
+      max-height: 220px;
+      overflow: auto;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, .18);
+    }
+
+    .note-mention-picker button {
+      display: block;
+      width: 100%;
+      padding: 9px 10px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .note-mention-picker button:hover,
+    .note-mention-picker button.active { background: #eef7f0; }
+
+    .notes-panel .panel-head .filters #noteCreatorFilter {
+      flex: 1 1 auto;
+      width: 0;
+      min-width: 0;
+    }
+
     .notes-list {
       display: grid;
       gap: 10px;
@@ -756,6 +831,52 @@
       flex-wrap: wrap;
       gap: 6px;
       align-items: center;
+    }
+
+    .note-reaction-toggle {
+      min-width: 34px;
+      min-height: 32px;
+      padding: 4px 8px;
+      font-size: 19px;
+      line-height: 1;
+    }
+
+    .note-reaction-picker {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      align-items: center;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .note-reaction-picker button {
+      width: 34px;
+      height: 32px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      font-size: 19px;
+      cursor: pointer;
+    }
+
+    .note-reaction-picker button:hover,
+    .note-reaction-picker button.selected { background: #eef7f0; }
+
+    .note-reaction-counts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .note-reaction-counts span {
+      padding: 3px 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f6f8f7;
+      font-size: 12px;
     }
 
     .note-comment-toggle {
@@ -2447,6 +2568,7 @@
           <div class="panel-head">
             <h3>Notes</h3>
             <div class="filters">
+              <button id="noteMentionsJump" class="note-mentions-jump hidden" type="button" title="Lihat pembahasan yang menandai Anda" aria-label="Lihat pembahasan yang menandai Anda">@<span id="noteMentionsCount" class="note-mentions-count"></span></button>
               <select id="noteCreatorFilter" aria-label="Filter note berdasarkan pengguna yang ditugaskan"></select>
             </div>
             <button class="btn btn-ghost dashboard-jump" type="button" data-dashboard-section="kpi" title="Ke KPI" aria-label="Ke KPI">
@@ -2458,7 +2580,7 @@
               <div class="field">
                 <label for="noteInput">Catatan cepat</label>
                 <div class="note-composer">
-                  <textarea id="noteInput" placeholder="Tulis note atau gunakan rekam suara..."></textarea>
+                  <textarea id="noteInput" placeholder="Tulis note, gunakan @ untuk tag pengguna..."></textarea>
                   <input id="notePhotos" class="visually-hidden-file" type="file" accept="image/*" multiple>
                   <input id="noteCamera" class="visually-hidden-file" type="file" accept="image/*" capture="environment">
                   <div class="note-composer-actions">
@@ -2606,6 +2728,7 @@
       </section>
     </main>
   </section>
+  <div id="noteMentionPicker" class="note-mention-picker hidden" role="listbox" aria-label="Pilih pengguna yang ditandai"></div>
 
   <script src="assets/kpi-bank-upload.js?v=2026-10-07-3"></script>
   <script>
@@ -2640,8 +2763,13 @@
       kpiPanelCollapsed: false,
       hiddenTaskColumns: {},
       openNoteComments: {},
+      openNoteReaction: '',
       editingNoteComment: null,
       pendingNoteToggle: null,
+      mentionCursor: 0,
+      mentionInput: null,
+      mentionStart: -1,
+      noteFocusId: '',
       imageViewerFiles: [],
       imageViewerIndex: 0,
       imageViewerZoom: 1,
@@ -2669,7 +2797,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-12-image-viewer-fit-pan';
+    const CLIENT_CACHE_VERSION = '2026-10-12-bank-audit-mentions';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2683,6 +2811,9 @@
       laporan: '<svg viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7V3z"></path><path d="M15 3v5h4"></path><path d="M10 12h6"></path><path d="M10 16h6"></path></svg>',
       profil: '<svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4z"></path><path d="M4 21a8 8 0 0 1 16 0"></path></svg>'
     };
+
+    const NOTE_REACTION_OPTIONS = [['👍🏽', 'Jempol coklat'], ['🏳️', 'Bendera putih'], ['⭐', 'Bintang'], ['🔥', 'Api'], ['❤️', 'Hati'], ['💎', 'Berlian'], ['🕋', "Ka'bah"]];
+    const BANK_ACCOUNT_OPTIONS = [['', 'Pilih bank'], ['bri_kendari', 'BRI Kendari'], ['bri_raha', 'BRI Raha'], ['mandiri', 'Mandiri'], ['bank_sultra', 'Bank Sultra'], ['aladin_syariah', 'Bank Aladin Syariah']];
 
     const REPORT_FORMS = {
       kasbon_di_atas_limit: [
@@ -2707,7 +2838,7 @@
       ],
       laporan_akun_bank: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
-        { kind: 'select', field: 'bankName', label: 'Bank yang dilaporkan', required: true, options: [['', 'Pilih bank'], ['bri_kendari', 'BRI Kendari'], ['bri_raha', 'BRI Raha'], ['mandiri', 'Mandiri'], ['bank_sultra', 'Bank Sultra'], ['aladin_syariah', 'Bank Aladin Syariah']] },
+        { kind: 'select', field: 'bankName', label: 'Bank yang dilaporkan', required: true, options: BANK_ACCOUNT_OPTIONS },
         { kind: 'file', field: 'bankAccountProof', label: 'Bukti akun bank', required: true, multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf' },
         { kind: 'file', field: 'bankStatement', label: 'Statement bank (PDF)', multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'application/pdf,.pdf', help: 'Opsional. Maksimal 50 file dan 10 MB total, termasuk bukti akun bank. PDF dapat dilihat dan diunduh setelah upload.' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
@@ -2762,7 +2893,8 @@
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_pekanan: [
-        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_pekanan'] },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas audit akun bank pekanan', required: true, match: ['audit_pekanan'] },
+        { kind: 'select', field: 'bankName', label: 'Bank yang diperiksa', required: true, options: BANK_ACCOUNT_OPTIONS, help: 'Simpan pemeriksaan tiap bank secara terpisah. Tugas selesai setelah 5 bank diperiksa.' },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
         { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
@@ -2869,6 +3001,16 @@
       byId('kpiPanelToggle').addEventListener('click', function() {
         setKpiPanelCollapsed(!state.kpiPanelCollapsed);
       });
+      byId('noteMentionsJump').addEventListener('click', jumpToNextMention);
+      byId('notesList').addEventListener('click', function(event) {
+        const toggle = event.target.closest('[data-reaction-toggle]');
+        const reaction = event.target.closest('[data-reaction-note]');
+        if (toggle) toggleNoteReactionPicker(toggle.dataset.reactionToggle);
+        else if (reaction) reactToNote(reaction.dataset.reactionNote, reaction.dataset.reactionEmoji);
+      });
+      document.addEventListener('input', handleNoteMentionInput);
+      document.addEventListener('keydown', handleNoteMentionKeydown, true);
+      document.addEventListener('pointerdown', handleNoteMentionPointerDown);
       byId('noteCreatorFilter').addEventListener('change', function(event) {
         state.noteCreatorId = event.target.value;
         if (state.dashboard) {
@@ -2931,6 +3073,9 @@
       byId('dynamicReportFields').addEventListener('change', function(event) {
         if (event.target && event.target.dataset.field === 'relatedTaskId' && byId('reportType').value === 'rincian_barang_tiba') {
           updateShipmentReceipt(true);
+        }
+        if (event.target && event.target.dataset.field === 'relatedTaskId' && byId('reportType').value === 'audit_pekanan') {
+          updateAuditBankOptions();
         }
         const cameraFor = event.target && event.target.dataset && event.target.dataset.cameraFor;
         if (!cameraFor) {
@@ -3437,6 +3582,7 @@
 
       return api('apiGetDashboard', token, {
         creatorId: state.noteCreatorId,
+        focusNoteId: state.noteFocusId,
         cardKey: state.selectedCard,
         taskType: state.taskType,
         kpiStatus: state.kpiStatus,
@@ -3469,6 +3615,7 @@
       byId('notesList').classList.remove('hidden');
       byId('notesList').style.maxHeight = '';
       byId('notesList').innerHTML = '<div class="skeleton-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>';
+      byId('noteMentionsJump').classList.add('hidden');
       byId('kpiCards').innerHTML = '<div class="skeleton card"></div><div class="skeleton card"></div><div class="skeleton card"></div>';
       byId('tasksTable').innerHTML = '';
       byId('taskPanel').classList.add('hidden');
@@ -3476,6 +3623,7 @@
 
     function renderDashboard() {
       renderNoteFilter();
+      renderNoteMentionJump();
       renderNoteAssigneeOptions();
       renderDashboardPeriodFilter();
       renderNotes();
@@ -3548,6 +3696,221 @@
       yearSelect.value = String(Number(currentPeriod.year || state.dashboardYear));
     }
 
+    function renderNoteMentionJump() {
+      const mentions = state.dashboard && state.dashboard.noteMentions || [];
+      const button = byId('noteMentionsJump');
+      button.classList.toggle('hidden', !mentions.length);
+      byId('noteMentionsCount').textContent = mentions.length > 50 ? '50+' : String(mentions.length);
+      if (state.mentionCursor >= mentions.length) state.mentionCursor = 0;
+    }
+
+    function jumpToNextMention() {
+      const mentions = state.dashboard && state.dashboard.noteMentions || [];
+      if (!mentions.length) return;
+      const target = mentions[state.mentionCursor % mentions.length];
+      state.mentionCursor = (state.mentionCursor + 1) % mentions.length;
+      state.noteCreatorId = '__all';
+      state.noteFocusId = target.noteId;
+      if (target.commentId) state.openNoteComments[target.noteId] = true;
+      loadDashboard().then(function() {
+        state.noteFocusId = '';
+        const note = Array.prototype.find.call(byId('notesList').querySelectorAll('[data-note-id]'), function(item) {
+          return item.dataset.noteId === target.noteId;
+        });
+        if (!note) {
+          toast('Pembahasan yang ditag tidak ditemukan.');
+          return;
+        }
+        const comment = target.commentId && Array.prototype.find.call(note.querySelectorAll('[data-comment-id]'), function(item) {
+          return item.dataset.commentId === target.commentId;
+        });
+        const focus = comment || note;
+        focus.classList.add('note-mention-target');
+        focus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(function() { focus.classList.remove('note-mention-target'); }, 2400);
+      });
+    }
+
+    function noteMentionUsers() {
+      return state.dashboard && state.dashboard.mentionUsers || [];
+    }
+
+    function selectedNoteMentionIds(input) {
+      try {
+        const ids = JSON.parse(input && input.dataset.mentionedUserIds || '[]');
+        return Array.isArray(ids) ? ids : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function noteMentionInputSupported(input) {
+      return Boolean(input && (input.id === 'noteInput' || /^note-comment-|^edit-comment-/.test(input.id || '')));
+    }
+
+    function hideNoteMentionPicker() {
+      byId('noteMentionPicker').classList.add('hidden');
+      state.mentionInput = null;
+      state.mentionStart = -1;
+      state.mentionMatches = [];
+    }
+
+    function handleNoteMentionInput(event) {
+      const input = event.target;
+      if (!noteMentionInputSupported(input)) return;
+      const caret = input.selectionStart;
+      if (caret !== input.selectionEnd) {
+        hideNoteMentionPicker();
+        return;
+      }
+      const before = input.value.slice(0, caret);
+      const match = /(^|[\s([{])@([^@\n]{0,40})$/.exec(before);
+      if (!match) {
+        hideNoteMentionPicker();
+        return;
+      }
+      const query = match[2].trim().toLowerCase();
+      const users = noteMentionUsers().filter(function(user) {
+        return user.name && String(user.name).toLowerCase().indexOf(query) !== -1;
+      }).slice(0, 6);
+      if (!users.length) {
+        hideNoteMentionPicker();
+        return;
+      }
+      state.mentionInput = input;
+      state.mentionStart = caret - match[2].length - 1;
+      state.mentionMatches = users;
+      state.mentionActiveIndex = 0;
+      const picker = byId('noteMentionPicker');
+      picker.innerHTML = users.map(function(user, index) {
+        return '<button type="button" role="option" class="' + (index === 0 ? 'active' : '') +
+          '" data-mention-user="' + escapeAttr(user.id) + '">@' + escapeHtml(user.name) + '</button>';
+      }).join('');
+      const rect = input.getBoundingClientRect();
+      picker.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - 292)) + 'px';
+      picker.style.top = (rect.bottom + 225 < window.innerHeight ? rect.bottom + 4 : Math.max(8, rect.top - 224)) + 'px';
+      picker.classList.remove('hidden');
+    }
+
+    function selectNoteMention(userId) {
+      const input = state.mentionInput;
+      const user = (state.mentionMatches || []).find(function(entry) { return entry.id === userId; });
+      if (!input || !user || state.mentionStart < 0) return;
+      const caret = input.selectionStart;
+      const replacement = '@' + user.name + ' ';
+      input.value = input.value.slice(0, state.mentionStart) + replacement + input.value.slice(caret);
+      const nextCaret = state.mentionStart + replacement.length;
+      const ids = selectedNoteMentionIds(input);
+      if (ids.indexOf(user.id) === -1) ids.push(user.id);
+      input.dataset.mentionedUserIds = JSON.stringify(ids);
+      hideNoteMentionPicker();
+      input.focus();
+      input.setSelectionRange(nextCaret, nextCaret);
+    }
+
+    function handleNoteMentionKeydown(event) {
+      const picker = byId('noteMentionPicker');
+      if (picker.classList.contains('hidden') || event.target !== state.mentionInput) return;
+      if (event.key === 'Escape') {
+        hideNoteMentionPicker();
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        state.mentionActiveIndex = (state.mentionActiveIndex + (event.key === 'ArrowDown' ? 1 : -1) +
+          state.mentionMatches.length) % state.mentionMatches.length;
+        Array.prototype.forEach.call(picker.querySelectorAll('[data-mention-user]'), function(button, index) {
+          button.classList.toggle('active', index === state.mentionActiveIndex);
+        });
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        selectNoteMention(state.mentionMatches[state.mentionActiveIndex].id);
+      }
+    }
+
+    function handleNoteMentionPointerDown(event) {
+      const picker = byId('noteMentionPicker');
+      const option = event.target.closest && event.target.closest('[data-mention-user]');
+      if (option && picker.contains(option)) {
+        event.preventDefault();
+        selectNoteMention(option.dataset.mentionUser);
+      } else if (event.target !== state.mentionInput && !picker.contains(event.target)) {
+        hideNoteMentionPicker();
+      }
+    }
+
+    function renderNoteMentionText(value, mentionedIds) {
+      const content = String(value || '');
+      const lower = content.toLowerCase();
+      const ranges = [];
+      noteMentionUsers().forEach(function(user) {
+        if (!Array.isArray(mentionedIds) || mentionedIds.indexOf(user.id) === -1) return;
+        const target = '@' + String(user.name || '').toLowerCase();
+        if (target.length < 2) return;
+        let cursor = 0;
+        while ((cursor = lower.indexOf(target, cursor)) !== -1) {
+          const before = cursor ? lower.charAt(cursor - 1) : '';
+          const after = lower.charAt(cursor + target.length);
+          if ((!before || /[\s([{]/.test(before)) && (!after || /[\s.,!?;:)\]}]/.test(after))) {
+            ranges.push({ start: cursor, end: cursor + target.length });
+          }
+          cursor += target.length;
+        }
+      });
+      ranges.sort(function(a, b) { return a.start - b.start || b.end - a.end; });
+      let cursor = 0;
+      let result = '';
+      ranges.forEach(function(range) {
+        if (range.start < cursor) return;
+        result += escapeHtml(content.slice(cursor, range.start));
+        result += '<span class="note-mention">' + escapeHtml(content.slice(range.start, range.end)) + '</span>';
+        cursor = range.end;
+      });
+      return result + escapeHtml(content.slice(cursor));
+    }
+
+    function renderNoteReactionControls(note) {
+      const open = state.openNoteReaction === note.id;
+      const options = NOTE_REACTION_OPTIONS.map(function(option) {
+        return '<button type="button" data-reaction-note="' + escapeAttr(note.id) +
+          '" data-reaction-emoji="' + escapeAttr(option[0]) + '" class="' +
+          (note.myReaction === option[0] ? 'selected' : '') + '" title="' +
+          escapeAttr(option[1]) + '" aria-label="Reaksi ' + escapeAttr(option[1]) + '">' +
+          option[0] + '</button>';
+      }).join('');
+      return '<button class="btn btn-mini btn-ghost note-reaction-toggle" type="button" data-reaction-toggle="' +
+        escapeAttr(note.id) + '" title="Beri reaksi" aria-label="Beri reaksi" aria-expanded="' +
+        String(open) + '">⭐</button><div class="note-reaction-picker ' +
+        (open ? '' : 'hidden') + '">' + options + '</div>';
+    }
+
+    function renderNoteReactionCounts(note) {
+      const totals = note.reactions || {};
+      const badges = NOTE_REACTION_OPTIONS.filter(function(option) { return Number(totals[option[0]] || 0) > 0; })
+        .map(function(option) {
+          return '<span title="' + escapeAttr(option[1]) + '">' + option[0] + ' ' +
+            Number(totals[option[0]]) + '</span>';
+        }).join('');
+      return badges ? '<div class="note-reaction-counts" aria-label="Reaksi note">' + badges + '</div>' : '';
+    }
+
+    function toggleNoteReactionPicker(noteId) {
+      const list = byId('notesList');
+      const scrollTop = list.scrollTop;
+      state.openNoteReaction = state.openNoteReaction === noteId ? '' : noteId;
+      renderNotes();
+      list.scrollTop = scrollTop;
+    }
+
+    function reactToNote(noteId, emoji) {
+      const note = (state.dashboard && state.dashboard.notes || []).find(function(item) { return item.id === noteId; });
+      if (!note) return;
+      const next = note.myReaction === emoji ? '' : emoji;
+      state.openNoteReaction = '';
+      api('apiReactNote', state.token, noteId, next)
+        .then(function() { return loadDashboard(); })
+        .catch(showError);
+    }
+
     function renderNotes() {
       const notes = state.dashboard.notes || [];
       const list = byId('notesList');
@@ -3568,41 +3931,43 @@
         const commentItems = comments.length ? comments.map(function(comment) {
           const ownComment = state.user && comment.createdById === state.user.Id;
           const editing = state.editingNoteComment && state.editingNoteComment.noteId === note.id && state.editingNoteComment.commentId === comment.id;
-          return `<div class="note-comment">
+          return `<div class="note-comment" data-comment-id="${escapeAttr(comment.id)}">
             <div class="note-comment-head">
               <strong>${escapeHtml(comment.createdByName || '-')} &middot; ${formatDate(comment.createdAt)}${comment.editedAt ? ' &middot; diedit' : ''}</strong>
               ${ownComment && !editing ? `<button class="btn btn-mini btn-ghost" type="button" onclick="startEditNoteComment('${escapeAttr(note.id)}', '${escapeAttr(comment.id)}')">Edit</button>` : ''}
             </div>
             ${editing ? `<div class="note-comment-edit">
-              <input id="edit-comment-${escapeAttr(comment.id)}" type="text" maxlength="1000" value="${escapeAttr(comment.text)}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitNoteCommentEdit('${escapeAttr(note.id)}', '${escapeAttr(comment.id)}', this.nextElementSibling.firstElementChild)}">
+              <input id="edit-comment-${escapeAttr(comment.id)}" type="text" maxlength="1000" data-mentioned-user-ids="${escapeAttr(JSON.stringify(comment.mentionedUserIds || []))}" value="${escapeAttr(comment.text)}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitNoteCommentEdit('${escapeAttr(note.id)}', '${escapeAttr(comment.id)}', this.nextElementSibling.firstElementChild)}">
               <div class="note-comment-edit-actions">
                 <button class="btn btn-mini btn-primary" type="button" onclick="submitNoteCommentEdit('${escapeAttr(note.id)}', '${escapeAttr(comment.id)}', this)">Simpan</button>
                 <button class="btn btn-mini btn-ghost" type="button" onclick="cancelEditNoteComment()">Batal</button>
               </div>
-            </div>` : `<span>${escapeHtml(comment.text)}</span>`}
+            </div>` : `<span>${renderNoteMentionText(comment.text, comment.mentionedUserIds)}</span>`}
           </div>`;
         }).join('') : '<div class="muted">Belum ada komentar.</div>';
         return `
-          <article class="note-item ${note.done ? 'done' : ''}">
+          <article class="note-item ${note.done ? 'done' : ''}" data-note-id="${escapeAttr(note.id)}">
             <div class="note-meta">
               <span>${escapeHtml(note.createdByName || '-')} &middot; ${formatDate(note.updatedAt || note.createdAt)}</span>
               <input type="checkbox" ${note.done ? 'checked' : ''} aria-label="Ceklis note" onchange="toggleNote('${escapeAttr(note.id)}', this.checked, this)">
             </div>
             <div class="note-meta">${assignment}</div>
-            <div class="note-text">${escapeHtml(note.text)}</div>
+            <div class="note-text">${renderNoteMentionText(note.text, note.mentionedUserIds)}</div>
             ${attachments ? `<div>${attachments}</div>` : ''}
             <div class="note-buttons">
               <button class="btn btn-mini btn-ghost" type="button" onclick="editNote('${escapeAttr(note.id)}')">Edit</button>
               ${state.user && note.createdById === state.user.Id ? `<button class="btn btn-mini btn-danger" type="button" onclick="deleteNote('${escapeAttr(note.id)}')">Hapus</button>` : ''}
+              ${renderNoteReactionControls(note)}
               <button class="btn btn-mini btn-ghost note-comment-toggle" type="button" title="Komentar" aria-label="Komentar" aria-expanded="${commentsOpen ? 'true' : 'false'}" onclick="toggleNoteComments('${escapeAttr(note.id)}')">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"></path></svg>
                 ${comments.length ? `<span class="note-comment-count">${comments.length}</span>` : ''}
               </button>
             </div>
+            ${renderNoteReactionCounts(note)}
             <div class="note-comments ${commentsOpen ? '' : 'hidden'}">
               <div class="note-comments-list" data-note-comments-list="${escapeAttr(note.id)}">${commentItems}</div>
               <div class="note-comment-composer">
-                <input id="note-comment-${escapeAttr(note.id)}" type="text" maxlength="1000" placeholder="Tulis komentar..." onkeydown="if(event.key==='Enter'){event.preventDefault();submitNoteComment('${escapeAttr(note.id)}', this.nextElementSibling)}">
+                <input id="note-comment-${escapeAttr(note.id)}" type="text" maxlength="1000" placeholder="Tulis komentar, gunakan @ untuk tag..." onkeydown="if(event.key==='Enter'){event.preventDefault();submitNoteComment('${escapeAttr(note.id)}', this.nextElementSibling)}">
                 <button class="btn btn-mini btn-primary" type="button" onclick="submitNoteComment('${escapeAttr(note.id)}', this)">Kirim</button>
               </div>
             </div>
@@ -3641,7 +4006,7 @@
         return;
       }
       if (button) button.disabled = true;
-      api('apiEditNoteComment', state.token, noteId, commentId, text)
+      api('apiEditNoteComment', state.token, noteId, commentId, text, selectedNoteMentionIds(input))
         .then(function(response) {
           state.editingNoteComment = null;
           state.openNoteComments[noteId] = true;
@@ -3661,7 +4026,7 @@
       }
       if (button) button.disabled = true;
       state.openNoteComments[id] = true;
-      api('apiAddNoteComment', state.token, id, text)
+      api('apiAddNoteComment', state.token, id, text, selectedNoteMentionIds(input))
         .then(function(response) {
           toast(response.message || 'Komentar tersimpan.');
           return loadDashboard();
@@ -3688,12 +4053,15 @@
         .then(function(photoPayloads) {
           return api('apiCreateNote', state.token, {
             text: text,
+            mentionedUserIds: selectedNoteMentionIds(byId('noteInput')),
             assigneeId: state.noteAssigneeId,
             files: { photos: photoPayloads }
           });
         })
         .then(function(response) {
           byId('noteInput').value = '';
+          byId('noteInput').dataset.mentionedUserIds = '[]';
+          hideNoteMentionPicker();
           byId('noteAssigneeSelect').value = '';
           photoInput.value = '';
           byId('noteCamera').value = '';
@@ -4128,7 +4496,7 @@
       const rendered = [];
       const used = {};
       Object.keys(labels).forEach(function(bank) {
-        const fields = ['bankAccountProof_' + bank, 'bankStatement_' + bank];
+        const fields = ['bankAccountProof_' + bank, 'bankStatement_' + bank, 'auditProof_' + bank];
         const files = fields.reduce(function(all, field) {
           used[field] = true;
           return all.concat(Array.isArray(groups[field]) ? groups[field] : []);
@@ -4846,6 +5214,26 @@
       });
       renumberShipmentItems();
       updateShipmentReceipt(false);
+      updateAuditBankOptions();
+    }
+
+    function updateAuditBankOptions() {
+      if (byId('reportType').value !== 'audit_pekanan') return;
+      const taskSelect = document.querySelector('[data-field="relatedTaskId"]');
+      const bankSelect = document.querySelector('[data-field="bankName"]');
+      if (!taskSelect || !bankSelect) return;
+      const task = reportTasksForCurrentUser().find(function(entry) {
+        return entry.id === taskSelect.value && entry.taskType === 'audit_pekanan';
+      });
+      const audited = task && task.payload && task.payload.auditBankReports || {};
+      Array.prototype.forEach.call(bankSelect.options, function(option) {
+        if (!option.value) return;
+        const label = BANK_ACCOUNT_OPTIONS.find(function(entry) { return entry[0] === option.value; });
+        option.disabled = Boolean(audited[option.value]);
+        option.textContent = (label ? label[1] : option.value) + (option.disabled ? ' (sudah diperiksa)' : '');
+      });
+      bankSelect.value = '';
+      bankSelect.disabled = !task;
     }
 
     function fieldVisibleForUser(field) {

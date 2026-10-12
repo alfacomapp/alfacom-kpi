@@ -277,6 +277,8 @@ const REPORT_TYPES = {
   }
 };
 
+const NOTE_REACTIONS = ['👍🏽', '🏳️', '⭐', '🔥', '❤️', '💎', '🕋'];
+
 const BANK_ACCOUNT_BANKS = {
   bri_kendari: 'BRI Kendari',
   bri_raha: 'BRI Raha',
@@ -342,6 +344,9 @@ function doPost(e) {
       'apiCreateNote',
       'apiUpdateNote',
       'apiDeleteNote',
+      'apiAddNoteComment',
+      'apiEditNoteComment',
+      'apiReactNote',
       'apiUpdateTaskStatus',
       'apiGetReportMeta',
       'apiSubmitReport',
@@ -553,8 +558,14 @@ function apiGetDashboard(token, filters) {
     const period = normalizeDashboardPeriod_(safeFilters);
     const activeUsers = getActiveUsers_();
     const noteCreatorFilter = normalizeNoteCreatorFilter_(safeFilters.creatorId);
-    const allNotes = noteCreatorFilter ? readRecentObjects_('notes', 500) : [];
-    const notes = getNotesForDashboard_(noteCreatorFilter, allNotes, activeUsers);
+    const allNotes = readObjects_('notes');
+    const notes = getNotesForDashboard_(noteCreatorFilter, allNotes, activeUsers, user.Id);
+    const focusNoteId = String(safeFilters.focusNoteId || '');
+    if (focusNoteId && !notes.some(function(note) { return note.id === focusNoteId; })) {
+      const focused = allNotes.find(function(note) { return note.Id === focusNoteId; });
+      if (focused) Array.prototype.push.apply(notes, getNotesForDashboard_('__all', [focused], activeUsers, user.Id));
+    }
+    const noteMentions = getNoteMentionsForUser_(allNotes, user.Id);
     const noteCreators = getNoteCreators_(activeUsers);
     const now = new Date();
     const visibleDashboardTasks = readObjects_('tasks').filter(function(task) {
@@ -618,6 +629,8 @@ function apiGetDashboard(token, filters) {
       serverNow: new Date().toISOString(),
       user: user,
       notes: notes,
+      noteMentions: noteMentions,
+      mentionUsers: activeUsers.map(function(entry) { return { id: entry.Id, name: entry.Name || entry.Username || entry.Id }; }),
       noteCreators: noteCreators,
       assignableUsers: getAssignableNoteUsers_(activeUsers),
       period: period,
@@ -649,6 +662,7 @@ function apiCreateNote(token, request, assigneeId) {
     const noteId = makeId_('NOTE');
     const files = payload.files || {};
     validateNotePhotoFiles_(files);
+    const mentionedUserIds = noteMentionIds_(noteText, payload.mentionedUserIds, getActiveUsers_());
     const savedFiles = saveUploadedFileGroups_(files, 'notes/' + noteId);
     const assignee = getNoteAssignee_(payload.assigneeId);
     const task = assignee ? createNoteTask_(noteId, noteText, user, assignee, now, savedFiles) : null;
@@ -656,6 +670,7 @@ function apiCreateNote(token, request, assigneeId) {
     appendObject_('notes', {
       Id: noteId,
       Text: noteText,
+      MentionsJson: JSON.stringify(mentionedUserIds),
       Done: false,
       CreatedById: user.Id,
       CreatedByName: user.Name,
@@ -701,6 +716,8 @@ function apiUpdateNote(token, noteId, patch) {
       throw new Error('Hanya user yang ditugaskan atau owner yang dapat ceklis tugas note ini.');
     }
 
+    const mentionedUserIds = textChanged ? noteMentionIds_(updates.text,
+      Array.isArray(updates.mentionedUserIds) ? updates.mentionedUserIds : parseJsonSafe_(before.MentionsJson, []), getActiveUsers_()) : null;
     const updatedNote = updateObjectById_('notes', id, function(row) {
       if (textChanged) {
         const text = String(updates.text || '').trim();
@@ -708,6 +725,7 @@ function apiUpdateNote(token, noteId, patch) {
           throw new Error('Isi note tidak boleh kosong.');
         }
         row.Text = text;
+        row.MentionsJson = JSON.stringify(mentionedUserIds);
         row.Done = false;
       }
 
@@ -759,7 +777,7 @@ function apiDeleteNote(token, noteId) {
   }
 }
 
-function apiAddNoteComment(token, noteId, commentText) {
+function apiAddNoteComment(token, noteId, commentText, mentionedUserIds) {
   try {
     const user = requireUser_(token);
     const id = String(noteId || '').trim();
@@ -767,12 +785,13 @@ function apiAddNoteComment(token, noteId, commentText) {
     if (!id) throw new Error('Note tidak ditemukan.');
     if (!text) throw new Error('Komentar belum diisi.');
     if (text.length > 1000) throw new Error('Komentar maksimal 1000 karakter.');
+    const mentions = noteMentionIds_(text, mentionedUserIds, getActiveUsers_());
 
     updateObjectById_('notes', id, function(row) {
       const comments = parseJsonSafe_(row.CommentsJson, []);
       const safeComments = Array.isArray(comments) ? comments.slice(-199) : [];
       safeComments.push({
-        id: makeId_('CMT'), text: text, createdById: user.Id,
+        id: makeId_('CMT'), text: text, mentionedUserIds: mentions, createdById: user.Id,
         createdByName: user.Name, createdAt: toIso_(new Date())
       });
       row.CommentsJson = JSON.stringify(safeComments);
@@ -788,7 +807,7 @@ function apiAddNoteComment(token, noteId, commentText) {
   }
 }
 
-function apiEditNoteComment(token, noteId, commentId, commentText) {
+function apiEditNoteComment(token, noteId, commentId, commentText, mentionedUserIds) {
   try {
     const user = requireUser_(token);
     const id = String(noteId || '').trim();
@@ -807,6 +826,8 @@ function apiEditNoteComment(token, noteId, commentId, commentText) {
         throw new Error('Hanya penulis komentar yang dapat mengedit komentar ini.');
       }
       comment.text = text;
+      comment.mentionedUserIds = noteMentionIds_(text,
+        Array.isArray(mentionedUserIds) ? mentionedUserIds : comment.mentionedUserIds, getActiveUsers_());
       comment.editedAt = toIso_(new Date());
       row.CommentsJson = JSON.stringify(comments);
       row.UpdatedAt = new Date();
@@ -816,6 +837,28 @@ function apiEditNoteComment(token, noteId, commentId, commentText) {
 
     touchDataVersion_();
     return ok_({ message: 'Komentar diperbarui.' });
+  } catch (error) {
+    return fail_(error);
+  }
+}
+
+function apiReactNote(token, noteId, reaction) {
+  try {
+    const user = requireUser_(token);
+    const id = String(noteId || '').trim();
+    const emoji = String(reaction || '');
+    if (NOTE_REACTIONS.indexOf(emoji) === -1 && emoji !== '') {
+      throw new Error('Reaksi note tidak dikenal.');
+    }
+    updateObjectById_('notes', id, function(row) {
+      const reactions = Object.assign({}, parseJsonSafe_(row.ReactionsJson, {}));
+      if (emoji) reactions[user.Id] = emoji;
+      else delete reactions[user.Id];
+      row.ReactionsJson = JSON.stringify(reactions);
+      return row;
+    });
+    touchDataVersion_();
+    return ok_({ message: 'Reaksi tersimpan.' });
   } catch (error) {
     return fail_(error);
   }
@@ -1404,7 +1447,7 @@ function menusForUser_(user) {
   return ['dashboard', 'laporan', 'profil'];
 }
 
-function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
+function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers, currentUserId) {
   const filter = normalizeNoteCreatorFilter_(creatorId);
   if (!filter) {
     return [];
@@ -1448,6 +1491,9 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
       return {
         id: note.Id,
         text: note.Text,
+        mentionedUserIds: parseJsonSafe_(note.MentionsJson, []),
+        reactions: noteReactionSummary_(note.ReactionsJson),
+        myReaction: parseJsonSafe_(note.ReactionsJson, {})[currentUserId] || '',
         done: String(note.Done).toLowerCase() === 'true',
         createdById: note.CreatedById,
         createdByName: note.CreatedByName,
@@ -1460,6 +1506,7 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
           return (Array.isArray(comments) ? comments : []).map(function(comment) {
             return {
               id: String(comment.id || ''), text: String(comment.text || ''),
+              mentionedUserIds: Array.isArray(comment.mentionedUserIds) ? comment.mentionedUserIds : [],
               createdById: String(comment.createdById || ''),
               createdByName: String(comment.createdByName || ''),
               createdAt: String(comment.createdAt || ''),
@@ -1475,6 +1522,66 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers) {
       return new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt);
     })
     .slice(0, 80);
+}
+
+function noteReactionSummary_(value) {
+  const reactions = parseJsonSafe_(value, {});
+  const totals = {};
+  Object.keys(reactions).forEach(function(userId) {
+    const emoji = reactions[userId];
+    if (NOTE_REACTIONS.indexOf(emoji) !== -1) totals[emoji] = (totals[emoji] || 0) + 1;
+  });
+  return totals;
+}
+
+function noteContainsMention_(text, name) {
+  const content = String(text || '').toLowerCase();
+  const target = '@' + String(name || '').trim().toLowerCase();
+  if (target.length < 2) return false;
+  let cursor = 0;
+  while ((cursor = content.indexOf(target, cursor)) !== -1) {
+    const before = cursor ? content.charAt(cursor - 1) : '';
+    const after = content.charAt(cursor + target.length);
+    if ((!before || /[\s([{]/.test(before)) && (!after || /[\s.,!?;:)\]}]/.test(after))) return true;
+    cursor += target.length;
+  }
+  return false;
+}
+
+function noteMentionIds_(text, selectedIds, sourceUsers) {
+  const users = (sourceUsers || getActiveUsers_()).filter(function(user) { return user.Id && user.Name; });
+  const selected = Array.isArray(selectedIds) ? selectedIds : [];
+  const nameCounts = {};
+  users.forEach(function(user) {
+    const key = String(user.Name).trim().toLowerCase();
+    nameCounts[key] = (nameCounts[key] || 0) + 1;
+  });
+  return users.filter(function(user) {
+    if (!noteContainsMention_(text, user.Name)) return false;
+    return selected.indexOf(user.Id) !== -1 || nameCounts[String(user.Name).trim().toLowerCase()] === 1;
+  }).map(function(user) { return user.Id; }).slice(0, 20);
+}
+
+function getNoteMentionsForUser_(sourceNotes, userId) {
+  const taskTypes = {};
+  readObjects_('tasks').forEach(function(task) { if (task.Id) taskTypes[task.Id] = task.TaskType; });
+  const mentions = [];
+  (sourceNotes || []).forEach(function(note) {
+    if (note.AssignedTaskId && taskTypes[note.AssignedTaskId] === 'sales_penawaran') return;
+    if (parseJsonSafe_(note.MentionsJson, []).indexOf(userId) !== -1) {
+      mentions.push({ noteId: note.Id, commentId: '', author: note.CreatedByName || '',
+        text: String(note.Text || '').slice(0, 100), createdAt: toIso_(note.CreatedAt) });
+    }
+    const comments = parseJsonSafe_(note.CommentsJson, []);
+    (Array.isArray(comments) ? comments : []).forEach(function(comment) {
+      if (Array.isArray(comment.mentionedUserIds) && comment.mentionedUserIds.indexOf(userId) !== -1) {
+        mentions.push({ noteId: note.Id, commentId: String(comment.id || ''),
+          author: String(comment.createdByName || ''), text: String(comment.text || '').slice(0, 100),
+          createdAt: String(comment.createdAt || '') });
+      }
+    });
+  });
+  return mentions.sort(function(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); }).slice(0, 50);
 }
 
 function getNoteCreators_(sourceUsers) {
@@ -1850,6 +1957,14 @@ function buildTaskDetailText_(task, payload) {
   if (detail.auditStatus) {
     parts.push('Status audit: ' + detail.auditStatus);
   }
+  if (String(task.TaskType || '') === 'audit_pekanan' && /audit laporan akun bank pekanan/i.test(String(task.Title || ''))) {
+    const audited = detail.auditBankReports || {};
+    const requiredBanks = Object.keys(BANK_ACCOUNT_BANKS);
+    const completedBanks = requiredBanks.filter(function(key) { return Boolean(audited[key]); });
+    parts.push('Bank diperiksa: ' + (completedBanks.length
+      ? completedBanks.map(function(key) { return BANK_ACCOUNT_BANKS[key]; }).join(', ')
+      : 'belum ada') + ' (' + completedBanks.length + '/' + requiredBanks.length + ')');
+  }
   if (String(task.TaskType || '') === 'laporan_akun_bank') {
     const bankReports = detail.bankReports || {};
     const requiredBanks = bankAccountReportKeys_(task, detail);
@@ -2053,6 +2168,24 @@ function validateReportPayload_(user, type, fields, files) {
   }
 
   if (type.indexOf('audit_') === 0) {
+    if (type === 'audit_pekanan') {
+      requireText_(fields.relatedTaskId, 'Pilih tugas audit laporan akun bank pekanan.');
+      const bankName = String(fields.bankName || '').trim().toLowerCase();
+      if (!Object.prototype.hasOwnProperty.call(BANK_ACCOUNT_BANKS, bankName)) {
+        throw new Error('Pilih bank yang diperiksa: BRI Kendari, BRI Raha, Mandiri, Bank Sultra, atau Bank Aladin Syariah.');
+      }
+      const related = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
+      if (!related || related.TaskType !== 'audit_pekanan' ||
+          !/audit laporan akun bank pekanan/i.test(String(related.Title || '')) ||
+          String(related.Status || 'berjalan') !== 'berjalan' ||
+          !isReportTaskAssignedToUser_(user, enrichTask_(related))) {
+        throw new Error('Tugas audit laporan akun bank pekanan tidak ditemukan atau sudah selesai.');
+      }
+      const audited = parseJsonSafe_(related.PayloadJson, {}).auditBankReports || {};
+      if (audited[bankName]) {
+        throw new Error('Pemeriksaan ' + BANK_ACCOUNT_BANKS[bankName] + ' untuk tugas ini sudah dikirim.');
+      }
+    }
     if (type === 'audit_kasbon' || type === 'audit_barang_tiba') {
       requireText_(fields.relatedTaskId, 'Pilih tugas yang akan diperiksa.');
       const related = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
@@ -2191,7 +2324,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
         timeLimitHours: REPORT_TYPES.audit_pekanan.timeLimitHours,
         startedAt: now,
         createdBy: user,
-        payload: { sourceReportId: report.Id, location: 'kendari', banksComplete: true },
+        payload: { sourceReportId: report.Id, location: 'kendari', banksComplete: true, requiredBankKeys: Object.keys(BANK_ACCOUNT_BANKS) },
         attachments: sourceAttachments
       }));
     }
@@ -2309,7 +2442,9 @@ function processReportTasks_(user, report, fields, savedFiles) {
   }
 
   if (type.indexOf('audit_') === 0) {
-    if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
+    if (type === 'audit_pekanan') {
+      results.push(recordBankAuditReport_(fields.relatedTaskId, user, report, fields, savedFiles));
+    } else if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
       const location = normalizeLocation_(fields.auditLocation);
       const periodStart = semiMonthStart_(now);
       const periodKey = periodKeyForSemiMonth_(periodStart, type, location);
@@ -2614,6 +2749,58 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
     return row;
   });
 
+  return result;
+}
+
+function recordBankAuditReport_(taskId, user, report, fields, savedFiles) {
+  const bankName = String(fields.bankName || '').trim().toLowerCase();
+  const requiredBanks = Object.keys(BANK_ACCOUNT_BANKS);
+  let result;
+  updateObjectById_('tasks', String(taskId), function(row) {
+    if (row.TaskType !== 'audit_pekanan' || String(row.Status || 'berjalan') !== 'berjalan' || !canUserCompleteTask_(user, row)) {
+      throw new Error('Tugas audit laporan akun bank pekanan tidak ditemukan atau sudah selesai.');
+    }
+    const previousPayload = parseJsonSafe_(row.PayloadJson, {});
+    const auditBankReports = Object.assign({}, previousPayload.auditBankReports || {});
+    if (auditBankReports[bankName]) {
+      throw new Error('Pemeriksaan ' + BANK_ACCOUNT_BANKS[bankName] + ' untuk tugas ini sudah dikirim.');
+    }
+    auditBankReports[bankName] = {
+      label: BANK_ACCOUNT_BANKS[bankName],
+      reportId: report.Id,
+      auditedAt: toIso_(report.CreatedAt),
+      auditor: user.Name,
+      auditStatus: fields.auditStatus
+    };
+    const completedCount = requiredBanks.filter(function(key) { return Boolean(auditBankReports[key]); }).length;
+    const completed = completedCount === requiredBanks.length;
+    const attachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
+    attachments['auditProof_' + bankName] = savedFiles.auditProof || [];
+    row.RelatedReportId = report.Id;
+    row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, {
+      auditBankReports: auditBankReports, requiredBankKeys: requiredBanks,
+      auditStatus: requiredBanks.some(function(key) { return auditBankReports[key] && auditBankReports[key].auditStatus === 'kendala'; })
+        ? 'kendala' : 'aman'
+    }));
+    row.AttachmentUrlsJson = JSON.stringify(attachments);
+    row.UpdatedAt = parseDate_(report.CreatedAt);
+    row.Notes = completedCount + '/' + requiredBanks.length + ' bank telah diperiksa.';
+    if (completed) {
+      row.Status = 'selesai';
+      row.KpiStatus = calculateKpiStatus_(row, parseDate_(report.CreatedAt));
+      row.CompletedAt = parseDate_(report.CreatedAt);
+      row.CompletedBy = user.Name;
+    } else {
+      const timer = buildTaskTimer_(row, parseDate_(report.CreatedAt), getAttendanceMap_());
+      row.Status = 'berjalan';
+      row.KpiStatus = timer.remainingMs < 0 ? 'meleset' : 'berjalan';
+    }
+    result = {
+      id: row.Id, taskType: row.TaskType, title: row.Title, kpiStatus: row.KpiStatus,
+      completed: completed, banksAudited: completedCount, banksRequired: requiredBanks.length
+    };
+    return row;
+  });
   return result;
 }
 
@@ -3874,7 +4061,7 @@ function fail_(error) {
 
   const actions = {
     apiLogout, apiLogActivity, apiGetSession, apiGetDashboard,
-    apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiUpdateTaskStatus,
+    apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiReactNote, apiUpdateTaskStatus,
     apiGetReportMeta, apiSubmitReport, apiUpdateProfile, apiUpdateTaskColumnPreferences
   };
   const tableNames = {

@@ -11,6 +11,8 @@ const inlineScript = html.slice(start, html.indexOf('</script>', start));
 function ui() {
   const activePointers = new Set();
   const stageClasses = new Set();
+  const mentionClasses = new Set(['hidden']);
+  const jumpClasses = new Set(['hidden']);
   const elements = {
     notePasswordInput: { value: '', focus() {} },
     notePasswordDialog: {
@@ -39,14 +41,34 @@ function ui() {
     },
     imageViewerZoomLabel: { textContent: '' },
     imageViewerZoomOut: { disabled: false },
-    imageViewerZoomIn: { disabled: false }
+    imageViewerZoomIn: { disabled: false },
+    reportType: { value: 'audit_pekanan' },
+    relatedTaskSelect: { value: '' },
+    bankSelect: { value: '', disabled: false, options: [
+      '', 'bri_kendari', 'bri_raha', 'mandiri', 'bank_sultra', 'aladin_syariah'
+    ].map(value => ({ value, textContent: '', disabled: false })) },
+    noteInput: { id: 'noteInput', value: '', selectionStart: 0, selectionEnd: 0, dataset: {},
+      getBoundingClientRect() { return { left: 20, top: 100, bottom: 140 }; },
+      focus() {}, setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; } },
+    noteMentionPicker: { innerHTML: '', style: {}, classList: {
+      add(name) { mentionClasses.add(name); }, remove(name) { mentionClasses.delete(name); },
+      contains(name) { return mentionClasses.has(name); }
+    } },
+    noteMentionsJump: { classList: { toggle(name, enabled) { if (enabled) jumpClasses.add(name); else jumpClasses.delete(name); }, contains(name) { return jumpClasses.has(name); } } },
+    noteMentionsCount: { textContent: '' }
   };
   const context = {
-    document: { addEventListener() {}, getElementById(id) { return elements[id]; } },
+    document: { addEventListener() {}, getElementById(id) { return elements[id]; },
+      querySelector(selector) {
+        if (selector === '[data-field="relatedTaskId"]') return elements.relatedTaskSelect;
+        if (selector === '[data-field="bankName"]') return elements.bankSelect;
+        return null;
+      } },
+    window: { innerWidth: 400, innerHeight: 800 },
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, renderTaskAttachmentCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderTaskAttachmentCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts };', context);
   return { ...context.__ui, elements };
 }
 
@@ -144,4 +166,53 @@ test('two touch pointers can pinch to zoom', () => {
   app.handleImageViewerPointerMove({ pointerId: 1, clientX: 170, clientY: 150,
     preventDefault() {} });
   assert.ok(app.state.imageViewerPanX < panBeforeDrag);
+});
+
+test('auditor bank selector requires a task and disables banks already audited', () => {
+  const app = ui();
+  const fields = app.REPORT_FORMS.audit_pekanan;
+  assert.equal(fields.find(field => field.field === 'relatedTaskId').required, true);
+  assert.equal(fields.find(field => field.field === 'bankName').options.length, 6);
+  app.state.user = { Role: 'auditor', Location: 'all', Name: 'Auditor A' };
+  app.state.reportMeta = { openTasks: [{ id: 'AUDIT-1', taskType: 'audit_pekanan',
+    assigneeRole: 'auditor', assigneeLocation: 'all', assigneeName: 'Auditor A',
+    payload: { auditBankReports: { mandiri: { reportId: 'RPT-1' } } } }] };
+  app.updateAuditBankOptions();
+  assert.equal(app.elements.bankSelect.disabled, true);
+  app.elements.relatedTaskSelect.value = 'AUDIT-1';
+  app.updateAuditBankOptions();
+  assert.equal(app.elements.bankSelect.disabled, false);
+  assert.equal(app.elements.bankSelect.options.find(item => item.value === 'mandiri').disabled, true);
+  assert.equal(app.elements.bankSelect.options.find(item => item.value === 'bri_raha').disabled, false);
+});
+
+test('typing @ shows user suggestions and inserts a linked name', () => {
+  const app = ui();
+  app.state.dashboard = { mentionUsers: [{ id: 'U2', name: 'Admin Kendari' }], noteMentions: [] };
+  app.elements.noteInput.value = 'Halo @Adm';
+  app.elements.noteInput.selectionStart = app.elements.noteInput.value.length;
+  app.elements.noteInput.selectionEnd = app.elements.noteInput.value.length;
+  app.handleNoteMentionInput({ target: app.elements.noteInput });
+  assert.equal(app.elements.noteMentionPicker.classList.contains('hidden'), false);
+  assert.match(app.elements.noteMentionPicker.innerHTML, /@Admin Kendari/);
+  app.selectNoteMention('U2');
+  assert.equal(app.elements.noteInput.value, 'Halo @Admin Kendari ');
+  assert.deepEqual(JSON.parse(app.elements.noteInput.dataset.mentionedUserIds), ['U2']);
+  assert.match(app.renderNoteMentionText('Halo @Admin Kendari', ['U2']), /class="note-mention"/);
+  app.state.dashboard.noteMentions = [{ noteId: 'N1', commentId: '' }];
+  app.renderNoteMentionJump();
+  assert.equal(app.elements.noteMentionsJump.classList.contains('hidden'), false);
+  assert.equal(app.elements.noteMentionsCount.textContent, '1');
+});
+
+test('note reaction picker contains exactly the seven allowed emojis', () => {
+  const app = ui();
+  const note = { id: 'N1', myReaction: '🕋', reactions: { '🕋': 2, '😂': 1 } };
+  const markup = app.renderNoteReactionControls(note);
+  assert.equal((markup.match(/data-reaction-emoji=/g) || []).length, 7);
+  for (const emoji of ['👍🏽', '🏳️', '⭐', '🔥', '❤️', '💎', '🕋']) assert.ok(markup.includes(emoji));
+  assert.ok(!markup.includes('😂'));
+  const counts = app.renderNoteReactionCounts(note);
+  assert.match(counts, /🕋 2/);
+  assert.ok(!counts.includes('😂'));
 });
