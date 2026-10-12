@@ -57,12 +57,25 @@ function ui() {
     noteMentionsJump: { classList: { toggle(name, enabled) { if (enabled) jumpClasses.add(name); else jumpClasses.delete(name); }, contains(name) { return jumpClasses.has(name); } } },
     noteMentionsCount: { textContent: '' }
   };
+  elements.auditAddButton = { disabled: false };
+  elements.auditRemoveButton = { disabled: false };
+  elements.auditBankTitle = { textContent: '' };
+  elements.auditRows = [{ querySelector(selector) {
+    if (selector === '[data-audit-bank]') return elements.bankSelect;
+    if (selector === '[data-remove-audit-bank]') return elements.auditRemoveButton;
+    if (selector === '[data-audit-bank-title]') return elements.auditBankTitle;
+    return null;
+  } }];
   const context = {
     document: { addEventListener() {}, getElementById(id) { return elements[id]; },
       querySelector(selector) {
         if (selector === '[data-field="relatedTaskId"]') return elements.relatedTaskSelect;
-        if (selector === '[data-field="bankName"]') return elements.bankSelect;
+        if (selector === '[data-add-audit-bank]') return elements.auditAddButton;
         return null;
+      },
+      querySelectorAll(selector) {
+        if (selector === '[data-audit-bank-row]') return elements.auditRows;
+        return [];
       } },
     window: { innerWidth: 400, innerHeight: 800 },
     localStorage: { getItem() { return null; } },
@@ -168,20 +181,23 @@ test('two touch pointers can pinch to zoom', () => {
   assert.ok(app.state.imageViewerPanX < panBeforeDrag);
 });
 
-test('auditor bank selector requires a task and disables banks already audited', () => {
+test('auditor bank rows require a task, align controls and disable completed banks', () => {
   const app = ui();
   const fields = app.REPORT_FORMS.audit_pekanan;
   assert.equal(fields.find(field => field.field === 'relatedTaskId').required, true);
-  assert.equal(fields.find(field => field.field === 'bankName').options.length, 6);
+  assert.equal(fields.find(field => field.field === 'relatedTaskId').full, true);
+  assert.equal(fields.find(field => field.kind === 'auditBankReports').full, true);
   app.state.user = { Role: 'auditor', Location: 'all', Name: 'Auditor A' };
   app.state.reportMeta = { openTasks: [{ id: 'AUDIT-1', taskType: 'audit_pekanan',
     assigneeRole: 'auditor', assigneeLocation: 'all', assigneeName: 'Auditor A',
     payload: { auditBankReports: { mandiri: { reportId: 'RPT-1' } } } }] };
   app.updateAuditBankOptions();
   assert.equal(app.elements.bankSelect.disabled, true);
+  assert.equal(app.elements.auditAddButton.disabled, true);
   app.elements.relatedTaskSelect.value = 'AUDIT-1';
   app.updateAuditBankOptions();
   assert.equal(app.elements.bankSelect.disabled, false);
+  assert.equal(app.elements.auditAddButton.disabled, false);
   assert.equal(app.elements.bankSelect.options.find(item => item.value === 'mandiri').disabled, true);
   assert.equal(app.elements.bankSelect.options.find(item => item.value === 'bri_raha').disabled, false);
 });

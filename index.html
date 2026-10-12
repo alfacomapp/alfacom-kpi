@@ -1515,6 +1515,47 @@
       gap: 14px;
     }
 
+    .audit-bank-field,
+    .audit-bank-list {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .audit-bank-row {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fbf9;
+    }
+
+    .audit-bank-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .audit-bank-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+      gap: 14px;
+      align-items: start;
+      min-width: 0;
+    }
+
+    .audit-bank-grid > .field {
+      min-width: 0;
+    }
+
+    .audit-bank-grid select {
+      min-width: 0;
+      height: 44px;
+    }
+
     .field.full {
       grid-column: 1 / -1;
     }
@@ -2730,17 +2771,19 @@
   </section>
   <div id="noteMentionPicker" class="note-mention-picker hidden" role="listbox" aria-label="Pilih pengguna yang ditandai"></div>
 
-  <script src="assets/kpi-bank-upload.js?v=2026-10-07-3"></script>
+  <script src="assets/kpi-bank-upload.js?v=2026-10-12-1"></script>
   <script>
     const bankUploadPreparation = { version: 0, promise: null, result: null, urls: [] };
     const reportFileSelections = new WeakMap();
     function preparedUploadLimitText() {
       return byId('reportType').value === 'pendapatan_harian'
         ? 'Maksimal 10 file per bagian foto. Total seluruh lampiran maksimal 10 MB per laporan.'
-        : 'Maksimal 50 file dan 10 MB total per laporan, termasuk seluruh bagian lampiran.';
+        : byId('reportType').value === 'audit_pekanan'
+          ? 'Bukti tiap bank terpisah. Total seluruh lampiran maksimal 10 MB per kiriman.'
+          : 'Maksimal 50 file dan 10 MB total per laporan, termasuk seluruh bagian lampiran.';
     }
     function usesPreparedReportUploads() {
-      return ['laporan_akun_bank', 'pendapatan_harian'].includes(byId('reportType').value);
+      return ['laporan_akun_bank', 'pendapatan_harian', 'audit_pekanan'].includes(byId('reportType').value);
     }
     const state = {
       token: sessionStorage.getItem('kpi_sla_token') || '',
@@ -2780,6 +2823,7 @@
       imageViewerPinch: null,
       imageViewerUrls: {},
       shipmentItemSeq: 0,
+      auditBankSeq: 0,
       shipmentSupplierSeq: 0,
       dashboardSection: 'notes',
       sidebarCollapsed: localStorage.getItem('kpi_sidebar_collapsed') === '1',
@@ -2893,11 +2937,8 @@
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_pekanan: [
-        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas audit akun bank pekanan', required: true, match: ['audit_pekanan'] },
-        { kind: 'select', field: 'bankName', label: 'Bank yang diperiksa', required: true, options: BANK_ACCOUNT_OPTIONS, help: 'Simpan pemeriksaan tiap bank secara terpisah. Tugas selesai setelah 5 bank diperiksa.' },
-        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
-        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas audit akun bank pekanan', required: true, match: ['audit_pekanan'], full: true },
+        { kind: 'auditBankReports', full: true }
       ],
       audit_bank_jago: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
@@ -3074,7 +3115,8 @@
         if (event.target && event.target.dataset.field === 'relatedTaskId' && byId('reportType').value === 'rincian_barang_tiba') {
           updateShipmentReceipt(true);
         }
-        if (event.target && event.target.dataset.field === 'relatedTaskId' && byId('reportType').value === 'audit_pekanan') {
+        if (byId('reportType').value === 'audit_pekanan' && event.target &&
+            (event.target.dataset.field === 'relatedTaskId' || event.target.hasAttribute('data-audit-bank'))) {
           updateAuditBankOptions();
         }
         const cameraFor = event.target && event.target.dataset && event.target.dataset.cameraFor;
@@ -3107,7 +3149,19 @@
         const removeButton = event.target.closest('[data-remove-shipment-item]');
         const addSupplierButton = event.target.closest('[data-add-shipment-supplier]');
         const removeSupplierButton = event.target.closest('[data-remove-shipment-supplier]');
-        if (addSupplierButton) {
+        const addAuditBankButton = event.target.closest('[data-add-audit-bank]');
+        const removeAuditBankButton = event.target.closest('[data-remove-audit-bank]');
+        if (addAuditBankButton) {
+          document.querySelector('[data-audit-bank-list]').insertAdjacentHTML('beforeend', renderAuditBankRow());
+          updateAuditBankOptions();
+        } else if (removeAuditBankButton) {
+          const row = removeAuditBankButton.closest('[data-audit-bank-row]');
+          if (document.querySelectorAll('[data-audit-bank-row]').length > 1) {
+            row.remove();
+            refreshBankUploadPreparation();
+            updateAuditBankOptions();
+          }
+        } else if (addSupplierButton) {
           addShipmentSupplier();
         } else if (removeSupplierButton) {
           removeShipmentSupplier(removeSupplierButton);
@@ -3707,12 +3761,15 @@
     function jumpToNextMention() {
       const mentions = state.dashboard && state.dashboard.noteMentions || [];
       if (!mentions.length) return;
-      const target = mentions[state.mentionCursor % mentions.length];
-      state.mentionCursor = (state.mentionCursor + 1) % mentions.length;
+      const target = mentions[0];
+      state.dashboard.noteMentions = [];
+      renderNoteMentionJump();
       state.noteCreatorId = '__all';
       state.noteFocusId = target.noteId;
       if (target.commentId) state.openNoteComments[target.noteId] = true;
-      loadDashboard().then(function() {
+      api('apiMarkNoteMentionsSeen', state.token).then(function() {
+        return loadDashboard();
+      }).then(function() {
         state.noteFocusId = '';
         const note = Array.prototype.find.call(byId('notesList').querySelectorAll('[data-note-id]'), function(item) {
           return item.dataset.noteId === target.noteId;
@@ -3728,6 +3785,10 @@
         focus.classList.add('note-mention-target');
         focus.scrollIntoView({ behavior: 'smooth', block: 'center' });
         setTimeout(function() { focus.classList.remove('note-mention-target'); }, 2400);
+      }).catch(function(error) {
+        state.dashboard.noteMentions = mentions;
+        renderNoteMentionJump();
+        showError(error);
       });
     }
 
@@ -5206,6 +5267,7 @@
       const config = (REPORT_FORMS[type] || []).filter(fieldVisibleForUser);
       state.shipmentItemSeq = 0;
       state.shipmentSupplierSeq = 0;
+      state.auditBankSeq = 0;
       byId('dynamicReportFields').innerHTML = config.map(renderField).join('') + (usesPreparedReportUploads() ? '<div class="field full"><div class="file-hint" data-bank-upload-status role="status" aria-live="polite">' + preparedUploadLimitText() + ' File besar dikompresi otomatis sebelum dikirim. Periksa pratinjau hasil kompresi.</div></div>' : '');
       Array.prototype.forEach.call(document.querySelectorAll('[data-default-date]'), function(input) {
         if (!input.value) {
@@ -5220,20 +5282,44 @@
     function updateAuditBankOptions() {
       if (byId('reportType').value !== 'audit_pekanan') return;
       const taskSelect = document.querySelector('[data-field="relatedTaskId"]');
-      const bankSelect = document.querySelector('[data-field="bankName"]');
-      if (!taskSelect || !bankSelect) return;
       const task = reportTasksForCurrentUser().find(function(entry) {
-        return entry.id === taskSelect.value && entry.taskType === 'audit_pekanan';
+        return entry.id === (taskSelect && taskSelect.value) && entry.taskType === 'audit_pekanan';
       });
       const audited = task && task.payload && task.payload.auditBankReports || {};
-      Array.prototype.forEach.call(bankSelect.options, function(option) {
-        if (!option.value) return;
-        const label = BANK_ACCOUNT_OPTIONS.find(function(entry) { return entry[0] === option.value; });
-        option.disabled = Boolean(audited[option.value]);
-        option.textContent = (label ? label[1] : option.value) + (option.disabled ? ' (sudah diperiksa)' : '');
+      const rows = Array.prototype.slice.call(document.querySelectorAll('[data-audit-bank-row]'));
+      const selected = rows.map(function(row) { return row.querySelector('[data-audit-bank]').value; });
+      rows.forEach(function(row, index) {
+        const bankSelect = row.querySelector('[data-audit-bank]');
+        Array.prototype.forEach.call(bankSelect.options, function(option) {
+          if (!option.value) return;
+          const label = BANK_ACCOUNT_OPTIONS.find(function(entry) { return entry[0] === option.value; });
+          option.disabled = Boolean(audited[option.value]) || selected.some(function(value, other) {
+            return other !== index && value === option.value;
+          });
+          option.textContent = (label ? label[1] : option.value) + (audited[option.value] ? ' (sudah diperiksa)' : '');
+        });
+        if (bankSelect.value && audited[bankSelect.value]) bankSelect.value = '';
+        bankSelect.disabled = !task;
+        row.querySelector('[data-remove-audit-bank]').disabled = rows.length <= 1;
+        row.querySelector('[data-audit-bank-title]').textContent = 'Bank ' + (index + 1);
       });
-      bankSelect.value = '';
-      bankSelect.disabled = !task;
+      const addButton = document.querySelector('[data-add-audit-bank]');
+      if (addButton) addButton.disabled = !task || rows.length >= 5 - Object.keys(audited).length;
+    }
+
+    function renderAuditBankRow() {
+      const key = String(++state.auditBankSeq);
+      return `<section class="audit-bank-row" data-audit-bank-row="${key}">
+        <div class="audit-bank-head"><strong data-audit-bank-title>Bank</strong><button type="button" class="btn btn-ghost btn-mini" data-remove-audit-bank>Hapus</button></div>
+        <div class="audit-bank-grid">
+          <div class="field"><label>Bank yang diperiksa *</label><select data-audit-bank required>
+            ${BANK_ACCOUNT_OPTIONS.map(function(option) { return `<option value="${escapeAttr(option[0])}">${escapeHtml(option[1])}</option>`; }).join('')}
+          </select></div>
+          <div class="field"><label>Status audit *</label><select data-audit-status required><option value="">Pilih status</option><option value="aman">Aman</option><option value="kendala">Kendala</option></select></div>
+          ${renderField({ kind: 'file', field: 'auditProofRow_' + key, label: 'Bukti hasil pemeriksaan', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' })}
+          <div class="field full"><label>Keterangan bank ini</label><textarea data-audit-description></textarea></div>
+        </div>
+      </section>`;
     }
 
     function fieldVisibleForUser(field) {
@@ -5293,6 +5379,14 @@
         `;
       }
 
+      if (field.kind === 'auditBankReports') {
+        return `<div class="field full audit-bank-field" data-audit-bank-root>
+          <label>Hasil pemeriksaan bank</label>
+          <small>Pilih 1 sampai 5 bank. Tiap bank memerlukan status dan bukti sendiri; waktu tugas berhenti setelah kelimanya terkirim.</small>
+          <div class="audit-bank-list" data-audit-bank-list>${renderAuditBankRow()}</div>
+          <div class="shipment-add-row"><button class="btn btn-ghost shipment-add-button" type="button" data-add-audit-bank>+ Tambah bank</button></div>
+        </div>`;
+      }
       if (field.kind === 'shipmentItems') {
         return `
           <div class="field full shipment-items-field" data-shipment-items-root>
@@ -5487,6 +5581,23 @@
       Array.prototype.forEach.call(document.querySelectorAll('[data-field]'), function(input) {
         fields[input.dataset.field] = input.value;
       });
+      const auditFileFields = {};
+      if (type === 'audit_pekanan') {
+        const rows = Array.prototype.slice.call(document.querySelectorAll('[data-audit-bank-row]'));
+        const selected = new Set();
+        fields.auditBanks = rows.map(function(row) {
+          const bankName = row.querySelector('[data-audit-bank]').value;
+          const status = row.querySelector('[data-audit-status]').value;
+          const fileInput = row.querySelector('[data-file-field]');
+          if (!bankName) throw new Error('Pilih bank yang diperiksa.');
+          if (selected.has(bankName)) throw new Error('Bank yang sama hanya boleh dipilih sekali.');
+          if (!status) throw new Error('Pilih status audit untuk setiap bank.');
+          if (!fileInput.files.length) throw new Error('Bukti hasil pemeriksaan ' + bankName.replace(/_/g, ' ') + ' wajib diupload.');
+          selected.add(bankName);
+          auditFileFields[fileInput.dataset.fileField] = 'auditProof_' + bankName;
+          return { bankName: bankName, auditStatus: status, description: row.querySelector('[data-audit-description]').value.trim() };
+        });
+      }
       if (document.querySelector('[data-shipment-items-root]')) {
         fields.shipmentItems = collectShipmentItems();
       }
@@ -5496,7 +5607,8 @@
         const prepared = await (bankUploadPreparation.promise || refreshBankUploadPreparation());
         for (const entry of prepared.entries) {
           const payloads = await readFiles([entry.file], 10);
-          (files[entry.field] ||= []).push(payloads[0]);
+          const field = auditFileFields[entry.field] || entry.field;
+          (files[field] ||= []).push(payloads[0]);
         }
         return { type: type, fields: fields, files: files };
       }
@@ -5521,6 +5633,9 @@
     }
 
     function findFileConfig(type, fieldName) {
+      if (type === 'audit_pekanan' && /^auditProofRow_\d+$/.test(String(fieldName || ''))) {
+        return { field: fieldName, label: 'Bukti hasil pemeriksaan', multiple: true, max: 10, maxTotalMb: 10 };
+      }
       if (type === 'input_pengiriman' && /^shipment(Item|Supplier)Files_\d+$/.test(String(fieldName || ''))) {
         return { field: fieldName, label: 'Lampiran pengiriman', multiple: false, max: 1, accept: 'image/*,application/pdf' };
       }
@@ -5638,7 +5753,7 @@
         return KpiBankUpload.prepare(entries, function(message) {
           if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
           update(message);
-        });
+        }, { normalizeImages: byId('reportType').value === 'audit_pekanan' });
       }).then(function(result) {
         if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
         bankUploadPreparation.result = result;

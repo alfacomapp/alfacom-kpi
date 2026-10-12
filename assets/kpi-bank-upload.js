@@ -40,10 +40,10 @@
   function canvasBlob(canvas, quality) {
     return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Kompresi gambar gagal.')), 'image/jpeg', quality));
   }
-  async function compressImage(file, target) {
+  async function compressImage(file, target, forceJpeg = false) {
     const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
     try {
-      let best = file;
+      let best = forceJpeg ? null : file;
       for (const [edge, quality] of [[2400, 0.86], [2000, 0.76], [1600, 0.66], [1200, 0.62]]) {
         const ratio = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
         const canvas = document.createElement('canvas');
@@ -56,7 +56,7 @@
         context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
         const blob = await canvasBlob(canvas, quality);
         canvas.width = canvas.height = 0;
-        if (blob.size < best.size) best = new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg', lastModified: file.lastModified });
+        if (!best || blob.size < best.size) best = new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg', lastModified: file.lastModified });
         if (best.size <= target) break;
       }
       return best;
@@ -144,10 +144,21 @@
     }
     return best;
   }
-  async function prepare(entries, progress) {
+  async function prepare(entries, progress, options = {}) {
     entries = entries.map(entry => isPdf(entry.file) && entry.file.type !== 'application/pdf'
       ? { field: entry.field, file: new File([entry.file], entry.file.name, { type: 'application/pdf', lastModified: entry.file.lastModified }) }
       : entry);
+    if (options.normalizeImages) {
+      entries = await Promise.all(entries.map(async entry => {
+        const file = entry.file;
+        if (!/^image\//.test(file.type) || ['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return entry;
+        try {
+          return { field: entry.field, file: await compressImage(file, 2 * 1024 * 1024, true) };
+        } catch (_) {
+          throw new Error(file.name + ' belum dapat dibaca sebagai gambar. Gunakan JPG atau PNG.');
+        }
+      }));
+    }
     await validate(entries);
     const originalBytes = totalBytes(entries.map(entry => entry.file));
     if (originalBytes <= MAX_BYTES) return { entries, originalBytes, bytes: originalBytes, compressed: 0 };

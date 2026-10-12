@@ -129,3 +129,69 @@ test('only seven requested reactions are saved, changed, or removed per user', (
   assert.equal(engine.execute('apiReactNote', ['test-jwt', id, '']).ok, true);
   assert.deepEqual(JSON.parse(ctx.tables.notes[0].record.ReactionsJson), {});
 });
+
+test('auditor can send 1 to 5 banks in one request, then finish remaining banks', () => {
+  const auditor = user('AUD', 'Auditor A', 'auditor', 'all');
+  for (let count = 1; count <= 5; count++) {
+    const { engine, ctx } = fixture(auditor, [auditor], [], [weeklyAuditTask(auditor)]);
+    const send = keys => engine.execute('apiSubmitReport', ['test-jwt', {
+      type: 'audit_pekanan',
+      fields: { relatedTaskId: 'AUDIT-BANK-WEEK', auditBanks: keys.map(bankName =>
+        ({ bankName, auditStatus: bankName === 'mandiri' ? 'kendala' : 'aman', description: bankName })) },
+      files: Object.fromEntries(keys.map(bankName => ['auditProof_' + bankName, [proof]]))
+    }]);
+    const first = send(bankKeys.slice(0, count));
+    assert.equal(first.ok, true, first.message);
+    assert.equal(first.tasks[0].banksAudited, count);
+    assert.equal(first.tasks[0].completed, count === 5);
+    assert.equal(ctx.tables.reports.length, 1);
+    const task = ctx.tables.tasks[0].record;
+    assert.equal(task.Status, count === 5 ? 'selesai' : 'berjalan');
+    assert.equal(task.Notes, count + '/5 bank telah diperiksa.');
+    const attachments = JSON.parse(task.AttachmentUrlsJson);
+    bankKeys.slice(0, count).forEach(key => assert.equal(attachments['auditProof_' + key].length, 1));
+    assert.equal(attachments.bankAccountProof_bri_kendari[0].id, 'source-proof');
+    if (count < 5) {
+      const rest = send(bankKeys.slice(count));
+      assert.equal(rest.ok, true, rest.message);
+      assert.equal(rest.tasks[0].completed, true);
+      assert.equal(ctx.tables.tasks[0].record.Status, 'selesai');
+      assert.equal(ctx.tables.reports.length, 2);
+    }
+  }
+});
+
+test('bank audit rejects duplicate rows or a bank without proof before writing', () => {
+  const auditor = user('AUD', 'Auditor A', 'auditor', 'all');
+  const { engine, ctx } = fixture(auditor, [auditor], [], [weeklyAuditTask(auditor)]);
+  const request = { type: 'audit_pekanan', fields: { relatedTaskId: 'AUDIT-BANK-WEEK',
+    auditBanks: [{ bankName: 'bri_kendari', auditStatus: 'aman' }, { bankName: 'bri_kendari', auditStatus: 'aman' }] },
+    files: { auditProof_bri_kendari: [proof] } };
+  assert.match(engine.execute('apiSubmitReport', ['test-jwt', request]).message, /lebih dari sekali/);
+  request.fields.auditBanks.pop();
+  request.files = {};
+  assert.match(engine.execute('apiSubmitReport', ['test-jwt', request]).message, /wajib diupload/);
+  request.files = { auditProof_bri_kendari: [{ ...proof, mimeType: 'image/heic' }] };
+  assert.match(engine.execute('apiSubmitReport', ['test-jwt', request]).message, /JPG, PNG, WebP/);
+  assert.equal(ctx.tables.reports.length, 0);
+  assert.equal(ctx.uploads.length, 0);
+});
+
+test('mention icon state is cleared per user and returns only for a new tag', () => {
+  const author = user('AUTHOR', 'Penulis Note', 'auditor', 'all');
+  const target = user('TARGET', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const creator = fixture(author, [author, target]);
+  const created = creator.engine.execute('apiCreateNote', ['test-jwt', { text: 'Halo @Admin Kendari',
+    mentionedUserIds: ['TARGET'], files: {} }]);
+  assert.equal(created.ok, true, created.message);
+  const recipient = fixture(target, [author, target], creator.ctx.tables.notes.map(row => row.record));
+  const before = recipient.engine.execute('apiGetDashboard', ['test-jwt', { creatorId: '__all' }]);
+  assert.equal(before.noteMentions.length, 1);
+  assert.equal(recipient.engine.execute('apiMarkNoteMentionsSeen', ['test-jwt']).ok, true);
+  assert.equal(recipient.engine.execute('apiGetDashboard', ['test-jwt', { creatorId: '__all' }]).noteMentions.length, 0);
+  assert.equal(recipient.engine.execute('apiAddNoteComment', ['test-jwt', created.noteId,
+    'Tag baru @Admin Kendari', ['TARGET']]).ok, true);
+  assert.equal(recipient.engine.execute('apiGetDashboard', ['test-jwt', { creatorId: '__all' }]).noteMentions.length, 1);
+  assert.equal(recipient.engine.execute('apiMarkNoteMentionsSeen', ['test-jwt']).ok, true);
+  assert.equal(recipient.engine.execute('apiGetDashboard', ['test-jwt', { creatorId: '__all' }]).noteMentions.length, 0);
+});

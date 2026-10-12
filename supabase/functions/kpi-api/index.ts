@@ -565,7 +565,9 @@ function apiGetDashboard(token, filters) {
       const focused = allNotes.find(function(note) { return note.Id === focusNoteId; });
       if (focused) Array.prototype.push.apply(notes, getNotesForDashboard_('__all', [focused], activeUsers, user.Id));
     }
-    const noteMentions = getNoteMentionsForUser_(allNotes, user.Id);
+    const currentUserRow = readObjects_('users').find(function(row) { return row.Id === user.Id; });
+    const seenMentionIds = parseJsonSafe_(currentUserRow && currentUserRow.SeenNoteMentionIdsJson, []);
+    const noteMentions = getNoteMentionsForUser_(allNotes, user.Id, seenMentionIds);
     const noteCreators = getNoteCreators_(activeUsers);
     const now = new Date();
     const visibleDashboardTasks = readObjects_('tasks').filter(function(task) {
@@ -647,6 +649,22 @@ function apiGetDashboard(token, filters) {
   }
 }
 
+function apiMarkNoteMentionsSeen(token) {
+  try {
+    const user = requireUser_(token);
+    const allMentions = getNoteMentionsForUser_(readObjects_('notes'), user.Id, [], Infinity);
+    updateObjectById_('users', user.Id, function(row) {
+      const prior = parseJsonSafe_(row.SeenNoteMentionIdsJson, []);
+      const seen = new Set(Array.isArray(prior) ? prior : []);
+      allMentions.forEach(function(mention) { seen.add(mention.id); });
+      row.SeenNoteMentionIdsJson = JSON.stringify(Array.from(seen).slice(-2000));
+      row.UpdatedAt = new Date();
+      return row;
+    });
+    return ok_({ message: 'Tag telah dibuka.' });
+  } catch (error) { return fail_(error); }
+}
+
 function apiCreateNote(token, request, assigneeId) {
   try {
     const user = requireUser_(token);
@@ -671,6 +689,7 @@ function apiCreateNote(token, request, assigneeId) {
       Id: noteId,
       Text: noteText,
       MentionsJson: JSON.stringify(mentionedUserIds),
+      MentionUpdatedAt: toIso_(now),
       Done: false,
       CreatedById: user.Id,
       CreatedByName: user.Name,
@@ -726,6 +745,7 @@ function apiUpdateNote(token, noteId, patch) {
         }
         row.Text = text;
         row.MentionsJson = JSON.stringify(mentionedUserIds);
+        row.MentionUpdatedAt = toIso_(new Date());
         row.Done = false;
       }
 
@@ -1562,26 +1582,29 @@ function noteMentionIds_(text, selectedIds, sourceUsers) {
   }).map(function(user) { return user.Id; }).slice(0, 20);
 }
 
-function getNoteMentionsForUser_(sourceNotes, userId) {
+function getNoteMentionsForUser_(sourceNotes, userId, seenIds, limit) {
   const taskTypes = {};
   readObjects_('tasks').forEach(function(task) { if (task.Id) taskTypes[task.Id] = task.TaskType; });
   const mentions = [];
+  const seen = new Set(Array.isArray(seenIds) ? seenIds : []);
   (sourceNotes || []).forEach(function(note) {
     if (note.AssignedTaskId && taskTypes[note.AssignedTaskId] === 'sales_penawaran') return;
     if (parseJsonSafe_(note.MentionsJson, []).indexOf(userId) !== -1) {
-      mentions.push({ noteId: note.Id, commentId: '', author: note.CreatedByName || '',
-        text: String(note.Text || '').slice(0, 100), createdAt: toIso_(note.CreatedAt) });
+      const id = 'note:' + note.Id + ':' + (note.MentionUpdatedAt || toIso_(note.CreatedAt));
+      if (!seen.has(id)) mentions.push({ id: id, noteId: note.Id, commentId: '', author: note.CreatedByName || '',
+        text: String(note.Text || '').slice(0, 100), createdAt: toIso_(note.MentionUpdatedAt || note.CreatedAt) });
     }
     const comments = parseJsonSafe_(note.CommentsJson, []);
     (Array.isArray(comments) ? comments : []).forEach(function(comment) {
       if (Array.isArray(comment.mentionedUserIds) && comment.mentionedUserIds.indexOf(userId) !== -1) {
-        mentions.push({ noteId: note.Id, commentId: String(comment.id || ''),
+        const id = 'comment:' + String(comment.id || '') + ':' + String(comment.editedAt || comment.createdAt || '');
+        if (!seen.has(id)) mentions.push({ id: id, noteId: note.Id, commentId: String(comment.id || ''),
           author: String(comment.createdByName || ''), text: String(comment.text || '').slice(0, 100),
-          createdAt: String(comment.createdAt || '') });
+          createdAt: String(comment.editedAt || comment.createdAt || '') });
       }
     });
   });
-  return mentions.sort(function(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); }).slice(0, 50);
+  return mentions.sort(function(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); }).slice(0, limit === Infinity ? undefined : 50);
 }
 
 function getNoteCreators_(sourceUsers) {
@@ -2170,10 +2193,29 @@ function validateReportPayload_(user, type, fields, files) {
   if (type.indexOf('audit_') === 0) {
     if (type === 'audit_pekanan') {
       requireText_(fields.relatedTaskId, 'Pilih tugas audit laporan akun bank pekanan.');
-      const bankName = String(fields.bankName || '').trim().toLowerCase();
-      if (!Object.prototype.hasOwnProperty.call(BANK_ACCOUNT_BANKS, bankName)) {
-        throw new Error('Pilih bank yang diperiksa: BRI Kendari, BRI Raha, Mandiri, Bank Sultra, atau Bank Aladin Syariah.');
+      const legacyBankName = String(fields.bankName || '').trim().toLowerCase();
+      if (!Array.isArray(fields.auditBanks) && Array.isArray(files.auditProof) &&
+          Object.prototype.hasOwnProperty.call(BANK_ACCOUNT_BANKS, legacyBankName)) {
+        files['auditProof_' + legacyBankName] = files.auditProof;
+        delete files.auditProof;
       }
+      const auditBanks = Array.isArray(fields.auditBanks) ? fields.auditBanks :
+        [{ bankName: fields.bankName, auditStatus: fields.auditStatus, description: fields.description }];
+      if (!auditBanks.length || auditBanks.length > 5) throw new Error('Pilih 1 sampai 5 bank yang diperiksa.');
+      const selected = new Set();
+      auditBanks.forEach(function(entry) {
+        const bankName = String(entry && entry.bankName || '').trim().toLowerCase();
+        if (!Object.prototype.hasOwnProperty.call(BANK_ACCOUNT_BANKS, bankName)) {
+          throw new Error('Pilih bank yang diperiksa: BRI Kendari, BRI Raha, Mandiri, Bank Sultra, atau Bank Aladin Syariah.');
+        }
+        if (selected.has(bankName)) throw new Error('Bank ' + BANK_ACCOUNT_BANKS[bankName] + ' dipilih lebih dari sekali.');
+        selected.add(bankName);
+        if (['aman', 'kendala'].indexOf(String(entry.auditStatus || '')) === -1)
+          throw new Error('Pilih status audit untuk ' + BANK_ACCOUNT_BANKS[bankName] + '.');
+        requireFile_(files, 'auditProof_' + bankName, 'Bukti pemeriksaan ' + BANK_ACCOUNT_BANKS[bankName] + ' wajib diupload.');
+        entry.bankName = bankName;
+        entry.description = String(entry.description || '').trim().slice(0, 2000);
+      });
       const related = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
       if (!related || related.TaskType !== 'audit_pekanan' ||
           !/audit laporan akun bank pekanan/i.test(String(related.Title || '')) ||
@@ -2182,9 +2224,12 @@ function validateReportPayload_(user, type, fields, files) {
         throw new Error('Tugas audit laporan akun bank pekanan tidak ditemukan atau sudah selesai.');
       }
       const audited = parseJsonSafe_(related.PayloadJson, {}).auditBankReports || {};
-      if (audited[bankName]) {
-        throw new Error('Pemeriksaan ' + BANK_ACCOUNT_BANKS[bankName] + ' untuk tugas ini sudah dikirim.');
-      }
+      auditBanks.forEach(function(entry) {
+        if (audited[entry.bankName])
+          throw new Error('Pemeriksaan ' + BANK_ACCOUNT_BANKS[entry.bankName] + ' untuk tugas ini sudah dikirim.');
+      });
+      fields.auditBanks = auditBanks;
+      return;
     }
     if (type === 'audit_kasbon' || type === 'audit_barang_tiba') {
       requireText_(fields.relatedTaskId, 'Pilih tugas yang akan diperiksa.');
@@ -2443,7 +2488,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
 
   if (type.indexOf('audit_') === 0) {
     if (type === 'audit_pekanan') {
-      results.push(recordBankAuditReport_(fields.relatedTaskId, user, report, fields, savedFiles));
+      results.push(recordBankAuditReports_(fields.relatedTaskId, user, report, fields, savedFiles));
     } else if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
       const location = normalizeLocation_(fields.auditLocation);
       const periodStart = semiMonthStart_(now);
@@ -2752,8 +2797,8 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
   return result;
 }
 
-function recordBankAuditReport_(taskId, user, report, fields, savedFiles) {
-  const bankName = String(fields.bankName || '').trim().toLowerCase();
+function recordBankAuditReports_(taskId, user, report, fields, savedFiles) {
+  const auditBanks = fields.auditBanks || [];
   const requiredBanks = Object.keys(BANK_ACCOUNT_BANKS);
   let result;
   updateObjectById_('tasks', String(taskId), function(row) {
@@ -2762,20 +2807,20 @@ function recordBankAuditReport_(taskId, user, report, fields, savedFiles) {
     }
     const previousPayload = parseJsonSafe_(row.PayloadJson, {});
     const auditBankReports = Object.assign({}, previousPayload.auditBankReports || {});
-    if (auditBankReports[bankName]) {
-      throw new Error('Pemeriksaan ' + BANK_ACCOUNT_BANKS[bankName] + ' untuk tugas ini sudah dikirim.');
-    }
-    auditBankReports[bankName] = {
-      label: BANK_ACCOUNT_BANKS[bankName],
-      reportId: report.Id,
-      auditedAt: toIso_(report.CreatedAt),
-      auditor: user.Name,
-      auditStatus: fields.auditStatus
-    };
+    const attachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
+    auditBanks.forEach(function(entry) {
+      const bankName = entry.bankName;
+      if (auditBankReports[bankName])
+        throw new Error('Pemeriksaan ' + BANK_ACCOUNT_BANKS[bankName] + ' untuk tugas ini sudah dikirim.');
+      auditBankReports[bankName] = {
+        label: BANK_ACCOUNT_BANKS[bankName], reportId: report.Id,
+        auditedAt: toIso_(report.CreatedAt), auditor: user.Name,
+        auditStatus: entry.auditStatus, description: entry.description || ''
+      };
+      attachments['auditProof_' + bankName] = savedFiles['auditProof_' + bankName] || [];
+    });
     const completedCount = requiredBanks.filter(function(key) { return Boolean(auditBankReports[key]); }).length;
     const completed = completedCount === requiredBanks.length;
-    const attachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
-    attachments['auditProof_' + bankName] = savedFiles.auditProof || [];
     row.RelatedReportId = report.Id;
     row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, {
       auditBankReports: auditBankReports, requiredBankKeys: requiredBanks,
@@ -3650,7 +3695,8 @@ function validateReportFileLimits_(type, files) {
     }
     const limit = type === 'input_pengiriman' && /^shipment(Item|Supplier)Files_\d+$/.test(field)
       ? [1, 8]
-      : limits[field];
+      : type === 'audit_pekanan' && /^auditProof_(bri_kendari|bri_raha|mandiri|bank_sultra|aladin_syariah)$/.test(field)
+        ? [10, 10] : limits[field];
     if (!limit) {
       throw new Error('Lampiran ' + field + ' tidak dikenal untuk laporan ini.');
     }
@@ -3659,6 +3705,17 @@ function validateReportFileLimits_(type, files) {
     }
     limitFileGroupSize_(list, Number(limit[1]), 'Total ukuran lampiran ' + field + ' maksimal ' + Number(limit[1]) + ' MB.');
   });
+  if (type === 'audit_pekanan') {
+    const allFiles = Object.keys(files || {}).flatMap(function(field) { return files[field] || []; });
+    allFiles.forEach(function(file) {
+      const mime = String(file && file.mimeType || '').toLowerCase();
+      if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].indexOf(mime) === -1)
+        throw new Error('Bukti audit harus berupa JPG, PNG, WebP, atau PDF. Format gambar lain akan dikonversi otomatis oleh form terbaru.');
+      if (mime === 'application/pdf' && !String(file.data || '').split(',').pop().startsWith('JVBERi0'))
+        throw new Error('Bukti PDF audit tidak valid.');
+    });
+    limitFileGroupSize_(allFiles, 10, 'Total seluruh bukti pemeriksaan maksimal 10 MB per kiriman.');
+  }
 }
 
 function limitFileGroupSize_(files, maxMb, message) {
@@ -3967,9 +4024,11 @@ function parseJsonSafe_(value, fallback) {
 }
 
 function safeFileName_(name) {
-  return String(name || 'upload')
-    .replace(/[\\/:*?"<>|#%{}]/g, '_')
+  const clean = String(name || 'upload').normalize('NFKD')
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^[_\.]+|[_\.]+$/g, '')
     .slice(0, 120);
+  return clean || 'upload';
 }
 
 function safeFolderName_(name) {
@@ -4061,7 +4120,7 @@ function fail_(error) {
 
   const actions = {
     apiLogout, apiLogActivity, apiGetSession, apiGetDashboard,
-    apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiReactNote, apiUpdateTaskStatus,
+    apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiReactNote, apiMarkNoteMentionsSeen, apiUpdateTaskStatus,
     apiGetReportMeta, apiSubmitReport, apiUpdateProfile, apiUpdateTaskColumnPreferences
   };
   const tableNames = {
@@ -4243,7 +4302,12 @@ async function applyChanges(changes) {
     const body = await response.text();
     if (response.status === 409 || body.includes('40001'))
       throw new Error('Data KPI berubah bersamaan. Muat ulang dan coba lagi.');
-    throw new Error('Perubahan KPI gagal disimpan (' + response.status + ').');
+    let detail = '';
+    try {
+      const payload = JSON.parse(body);
+      detail = String(payload.message || '').slice(0, 180);
+    } catch (_) { /* Keep the storage error concise. */ }
+    throw new Error('Perubahan KPI gagal disimpan (' + response.status + ')' + (detail ? ': ' + detail : '.'));
   }
 }
 function decodeBase64(text) {
@@ -4269,7 +4333,14 @@ async function uploadFiles(files) {
         headers: { ...serviceHeaders(file.mimeType), 'x-upsert': 'false' },
         body: decodeBase64(file.base64)
       });
-      if (!response.ok) throw new Error('Lampiran KPI gagal diunggah (' + response.status + ').');
+      if (!response.ok) {
+        let detail = '';
+        try {
+          const payload = await response.json();
+          detail = String(payload.message || payload.error || '').slice(0, 180);
+        } catch (_) { /* The HTTP status still identifies the failure. */ }
+        throw new Error('Lampiran ' + file.id.split('/').pop() + ' gagal diunggah (' + response.status + ')' + (detail ? ': ' + detail : '.'));
+      }
       uploaded.push(file.id);
     }
   } catch (error) {
@@ -4427,7 +4498,8 @@ Deno.serve(async request => {
     if (notePasswordVerified) await verifyNotePassword(identity, jwt, notePatch.password);
 
     const tableKeys = action === 'apiGetSession' || action === 'apiLogout'
-      ? ['users'] : action === 'apiLogActivity'
+      ? ['users'] : action === 'apiMarkNoteMentionsSeen'
+        ? ['users', 'notes', 'tasks'] : action === 'apiLogActivity'
         ? ['users', 'activityLogs'] : ['apiUpdateProfile', 'apiUpdateTaskColumnPreferences'].includes(action)
           ? ['users'] : Object.keys(KPI_TABLES);
     const fetched = await Promise.all(tableKeys.map(async key => [key,
