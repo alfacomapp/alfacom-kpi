@@ -1913,8 +1913,8 @@ function enrichTask_(task, now, attendanceMap) {
   const payload = parseJsonSafe_(task.PayloadJson, {});
   const excludedFromKpi = Boolean(payload.excludeFromKpi || (REPORT_TYPES[type] && REPORT_TYPES[type].excludeFromKpi));
   const timer = buildTaskTimer_(task, now, attendanceMap);
-  if (!excludedFromKpi && status === 'berjalan' && kpiStatus === 'berjalan' && timer.remainingMs < 0) {
-    kpiStatus = 'meleset';
+  if (!excludedFromKpi && status === 'berjalan') {
+    kpiStatus = timer.remainingMs < 0 ? 'meleset' : 'berjalan';
   }
   const displayKpiStatus = excludedFromKpi ? 'data' : (status === 'berjalan' && kpiStatus === 'berjalan' && timer.isPaused ? 'pause' : kpiStatus);
   let taskTitle = String(task.Title || '').replace(/^Audit Nota IPOS/i, REPORT_TYPES.audit_nota_ipos.label);
@@ -2924,62 +2924,106 @@ function buildTaskTimer_(task, now, attendanceMap) {
   const completedAt = task.CompletedAt ? parseDate_(task.CompletedAt) : null;
   const endAt = completedAt || now;
   const payload = parseJsonSafe_(task.PayloadJson, {});
-  const deadlineAt = parseDate_(payload.deadlineAt);
+  const nextDay = startOfDay_(now);
+  nextDay.setDate(nextDay.getDate() + 1);
   if (payload.noDeadline || payload.excludeFromKpi || (REPORT_TYPES[task.TaskType] && REPORT_TYPES[task.TaskType].excludeFromKpi)) {
-    return { limitMs: 0, workedMs: 0, remainingMs: 0, overdueMs: 0, deadlineAt: '', isPaused: false, pauseReason: '', noDeadline: true, serverNow: now.toISOString() };
+    return { limitMs: 0, workedMs: 0, remainingMs: 0, overdueMs: 0, deadlineAt: '', isPaused: false, pauseReason: '', noDeadline: true, serverNow: now.toISOString(), refreshAt: nextDay.toISOString() };
   }
   const activeAttendanceMap = attendanceMap || getAttendanceMap_();
+  const pausePolicy = taskPausePolicy_();
+  const effectiveDeadline = taskEffectiveDeadline_(task, startedAt, activeAttendanceMap, pausePolicy);
+  if (!effectiveDeadline) {
+    return { limitMs: 0, workedMs: 0, remainingMs: 0, overdueMs: 0, deadlineAt: '', isPaused: false, pauseReason: '', noDeadline: true, serverNow: now.toISOString(), refreshAt: nextDay.toISOString() };
+  }
   const isRunning = String(task.Status || 'berjalan') === 'berjalan';
-  const pausePolicy = taskPausePolicy_(task, startedAt, deadlineAt);
   const pauseState = isRunning ? currentPauseState_(now, task.AssigneeName, activeAttendanceMap, pausePolicy) : { paused: false, reason: '' };
+  const deadlineEnd = new Date(effectiveDeadline.getTime() + 1);
+  const limitMs = effectiveWorkedMs_(startedAt, deadlineEnd, task.AssigneeName, activeAttendanceMap, pausePolicy);
   const workedMs = effectiveWorkedMs_(startedAt, endAt, task.AssigneeName, activeAttendanceMap, pausePolicy);
-  const effectiveLimitMs = taskLimitMs_(task, startedAt, deadlineAt);
-  const remainingMs = effectiveLimitMs - workedMs;
-  const effectiveDeadline = effectiveDeadlineAt_(startedAt, effectiveLimitMs, task.AssigneeName, activeAttendanceMap, pausePolicy);
+  const remainingMs = endAt <= effectiveDeadline
+    ? effectiveWorkedMs_(endAt > startedAt ? endAt : startedAt, deadlineEnd, task.AssigneeName, activeAttendanceMap, pausePolicy)
+    : -Math.max(1, effectiveWorkedMs_(deadlineEnd, endAt, task.AssigneeName, activeAttendanceMap, pausePolicy));
 
   return {
-    limitMs: effectiveLimitMs,
+    limitMs: limitMs,
     workedMs: workedMs,
     remainingMs: remainingMs,
     overdueMs: remainingMs < 0 ? Math.abs(remainingMs) : 0,
-    deadlineAt: effectiveDeadline ? effectiveDeadline.toISOString() : (deadlineAt ? deadlineAt.toISOString() : ''),
+    deadlineAt: effectiveDeadline.toISOString(),
     isPaused: pauseState.paused,
     pauseReason: pauseState.reason,
-    serverNow: now.toISOString()
+    serverNow: now.toISOString(),
+    refreshAt: nextDay.toISOString()
   };
 }
 
 function calculateKpiStatus_(task, endAt, attendanceMap) {
   const payload = parseJsonSafe_(task.PayloadJson, {});
   if (payload.noDeadline || payload.excludeFromKpi || (REPORT_TYPES[task.TaskType] && REPORT_TYPES[task.TaskType].excludeFromKpi)) return 'tepat_waktu';
-  const deadlineAt = parseDate_(payload.deadlineAt);
   const startedAt = parseDate_(task.StartedAt || task.CreatedAt || endAt);
-  const activeAttendanceMap = attendanceMap || getAttendanceMap_();
-  const pausePolicy = taskPausePolicy_(task, startedAt, deadlineAt);
-  const limitMs = taskLimitMs_(task, startedAt, deadlineAt);
-  const workedMs = effectiveWorkedMs_(startedAt, endAt, task.AssigneeName, activeAttendanceMap, pausePolicy);
-  return workedMs <= limitMs ? 'tepat_waktu' : 'meleset';
+  const effectiveDeadline = taskEffectiveDeadline_(task, startedAt, attendanceMap || getAttendanceMap_(), taskPausePolicy_());
+  return !effectiveDeadline || parseDate_(endAt) <= effectiveDeadline ? 'tepat_waktu' : 'meleset';
 }
 
-function taskLimitMs_(task, startedAt, deadlineAt) {
-  const start = parseDate_(startedAt || task.StartedAt || task.CreatedAt || new Date());
-  const explicitDeadline = parseDate_(deadlineAt);
-  if (start && explicitDeadline && explicitDeadline > start) {
-    return explicitDeadline.getTime() - start.getTime();
+function taskPausePolicy_() {
+  return { pauseSunday: true, useFullDay: true };
+}
+
+function taskEffectiveDeadline_(task, startedAt, attendanceMap, pausePolicy) {
+  const start = parseDate_(startedAt || task.StartedAt || task.CreatedAt);
+  if (!start) return null;
+  const payload = parseJsonSafe_(task.PayloadJson, {});
+  let nominalDeadline = parseDate_(payload.deadlineAt);
+  if (!nominalDeadline && ['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(task.TaskType) !== -1) {
+    nominalDeadline = startOfDay_(start);
+    nominalDeadline.setDate(nominalDeadline.getDate() + 13);
+    nominalDeadline.setHours(23, 59, 59, 999);
   }
-
-  return Number(task.TimeLimitHours || 0) * 60 * 60 * 1000;
+  if (nominalDeadline) {
+    return calendarDeadlineWithPauses_(start, nominalDeadline, task.AssigneeName, attendanceMap);
+  }
+  const hours = Number(task.TimeLimitHours || 0);
+  if (!isFinite(hours) || hours <= 0) return null;
+  if ((hours >= 48 && hours % 24 === 0) || (task.TaskType === 'pendapatan_harian' && hours === 24)) {
+    return workingDayDeadline_(start, hours / 24, task.AssigneeName, attendanceMap, pausePolicy);
+  }
+  return effectiveDeadlineAt_(start, hours * 60 * 60 * 1000, task.AssigneeName, attendanceMap, pausePolicy);
 }
 
-function taskPausePolicy_(task, startedAt, deadlineAt) {
-  const start = parseDate_(startedAt || task.StartedAt || task.CreatedAt || new Date());
-  const explicitDeadline = parseDate_(deadlineAt);
-  const limitMs = Number(task.TimeLimitHours || 0) * 60 * 60 * 1000;
-  const spanMs = explicitDeadline && start ? explicitDeadline.getTime() - start.getTime() : limitMs;
-  return {
-    pauseSunday: true,
-    useFullDay: true
-  };
+function calendarDeadlineWithPauses_(startedAt, nominalDeadline, assigneeName, attendanceMap) {
+  const deadline = new Date(nominalDeadline);
+  const cursor = startOfDay_(startedAt);
+  let guard = 0;
+  while (cursor <= startOfDay_(deadline) && guard < 4000) {
+    if (cursor.getDay() !== 0 && isPauseStatus_(attendanceStatusFor_(assigneeName, cursor, attendanceMap))) {
+      deadline.setDate(deadline.getDate() + 1);
+    }
+    cursor.setDate(cursor.getDate() + 1);
+    guard += 1;
+  }
+  while ((deadline.getDay() === 0 || isPauseStatus_(attendanceStatusFor_(assigneeName, deadline, attendanceMap))) && guard < 4000) {
+    deadline.setDate(deadline.getDate() + 1);
+    guard += 1;
+  }
+  return deadline;
+}
+
+function workingDayDeadline_(startedAt, workDays, assigneeName, attendanceMap, pausePolicy) {
+  const cursor = startOfDay_(startedAt);
+  let counted = 0;
+  let guard = 0;
+  while (guard < 4000) {
+    if (isCountingDay_(cursor, assigneeName, attendanceMap, pausePolicy)) {
+      counted += 1;
+      if (counted >= workDays) {
+        cursor.setHours(23, 59, 59, 999);
+        return cursor;
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+    guard += 1;
+  }
+  return null;
 }
 
 function effectiveDeadlineAt_(startAt, limitMs, assigneeName, attendanceMap, pausePolicy) {
@@ -2995,7 +3039,10 @@ function effectiveDeadlineAt_(startAt, limitMs, assigneeName, attendanceMap, pau
       const window = workWindowForDate_(day, pausePolicy);
       const segmentStart = cursor > window.start ? cursor : window.start;
       const available = Math.max(0, window.end.getTime() - segmentStart.getTime());
-      if (remaining <= available) return new Date(segmentStart.getTime() + remaining);
+      if (remaining <= available) {
+        const deadline = segmentStart.getTime() + remaining;
+        return new Date(deadline === window.end.getTime() ? deadline - 1 : deadline);
+      }
       remaining -= available;
     }
     cursor = startOfDay_(day);
@@ -3104,7 +3151,9 @@ function getAttendanceMap_() {
       if (role === 'manager' && name === 'abu abdillah') aliases.push('auditor');
       if (role === 'sales' && name === 'juna') aliases.push('sales director');
       aliases.forEach(function(alias) {
-        if (alias) map[alias + '|' + dateKey_(date)] = value;
+        if (!alias) return;
+        const key = alias + '|' + dateKey_(date);
+        if (value !== 'masuk' || !isPauseStatus_(map[key])) map[key] = value;
       });
     });
     if (rows.length < 1000) break;
@@ -3177,8 +3226,8 @@ function applyLeaveRequestsToAttendanceMap_(map, rows) {
   });
 }
 
-function createPeriodicTasks_() {
-  const now = new Date();
+function createPeriodicTasks_(atDate) {
+  const now = atDate ? parseDate_(atDate) : new Date();
   const tasks = readObjects_('tasks');
   const users = readObjects_('users');
   const attendanceMap = getAttendanceMap_();
@@ -3374,6 +3423,9 @@ function ensurePeriodicTask_(existingTasks, options) {
 function dailyBackfillDates_(now) {
   const today = startOfDay_(now);
   const cursor = startOfDay_(new Date(today.getFullYear(), today.getMonth(), 1));
+  const previousWeek = startOfDay_(today);
+  previousWeek.setDate(previousWeek.getDate() - 7);
+  if (previousWeek < cursor) cursor.setTime(previousWeek.getTime());
   const dates = [];
 
   while (cursor.getTime() <= today.getTime()) {
@@ -3944,7 +3996,9 @@ function deadlineDateForWeekday_(weekStart, weekday) {
 
 function deadlineDateForTime_(date, hour, minute) {
   const deadline = startOfDay_(date);
-  deadline.setHours(Number(hour || 0), Number(minute || 0), 0, 0);
+  const dueHour = Number(hour || 0);
+  const dueMinute = Number(minute || 0);
+  deadline.setHours(dueHour, dueMinute, dueHour === 23 && dueMinute === 59 ? 59 : 0, dueHour === 23 && dueMinute === 59 ? 999 : 0);
   return deadline;
 }
 
@@ -4160,6 +4214,11 @@ function fail_(error) {
   };
   return {
     dateKeyForTest(value) { return dateKey_(value); },
+    timerForTest(task, atDate, attendanceMap) { return buildTaskTimer_(task, new Date(atDate), attendanceMap || {}); },
+    enrichedTaskForTest(task, atDate, attendanceMap) { return enrichTask_(task, new Date(atDate), attendanceMap || {}); },
+    attendanceMapForTest() { return getAttendanceMap_(); },
+    statusForTest(task, atDate, attendanceMap) { return calculateKpiStatus_(task, new Date(atDate), attendanceMap || {}); },
+    generateTasksForTest(atDate) { createPeriodicTasks_(new Date(atDate)); },
     runDailyMaintenance() {
       ensureKpiTasksAndStatus_(true);
     },

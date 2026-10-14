@@ -75,13 +75,14 @@ function ui() {
       },
       querySelectorAll(selector) {
         if (selector === '[data-audit-bank-row]') return elements.auditRows;
+        if (selector === '[data-timer]') return elements.timer ? [elements.timer] : [];
         return [];
       } },
     window: { innerWidth: 400, innerHeight: 800 },
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderTaskAttachmentCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderTaskAttachmentCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 
@@ -242,7 +243,7 @@ test('dated report forms select a numbered task and default to the current perio
   assert.match(html, /id="reportFormMonthFilter"/);
   assert.match(html, /id="reportFormYearFilter"/);
   const types = [
-    'pendapatan_harian', 'laporan_akun_bank', 'laporan_keadaan_kas_bank',
+    'pendapatan_harian', 'laporan_akun_bank',
     'laporan_saldo_bank_jago', 'rekap_storan_setengah_bulan',
     'sales_upload_harian_10', 'sales_upload_harian_1_10', 'audit_bank_jago',
     'laporan_investor', 'laporan_raport_fee_freelance'
@@ -257,4 +258,35 @@ test('dated report forms select a numbered task and default to the current perio
   app.state.reportFormMonth = now.getMonth() === 0 ? 12 : now.getMonth();
   app.state.reportFormYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
   assert.equal(app.taskMatchesFormPeriod(task), false);
+});
+
+
+test('Admin Kendari cash-bank report keeps the report-date field', () => {
+  const fields = ui().REPORT_FORMS.laporan_keadaan_kas_bank;
+  assert.equal(fields.some(field => field.kind === 'date' && field.field === 'reportDate'), true);
+  assert.equal(fields.some(field => field.field === 'relatedTaskId'), false);
+});
+
+test('browser countdown stops at the next WITA day boundary until server refresh', () => {
+  const app = ui();
+  const now = Date.now();
+  const classes = new Set();
+  app.elements.timer = {
+    dataset: {
+      paused: 'false', remaining: String(48 * 60 * 60 * 1000),
+      start: String(now - 36 * 60 * 60 * 1000),
+      serverNow: new Date(now - 36 * 60 * 60 * 1000).toISOString(),
+      refreshAt: new Date(now - 12 * 60 * 60 * 1000).toISOString(),
+      reason: ''
+    },
+    classList: { toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); } },
+    textContent: ''
+  };
+  app.updateTimers();
+  assert.match(app.elements.timer.textContent, /^Sisa 1h /);
+  app.elements.timer.dataset.paused = 'true';
+  app.elements.timer.dataset.reason = 'izin';
+  app.updateTimers();
+  assert.equal(app.elements.timer.textContent, 'Pause: izin');
+  assert.equal(classes.has('paused'), true);
 });

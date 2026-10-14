@@ -72,3 +72,10 @@ test('bank reports update the chosen weekly task number', () => {
   assert.deepEqual(JSON.parse(ctx.tables.tasks.find(row => row.id === 'BANK-NEW').record.PayloadJson), {});
   assert.equal(JSON.parse(ctx.tables.tasks.find(row => row.id === 'BANK-OLD').record.PayloadJson).bankReports.bri_kendari.label, 'BRI Kendari');
 });
+
+test('Admin Kendari cash-bank form accepts a report date without a task-number selection', () => {
+  const { engine, ctx } = fixture([]);
+  const result = submit(engine, 'laporan_keadaan_kas_bank', { reportDate: '2026-10-07' }, { bankCashStateProof: [proof] });
+  assert.equal(result.ok, true, result.message);
+  assert.equal(JSON.parse(ctx.tables.reports[0].record.PayloadJson).reportDate, '2026-10-07');
+});
