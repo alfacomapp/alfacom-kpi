@@ -290,3 +290,16 @@ test('browser countdown stops at the next WITA day boundary until server refresh
   assert.equal(app.elements.timer.textContent, 'Pause: izin');
   assert.equal(classes.has('paused'), true);
 });
+
+test('follow-up task stays selectable when its Saturday falls in the next month', () => {
+  const app = ui();
+  const task = { taskType: 'follow_up_nota_tagihan', startedAt: '2026-09-27T16:00:00.000Z',
+    payload: { deadlineAt: '2026-10-03T15:59:59.999Z' } };
+  app.state.reportFormMonth = 9;
+  app.state.reportFormYear = 2026;
+  assert.equal(app.taskMatchesFormPeriod(task), true);
+  app.state.reportFormMonth = 10;
+  assert.equal(app.taskMatchesFormPeriod(task), true);
+  app.state.reportFormMonth = 11;
+  assert.equal(app.taskMatchesFormPeriod(task), false);
+});

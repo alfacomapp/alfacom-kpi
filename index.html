@@ -2863,7 +2863,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-14-synced-deadline-calendar';
+    const CLIENT_CACHE_VERSION = '2026-10-14-follow-up-nota-tagihan';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2914,6 +2914,11 @@
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'file', field: 'bankCashStateProof', label: 'Bukti keadaan kas bank', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      follow_up_nota_tagihan: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['follow_up_nota_tagihan'], full: true },
+        { kind: 'file', field: 'followUpProof', label: 'Foto bukti chat atau serah terima nota', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan (opsional)', full: true }
       ],
       laporan_saldo_bank_jago: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_saldo_bank_jago'], full: true },
@@ -5336,8 +5341,14 @@
     }
 
     function taskMatchesFormPeriod(task) {
-      const date = taskDateForFormPeriod(task);
-      return date && date.getMonth() + 1 === Number(state.reportFormMonth) && date.getFullYear() === Number(state.reportFormYear);
+      const dates = [taskDateForFormPeriod(task)];
+      if (task && task.taskType === 'follow_up_nota_tagihan' && task.payload && task.payload.deadlineAt) {
+        const deadline = new Date(task.payload.deadlineAt);
+        if (!isNaN(deadline.getTime())) dates.push(deadline);
+      }
+      return dates.some(function(date) {
+        return date && date.getMonth() + 1 === Number(state.reportFormMonth) && date.getFullYear() === Number(state.reportFormYear);
+      });
     }
 
     function reportTasksForCurrentUser() {

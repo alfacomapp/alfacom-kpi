@@ -181,6 +181,12 @@ const REPORT_TYPES = {
     timeLimitHours: 14,
     deadlineHour: 22
   },
+  follow_up_nota_tagihan: {
+    label: 'Follow up nota tagihan ke user',
+    roles: ['admin_raha'],
+    timeLimitHours: 144,
+    deadlineWeekday: 6
+  },
   laporan_saldo_bank_jago: {
     label: 'Laporan Isi Saldo Bank Jago',
     roles: ['admin_kendari'],
@@ -293,6 +299,7 @@ const REPORT_FILE_LIMITS = {
   bukti_storan_bank: { bankProof: [1, 8] },
   laporan_akun_bank: { bankAccountProof: [50, 10], bankStatement: [50, 10] },
   laporan_keadaan_kas_bank: { bankCashStateProof: [10, 10] },
+  follow_up_nota_tagihan: { followUpProof: [10, 10] },
   laporan_saldo_bank_jago: { saldoProof: [10, 10] },
   rekap_storan_setengah_bulan: { storanProof: [10, 10] },
   sales_upload_harian_10: { salesFiles: [10, 10] },
@@ -315,6 +322,7 @@ const REPORT_FILE_LIMITS = {
 const PERIOD_REPORT_TASK_TYPES = new Set([
   'pendapatan_harian', 'laporan_akun_bank', 'laporan_keadaan_kas_bank',
   'laporan_saldo_bank_jago', 'rekap_storan_setengah_bulan',
+  'follow_up_nota_tagihan',
   'sales_upload_harian_10', 'sales_upload_harian_1_10', 'audit_bank_jago',
   'laporan_investor', 'laporan_raport_fee_freelance'
 ]);
@@ -560,6 +568,7 @@ function apiGetDashboard(token, filters) {
   try {
     const user = requireUser_(token);
     if (user.Role === 'auditor') ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
+    if (user.Role === 'admin_raha') ensureCurrentFollowUpNotaTask_(new Date(), readObjects_('tasks'), user);
 
     const safeFilters = filters || {};
     const period = normalizeDashboardPeriod_(safeFilters);
@@ -1027,6 +1036,7 @@ function apiGetReportMeta(token) {
   try {
     const user = requireUser_(token);
     if (user.Role === 'auditor') ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
+    if (user.Role === 'admin_raha') ensureCurrentFollowUpNotaTask_(new Date(), readObjects_('tasks'), user);
 
     const reportTypes = getReportTypesForUser_(user);
     const now = new Date();
@@ -1795,6 +1805,9 @@ function dashboardPeriodOptions_(tasks, selectedPeriod) {
   addPeriod(selectedPeriod);
   (tasks || []).forEach(function(task) {
     addPeriod(taskDashboardPeriod_(task));
+    if (String(task.taskType || task.TaskType || '') === 'follow_up_nota_tagihan') {
+      addPeriod(followUpDeadlinePeriod_(task));
+    }
   });
 
   return options.sort(function(a, b) {
@@ -1804,7 +1817,16 @@ function dashboardPeriodOptions_(tasks, selectedPeriod) {
 
 function isTaskInDashboardPeriod_(task, period) {
   const taskPeriod = taskDashboardPeriod_(task);
-  return Boolean(taskPeriod && period && taskPeriod.key === period.key);
+  const deadlinePeriod = String(task.taskType || task.TaskType || '') === 'follow_up_nota_tagihan'
+    ? followUpDeadlinePeriod_(task) : null;
+  return Boolean(period && ((taskPeriod && taskPeriod.key === period.key) ||
+    (deadlinePeriod && deadlinePeriod.key === period.key)));
+}
+
+function followUpDeadlinePeriod_(task) {
+  const payload = task.payload || parseJsonSafe_(task.PayloadJson, {});
+  const deadline = parseDate_(payload.deadlineAt);
+  return deadline ? dashboardPeriodForDate_(deadline) : null;
 }
 
 function taskDashboardPeriod_(task) {
@@ -1813,6 +1835,10 @@ function taskDashboardPeriod_(task) {
     return null;
   }
 
+  return dashboardPeriodForDate_(date);
+}
+
+function dashboardPeriodForDate_(date) {
   const key = Utilities.formatDate(date, getScriptTimeZone_(), 'yyyy-MM');
   const parts = key.split('-');
   const year = Number(parts[0]);
@@ -2156,6 +2182,15 @@ function validateReportPayload_(user, type, fields, files) {
     return;
   }
 
+  if (type === 'follow_up_nota_tagihan') {
+    if (getUserLocation_(user) !== 'raha') {
+      throw new Error('Follow up nota tagihan hanya untuk Admin Raha.');
+    }
+    requireText_(fields.relatedTaskId, 'Pilih nomor tugas follow up nota tagihan.');
+    requireFile_(files, 'followUpProof', 'Foto bukti chat atau serah terima nota wajib diupload.');
+    return;
+  }
+
   if (type === 'laporan_saldo_bank_jago') {
     if (getUserLocation_(user) !== 'kendari') {
       throw new Error('Laporan isi saldo Bank Jago hanya untuk Kendari.');
@@ -2399,6 +2434,10 @@ function processReportTasks_(user, report, fields, savedFiles) {
         attachments: sourceAttachments
       }));
     }
+  }
+
+  if (type === 'follow_up_nota_tagihan') {
+    results.push(completeTaskFromReport_(fields.relatedTaskId, user, report, savedFiles));
   }
 
   if (type === 'laporan_keadaan_kas_bank') {
@@ -3277,6 +3316,7 @@ function createPeriodicTasks_(atDate) {
     });
 
     if (role === 'admin_raha') {
+      ensureCurrentFollowUpNotaTask_(now, tasks, admin);
       ensurePeriodicTask_(tasks, {
         taskType: 'rekap_storan_setengah_bulan',
         periodKey: periodKeyForMonth_(now, 'rekap_storan_setengah_bulan', location),
@@ -3383,6 +3423,23 @@ function createPeriodicTasks_(atDate) {
       deadlineAt: deadlineDateForMonth_(now, REPORT_TYPES[type].deadlineDay),
       createdBy: owner
     });
+  });
+}
+
+function ensureCurrentFollowUpNotaTask_(now, tasks, admin) {
+  const week = weekStart_(now);
+  const location = getUserLocation_(admin);
+  ensurePeriodicTask_(tasks, {
+    taskType: 'follow_up_nota_tagihan',
+    periodKey: periodKeyForWeekType_(week, 'follow_up_nota_tagihan', location),
+    title: REPORT_TYPES.follow_up_nota_tagihan.label + ' ' + dateKey_(week),
+    assigneeRole: 'admin_raha',
+    assigneeLocation: location,
+    assigneeName: admin.Name,
+    timeLimitHours: REPORT_TYPES.follow_up_nota_tagihan.timeLimitHours,
+    startedAt: week,
+    deadlineAt: deadlineDateForWeekday_(week, REPORT_TYPES.follow_up_nota_tagihan.deadlineWeekday),
+    createdBy: { Id: 'system', Name: 'System' }
   });
 }
 
@@ -3788,6 +3845,12 @@ function validateReportFileLimits_(type, files) {
     }
     limitFileGroupSize_(list, Number(limit[1]), 'Total ukuran lampiran ' + field + ' maksimal ' + Number(limit[1]) + ' MB.');
   });
+  if (type === 'follow_up_nota_tagihan') {
+    (files.followUpProof || []).forEach(function(file) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(String(file && file.mimeType || '').toLowerCase()))
+        throw new Error('Bukti follow up harus berupa foto JPG, PNG, atau WebP.');
+    });
+  }
   if (type === 'audit_pekanan') {
     const allFiles = Object.keys(files || {}).flatMap(function(field) { return files[field] || []; });
     allFiles.forEach(function(file) {

@@ -43,7 +43,11 @@ test('Alif and Admin Raha resolve to the same existing KPI user, menus and repor
         const f = fixture(profile), session = await f.invoke('apiGetSession'), meta = await f.invoke('apiGetReportMeta');
         assert.equal(session.status, 200); assert.equal(session.body.ok, true);
         assert.equal(session.body.user.Id, 'USER-RAHA'); assert.equal(session.body.user.Role, 'admin_raha'); assert.equal(session.body.user.Location, 'raha');
-        assert.equal(meta.body.ok, true); assert.equal(f.writes.length, 0);
+        assert.equal(meta.body.ok, true);
+        assert.equal(f.writes.length, 1);
+        assert.equal(f.writes[0].table, 'kpi_tasks');
+        assert.equal(f.writes[0].record.TaskType, 'follow_up_nota_tagihan');
+        assert.equal(f.tables.kpi_users.length, 2);
         assert.ok(f.calls.some(call => call.path === '/auth/v1/user'));
         assert.ok(f.calls.some(call => call.path === '/rest/v1/users' && call.query.includes('username_login=eq.' + profile.username_login)));
         results.push({ user: session.body.user, menus: session.body.menus, reportTypes: meta.body.reportTypes });
