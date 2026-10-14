@@ -269,6 +269,16 @@ const REPORT_TYPES = {
     roles: ['auditor'],
     timeLimitHours: 336
   },
+  revisi_audit: {
+    label: 'Upload Revisi Hasil Audit',
+    roles: ['admin_kendari', 'admin_raha', 'auditor'],
+    timeLimitHours: 24
+  },
+  audit_revisi: {
+    label: 'Pemeriksaan Revisi Audit',
+    roles: ['auditor'],
+    timeLimitHours: 24
+  },
   laporan_investor: {
     label: 'Stor Laporan Investor',
     roles: ['auditor'],
@@ -315,6 +325,8 @@ const REPORT_FILE_LIMITS = {
   audit_nota_ipos: { auditProof: [10, 10] },
   audit_piutang: { auditProof: [10, 10] },
   audit_hutang: { auditProof: [10, 10] },
+  revisi_audit: { revisionProof: [10, 10] },
+  audit_revisi: { auditProof: [10, 10] },
   laporan_investor: { reportProof: [10, 10] },
   laporan_raport_fee_freelance: { reportProof: [10, 10] }
 };
@@ -1055,7 +1067,13 @@ function apiGetReportMeta(token) {
     return ok_({
       user: user,
       reportTypes: reportTypes,
-      openTasks: openTasks
+      openTasks: openTasks,
+      revisionRecipients: user.Role === 'auditor' ? getActiveUsers_().filter(function(candidate) {
+        return ['admin_kendari', 'admin_raha', 'auditor'].indexOf(normalizeRole_(candidate.Role)) !== -1;
+      }).map(function(candidate) {
+        return { id: candidate.Id, name: candidate.Name,
+          role: ROLE_LABELS[normalizeRole_(candidate.Role)] || candidate.Role };
+      }) : []
     });
   } catch (error) {
     return fail_(error);
@@ -1805,6 +1823,9 @@ function dashboardPeriodOptions_(tasks, selectedPeriod) {
   addPeriod(selectedPeriod);
   (tasks || []).forEach(function(task) {
     addPeriod(taskDashboardPeriod_(task));
+    const payload = task.payload || parseJsonSafe_(task.PayloadJson, {});
+    const revisionDate = payload.revision && payload.revision.pending && parseDate_(payload.revision.startedAt);
+    if (revisionDate) addPeriod(dashboardPeriodForDate_(revisionDate));
     if (String(task.taskType || task.TaskType || '') === 'follow_up_nota_tagihan') {
       addPeriod(followUpDeadlinePeriod_(task));
     }
@@ -1817,9 +1838,13 @@ function dashboardPeriodOptions_(tasks, selectedPeriod) {
 
 function isTaskInDashboardPeriod_(task, period) {
   const taskPeriod = taskDashboardPeriod_(task);
+  const payload = task.payload || parseJsonSafe_(task.PayloadJson, {});
+  const revisionDate = payload.revision && payload.revision.pending && parseDate_(payload.revision.startedAt);
+  const revisionPeriod = revisionDate ? dashboardPeriodForDate_(revisionDate) : null;
   const deadlinePeriod = String(task.taskType || task.TaskType || '') === 'follow_up_nota_tagihan'
     ? followUpDeadlinePeriod_(task) : null;
   return Boolean(period && ((taskPeriod && taskPeriod.key === period.key) ||
+    (revisionPeriod && revisionPeriod.key === period.key) ||
     (deadlinePeriod && deadlinePeriod.key === period.key)));
 }
 
@@ -1937,7 +1962,7 @@ function enrichTask_(task, now, attendanceMap) {
   let kpiStatus = normalizeKpiStatus_(task.KpiStatus || 'berjalan');
   const status = String(task.Status || 'berjalan');
   const payload = parseJsonSafe_(task.PayloadJson, {});
-  const excludedFromKpi = Boolean(payload.excludeFromKpi || (REPORT_TYPES[type] && REPORT_TYPES[type].excludeFromKpi));
+  const excludedFromKpi = !activeRevision_(payload) && Boolean(payload.excludeFromKpi || (REPORT_TYPES[type] && REPORT_TYPES[type].excludeFromKpi));
   const timer = buildTaskTimer_(task, now, attendanceMap);
   if (!excludedFromKpi && status === 'berjalan') {
     kpiStatus = timer.remainingMs < 0 ? 'meleset' : 'berjalan';
@@ -1948,6 +1973,9 @@ function enrichTask_(task, now, attendanceMap) {
   if (type === 'audit_harian' && (sourceLocation === 'kendari' || sourceLocation === 'raha') &&
       taskTitle.toLowerCase().indexOf(sourceLocation) === -1) {
     taskTitle += ' (' + titleCaseLocation_(sourceLocation) + ')';
+  }
+  if (payload.revision && payload.revision.pending && status === 'berjalan') {
+    taskTitle += ' (Revisi ' + payload.revision.count + '/3)';
   }
 
   return {
@@ -2013,6 +2041,20 @@ function buildTaskDetailText_(task, payload) {
   if (detail.auditStatus) {
     parts.push('Status audit: ' + detail.auditStatus);
   }
+  if (detail.revision && detail.revision.pending) {
+    parts.push('Revisi ' + detail.revision.count + '/3: upload ulang tugas setelah audit berkendala.');
+    if (detail.revision.reason) parts.push('Kendala: ' + detail.revision.reason);
+    if (Array.isArray(detail.revision.bankNames) && detail.revision.bankNames.length) {
+      parts.push('Bank yang perlu direvisi: ' + detail.revision.bankNames.map(function(key) { return BANK_ACCOUNT_BANKS[key] || key; }).join(', '));
+    }
+  }
+  if (detail.revision && detail.revision.limitReached) {
+    parts.push('Batas 3 revisi tercapai; hasil akhir: meleset.');
+  }
+  if (detail.rootAuditTaskId) parts.push('Audit asal: ' + detail.rootAuditTaskId);
+  if (detail.revisionCount) parts.push('Putaran revisi: ' + detail.revisionCount + '/3');
+  if (detail.revisionReason) parts.push('Kendala: ' + detail.revisionReason);
+  if (detail.revisionRecipientName) parts.push('Penerima revisi: ' + detail.revisionRecipientName);
   if (String(task.TaskType || '') === 'audit_pekanan' && /audit laporan akun bank pekanan/i.test(String(task.Title || ''))) {
     const audited = detail.auditBankReports || {};
     const requiredBanks = Object.keys(BANK_ACCOUNT_BANKS);
@@ -2035,7 +2077,7 @@ function buildTaskDetailText_(task, payload) {
       parts.push('BRI (laporan lama) tersimpan; laporkan BRI Kendari dan BRI Raha secara terpisah.');
     }
   }
-  if (detail.deadlineAt) {
+  if (detail.deadlineAt && !(detail.revision && detail.revision.pending)) {
     parts.push('Deadline: ' + Utilities.formatDate(parseDate_(detail.deadlineAt), getScriptTimeZone_(), 'dd/MM/yyyy HH:mm'));
   }
   if (detail.amount) {
@@ -2075,6 +2117,8 @@ function canUserSeeTask_(user, task) {
   }
 
   const payload = task.payload || parseJsonSafe_(task.PayloadJson, {});
+  if (String(task.taskType || task.TaskType || '') === 'revisi_audit' && payload.assigneeUserId &&
+      payload.assigneeUserId !== user.Id && user.Role !== 'owner') return false;
   if (payload.ownerOnly) {
     return user.Role === 'owner';
   }
@@ -2095,6 +2139,7 @@ function isReportTaskAssignedToUser_(user, task) {
   if (isAdminRole_(user.Role) && task.assigneeLocation !== getUserLocation_(user)) {
     return false;
   }
+  if (task.payload && task.payload.assigneeUserId && task.payload.assigneeUserId !== user.Id) return false;
   const assignedName = normalizeName_(task.assigneeName);
   return !assignedName || assignedName === normalizeName_(user.Name) ||
     assignedName === normalizeName_(ROLE_LABELS[normalizeRole_(user.Role)]);
@@ -2119,6 +2164,24 @@ function ensureReportPermission_(user, type) {
   }
 }
 
+function openReportTask_(user, taskId, taskType) {
+  const task = readObjects_('tasks').find(function(row) { return row.Id === String(taskId || ''); });
+  if (!task || task.TaskType !== taskType || String(task.Status || 'berjalan') !== 'berjalan' ||
+      !isReportTaskAssignedToUser_(user, enrichTask_(task))) {
+    throw new Error('Nomor tugas terkait tidak ditemukan, sudah selesai, atau bukan tugas Anda.');
+  }
+  return task;
+}
+
+function auditRevisionRecipient_(recipientId) {
+  const recipient = getActiveUsers_().find(function(candidate) {
+    return candidate.Id === String(recipientId || '') &&
+      ['admin_kendari', 'admin_raha', 'auditor'].indexOf(normalizeRole_(candidate.Role)) !== -1;
+  });
+  if (!recipient) throw new Error('Pilih penerima revisi: Admin Kendari, Admin Raha, atau Auditor.');
+  return recipient;
+}
+
 function validateReportPayload_(user, type, fields, files) {
   if (PERIOD_REPORT_TASK_TYPES.has(type)) {
     const relatedTaskId = String(fields.relatedTaskId || '').trim();
@@ -2134,6 +2197,14 @@ function validateReportPayload_(user, type, fields, files) {
     }
   }
   if (type === 'kasbon_di_atas_limit') {
+    if (fields.relatedTaskId) {
+      const revisionTask = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
+      const revision = revisionTask && parseJsonSafe_(revisionTask.PayloadJson, {}).revision;
+      if (!revisionTask || revisionTask.TaskType !== type || String(revisionTask.Status || '') !== 'berjalan' ||
+          !revision || !revision.pending || !isReportTaskAssignedToUser_(user, enrichTask_(revisionTask))) {
+        throw new Error('Nomor tugas revisi kasbon tidak ditemukan atau bukan tugas Anda.');
+      }
+    }
     requireNumber_(fields.amount, 'Nominal kasbon wajib diisi.');
     requireFile_(files, 'approvalProof', 'Bukti persetujuan pengambilan kasbon di atas limit wajib diupload.');
     return;
@@ -2167,7 +2238,11 @@ function validateReportPayload_(user, type, fields, files) {
     requireFile_(files, 'bankAccountProof', 'Bukti akun bank wajib diupload.');
     if (fields.relatedTaskId) {
       const related = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
-      if (parseJsonSafe_(related.PayloadJson, {}).bankReports?.[bankName]) {
+      const relatedPayload = parseJsonSafe_(related.PayloadJson, {});
+      const revision = relatedPayload.revision;
+      const revisionBank = revision && revision.pending &&
+        Array.isArray(revision.remainingBankNames) && revision.remainingBankNames.indexOf(bankName) !== -1;
+      if (relatedPayload.bankReports?.[bankName] && !revisionBank) {
         throw new Error('Laporan bank ini untuk nomor tugas tersebut sudah dikirim.');
       }
     }
@@ -2251,7 +2326,27 @@ function validateReportPayload_(user, type, fields, files) {
     return;
   }
 
+  if (type === 'revisi_audit') {
+    const task = openReportTask_(user, fields.relatedTaskId, type);
+    const revision = parseJsonSafe_(task.PayloadJson, {});
+    if (!revision.rootAuditTaskId || Number(revision.revisionCount) < 1 || Number(revision.revisionCount) > 3) {
+      throw new Error('Tugas revisi tidak valid.');
+    }
+    requireFile_(files, 'revisionProof', 'Bukti revisi wajib diupload.');
+    return;
+  }
+
   if (type.indexOf('audit_') === 0) {
+    if (type === 'audit_revisi') {
+      const reviewTask = openReportTask_(user, fields.relatedTaskId, type);
+      const reviewPayload = parseJsonSafe_(reviewTask.PayloadJson, {});
+      if (['aman', 'kendala'].indexOf(String(fields.auditStatus || '')) === -1)
+        throw new Error('Pilih status audit Aman atau Kendala.');
+      if (fields.auditStatus === 'kendala' && Number(reviewPayload.revisionCount) < 3)
+        auditRevisionRecipient_(fields.revisionRecipientId);
+      requireFile_(files, 'auditProof', 'Bukti pemeriksaan revisi wajib diupload.');
+      return;
+    }
     if (type === 'audit_pekanan') {
       requireText_(fields.relatedTaskId, 'Pilih tugas audit laporan akun bank pekanan.');
       const legacyBankName = String(fields.bankName || '').trim().toLowerCase();
@@ -2292,12 +2387,9 @@ function validateReportPayload_(user, type, fields, files) {
       fields.auditBanks = auditBanks;
       return;
     }
-    if (type === 'audit_kasbon' || type === 'audit_barang_tiba') {
+    if (type === 'audit_harian' || type === 'audit_kasbon' || type === 'audit_barang_tiba') {
       requireText_(fields.relatedTaskId, 'Pilih tugas yang akan diperiksa.');
-      const related = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
-      if (!related || related.TaskType !== type || String(related.Status || 'berjalan') !== 'berjalan') {
-        throw new Error('Tugas pemeriksaan terkait tidak ditemukan atau sudah selesai.');
-      }
+      openReportTask_(user, fields.relatedTaskId, type);
     }
     if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
       const location = normalizeLocation_(fields.auditLocation);
@@ -2309,8 +2401,14 @@ function validateReportPayload_(user, type, fields, files) {
     }
     if (type === 'audit_bank_jago') {
       requireText_(fields.reportDate, 'Tanggal laporan audit Bank Jago wajib diisi.');
+      openReportTask_(user, fields.relatedTaskId, type);
     }
-    requireText_(fields.auditStatus, 'Status audit wajib dipilih.');
+    if (['aman', 'kendala'].indexOf(String(fields.auditStatus || '')) === -1)
+      throw new Error('Pilih status audit Aman atau Kendala.');
+    if (fields.auditStatus === 'kendala' &&
+        ['audit_bank_jago', 'audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
+      auditRevisionRecipient_(fields.revisionRecipientId);
+    }
     requireFile_(files, 'auditProof', 'Bukti foto audit wajib diupload.');
     return;
   }
@@ -2327,7 +2425,10 @@ function processReportTasks_(user, report, fields, savedFiles) {
   const now = parseDate_(report.CreatedAt);
 
   if (type === 'kasbon_di_atas_limit') {
-    results.push(createTask_({
+    const selectedRevisionTaskId = String(fields.relatedTaskId || '');
+    const kasbonSource = selectedRevisionTaskId
+      ? completeTaskFromReport_(selectedRevisionTaskId, user, report, savedFiles)
+      : createTask_({
       taskType: type,
       title: REPORT_TYPES[type].label,
       assigneeRole: user.Role,
@@ -2340,8 +2441,9 @@ function processReportTasks_(user, report, fields, savedFiles) {
       payload: Object.assign({}, fields, { excludeFromKpi: true, noDeadline: true }),
       attachments: savedFiles,
       completeNow: true
-    }));
-    results.push(createSourceAuditTask_('audit_kasbon', user, report, savedFiles, now));
+    });
+    results.push(kasbonSource);
+    results.push(createSourceAuditTask_('audit_kasbon', user, report, savedFiles, now, kasbonSource.id));
   }
 
   if (type === 'pendapatan_harian') {
@@ -2403,7 +2505,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
       timeLimitHours: REPORT_TYPES.audit_harian.timeLimitHours,
       startedAt: now,
       createdBy: user,
-      payload: { sourceReportId: report.Id, reporter: user.Name, location: getUserLocation_(user) },
+      payload: { sourceReportId: report.Id, sourceTaskId: completedTask.id, reporter: user.Name, location: getUserLocation_(user) },
       attachments: savedFiles
     }));
   }
@@ -2418,21 +2520,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
     results.push(bankResult);
 
     if (bankResult.completed) {
-      const bankTask = readObjects_('tasks').find(function(task) { return task.Id === bankResult.id; });
-      const sourceAttachments = bankTask ? parseJsonSafe_(bankTask.AttachmentUrlsJson, {}) : savedFiles;
-      results.push(createTask_({
-        taskType: 'audit_pekanan',
-        title: 'Audit laporan akun bank pekanan Kendari',
-        assigneeRole: 'auditor',
-        assigneeLocation: 'all',
-        assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
-        relatedReportId: report.Id,
-        timeLimitHours: REPORT_TYPES.audit_pekanan.timeLimitHours,
-        startedAt: now,
-        createdBy: user,
-        payload: { sourceReportId: report.Id, location: 'kendari', banksComplete: true, requiredBankKeys: Object.keys(BANK_ACCOUNT_BANKS) },
-        attachments: sourceAttachments
-      }));
+      results.push(queueBankAuditAfterReport_(bankResult, user, report, now, savedFiles));
     }
   }
 
@@ -2547,12 +2635,46 @@ function processReportTasks_(user, report, fields, savedFiles) {
   }
 
   if (type === 'rincian_barang_tiba') {
-    results.push(completeTaskFromReport_(fields.relatedTaskId, user, report, savedFiles));
-    results.push(createSourceAuditTask_('audit_barang_tiba', user, report, savedFiles, now));
+    const sourceTask = completeTaskFromReport_(fields.relatedTaskId, user, report, savedFiles);
+    results.push(sourceTask);
+    results.push(createSourceAuditTask_('audit_barang_tiba', user, report, savedFiles, now, sourceTask.id));
+  }
+
+  if (type === 'revisi_audit') {
+    const revisionTask = openReportTask_(user, fields.relatedTaskId, 'revisi_audit');
+    const revision = parseJsonSafe_(revisionTask.PayloadJson, {});
+    results.push(completeTaskFromReport_(revisionTask.Id, user, report, savedFiles));
+    results.push(createTask_({
+      taskType: 'audit_revisi',
+      title: 'Periksa revisi ' + revision.sourceAuditLabel + ' (' + revision.revisionCount + '/3)',
+      assigneeRole: 'auditor', assigneeLocation: 'all',
+      assigneeName: revision.auditorName || findPrimaryAssigneeName_('auditor', 'all'),
+      relatedReportId: report.Id, timeLimitHours: REPORT_TYPES.audit_revisi.timeLimitHours,
+      startedAt: now, createdBy: user,
+      payload: { rootAuditTaskId: revision.rootAuditTaskId, revisionTaskId: revisionTask.Id,
+        revisionCount: revision.revisionCount, sourceAuditLabel: revision.sourceAuditLabel,
+        auditorName: revision.auditorName, revisionRecipientName: user.Name,
+        revisionReason: revision.revisionReason, sourceReportId: report.Id },
+      attachments: savedFiles
+    }));
   }
 
   if (type.indexOf('audit_') === 0) {
-    if (type === 'audit_pekanan') {
+    if (type === 'audit_revisi') {
+      const reviewTask = openReportTask_(user, fields.relatedTaskId, 'audit_revisi');
+      const review = parseJsonSafe_(reviewTask.PayloadJson, {});
+      results.push(completeTaskFromReport_(reviewTask.Id, user, report, savedFiles));
+      if (fields.auditStatus === 'kendala') {
+        if (Number(review.revisionCount) >= 3) {
+          finishStandaloneAuditRevisionLimit_(review, report);
+        } else {
+          results.push(queueStandaloneAuditRevision_(review.rootAuditTaskId, user, report, fields,
+            Number(review.revisionCount) + 1, review.sourceAuditLabel));
+        }
+      } else {
+        closeStandaloneAuditRevision_(review.rootAuditTaskId, report, false);
+      }
+    } else if (type === 'audit_pekanan') {
       results.push(recordBankAuditReports_(fields.relatedTaskId, user, report, fields, savedFiles));
     } else if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
       const location = normalizeLocation_(fields.auditLocation);
@@ -2589,6 +2711,14 @@ function processReportTasks_(user, report, fields, savedFiles) {
         payload: fields
       }));
     }
+    if (['audit_harian', 'audit_kasbon', 'audit_barang_tiba'].indexOf(type) !== -1 && fields.auditStatus === 'kendala') {
+      applyAuditKendalaToSource_(results[results.length - 1].id, report, [], fields.description);
+    }
+    if (['audit_bank_jago', 'audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1 &&
+        fields.auditStatus === 'kendala') {
+      results.push(queueStandaloneAuditRevision_(results[0].id, user, report, fields, 1,
+        REPORT_TYPES[type].label + (fields.auditLocation ? ' ' + titleCaseLocation_(fields.auditLocation) : '')));
+    }
   }
 
   if (type === 'laporan_investor' || type === 'laporan_raport_fee_freelance') {
@@ -2609,7 +2739,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
   return results;
 }
 
-function createSourceAuditTask_(taskType, user, report, sourceFiles, startedAt) {
+function createSourceAuditTask_(taskType, user, report, sourceFiles, startedAt, sourceTaskId) {
   const location = getUserLocation_(user);
   return createTask_({
     taskType: taskType,
@@ -2621,7 +2751,7 @@ function createSourceAuditTask_(taskType, user, report, sourceFiles, startedAt) 
     timeLimitHours: REPORT_TYPES[taskType].timeLimitHours,
     startedAt: startedAt,
     createdBy: user,
-    payload: { sourceReportId: report.Id, reporter: user.Name, location: location },
+    payload: { sourceReportId: report.Id, sourceTaskId: sourceTaskId || '', reporter: user.Name, location: location },
     attachments: sourceFiles
   });
 }
@@ -2698,8 +2828,10 @@ function completeTaskFromReport_(taskId, user, report, savedFiles) {
     row.Status = 'selesai';
     row.KpiStatus = calculateKpiStatus_(row, now);
     row.RelatedReportId = report.Id || row.RelatedReportId;
+    const revision = activeRevision_(previousPayload);
     row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, reportPayload, {
-      completingReportId: report.Id || ''
+      completingReportId: report.Id || '',
+      revision: revision && revision.pending ? Object.assign({}, revision, { pending: false, submittedAt: toIso_(now) }) : previousPayload.revision
     }));
     row.AttachmentUrlsJson = JSON.stringify(nextAttachments);
     row.CompletedAt = now;
@@ -2819,7 +2951,10 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
   updateObjectById_('tasks', existing.Id, function(row) {
     const previousPayload = parseJsonSafe_(row.PayloadJson, {});
     const bankReports = Object.assign({}, previousPayload.bankReports || {});
-    if (bankReports[bankName]) {
+    const revision = activeRevision_(previousPayload);
+    const revisionBank = Boolean(revision && revision.pending &&
+      Array.isArray(revision.remainingBankNames) && revision.remainingBankNames.indexOf(bankName) !== -1);
+    if (bankReports[bankName] && !revisionBank) {
       throw new Error('Laporan ' + bankLabel + ' untuk pekan ini sudah dikirim.');
     }
     bankReports[bankName] = {
@@ -2831,17 +2966,23 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
     const completedCount = requiredBanks.filter(function(key) {
       return Boolean(bankReports[key]);
     }).length;
-    const completed = completedCount === requiredBanks.length;
+    const remainingRevisionBanks = revisionBank ? revision.remainingBankNames.filter(function(key) { return key !== bankName; }) : [];
+    const completed = completedCount === requiredBanks.length && (!revision || !revision.pending || remainingRevisionBanks.length === 0);
+    const completionKpi = completed ? calculateKpiStatus_(row, parseDate_(report.CreatedAt)) : '';
     const previousAttachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
 
     row.RelatedReportId = report.Id;
-    row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, fields, { bankReports: bankReports, requiredBankKeys: requiredBanks }));
+    row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, fields, {
+      bankReports: bankReports, requiredBankKeys: requiredBanks,
+      revision: revisionBank ? Object.assign({}, revision, { remainingBankNames: remainingRevisionBanks,
+        pending: remainingRevisionBanks.length > 0, submittedAt: remainingRevisionBanks.length ? '' : toIso_(report.CreatedAt) }) : previousPayload.revision
+    }));
     row.AttachmentUrlsJson = JSON.stringify(Object.assign({}, previousAttachments, taskAttachments));
     row.UpdatedAt = parseDate_(report.CreatedAt);
     row.Notes = completedCount + '/' + requiredBanks.length + ' bank telah dilaporkan.';
     if (completed) {
       row.Status = 'selesai';
-      row.KpiStatus = calculateKpiStatus_(row, parseDate_(report.CreatedAt));
+      row.KpiStatus = completionKpi;
       row.CompletedAt = parseDate_(report.CreatedAt);
       row.CompletedBy = user.Name;
     } else {
@@ -2859,12 +3000,61 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
       kpiStatus: row.KpiStatus,
       completed: completed,
       banksReported: completedCount,
-      banksRequired: requiredBanks.length
+      banksRequired: requiredBanks.length,
+      revisionBanks: revision && revision.bankNames || [],
+      priorAuditTaskId: revision && revision.auditTaskId || ''
     };
     return row;
   });
 
   return result;
+}
+
+function queueBankAuditAfterReport_(bankResult, user, report, now, savedFiles) {
+  const bankTask = readObjects_('tasks').find(function(task) { return task.Id === bankResult.id; });
+  const sourceAttachments = bankTask ? parseJsonSafe_(bankTask.AttachmentUrlsJson, {}) : savedFiles;
+  const revisedBanks = bankResult.revisionBanks || [];
+  const priorAudit = bankResult.priorAuditTaskId && readObjects_('tasks').find(function(task) { return task.Id === bankResult.priorAuditTaskId; });
+  if (priorAudit && String(priorAudit.Status || 'berjalan') === 'berjalan') {
+    let result;
+    updateObjectById_('tasks', priorAudit.Id, function(row) {
+      const payload = parseJsonSafe_(row.PayloadJson, {});
+      const checked = Object.assign({}, payload.auditBankReports || {});
+      revisedBanks.forEach(function(key) { delete checked[key]; });
+      row.PayloadJson = JSON.stringify(Object.assign({}, payload, { sourceReportId: report.Id, sourceTaskId: bankResult.id,
+        auditBankReports: checked, auditStatus: Object.keys(checked).some(function(key) { return checked[key].auditStatus === 'kendala'; }) ? 'kendala' : 'aman' }));
+      row.RelatedReportId = report.Id;
+      row.AttachmentUrlsJson = JSON.stringify(Object.assign({}, parseJsonSafe_(row.AttachmentUrlsJson, {}), sourceAttachments));
+      row.Notes = Object.keys(checked).length + '/5 bank telah diperiksa; bank revisi perlu diperiksa ulang.';
+      row.UpdatedAt = now;
+      result = { id: row.Id, taskType: row.TaskType, title: row.Title, kpiStatus: row.KpiStatus };
+      return row;
+    });
+    return result;
+  }
+  const previousAuditPayload = priorAudit ? parseJsonSafe_(priorAudit.PayloadJson, {}) : {};
+  const retainedAudits = {};
+  const retainedProofs = {};
+  const priorAttachments = priorAudit ? parseJsonSafe_(priorAudit.AttachmentUrlsJson, {}) : {};
+  Object.keys(previousAuditPayload.auditBankReports || {}).forEach(function(key) {
+    if (revisedBanks.indexOf(key) !== -1) return;
+    retainedAudits[key] = previousAuditPayload.auditBankReports[key];
+    if (priorAttachments['auditProof_' + key]) retainedProofs['auditProof_' + key] = priorAttachments['auditProof_' + key];
+  });
+  return createTask_({
+    taskType: 'audit_pekanan',
+    title: 'Audit laporan akun bank pekanan Kendari',
+    assigneeRole: 'auditor',
+    assigneeLocation: 'all',
+    assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
+    relatedReportId: report.Id,
+    timeLimitHours: REPORT_TYPES.audit_pekanan.timeLimitHours,
+    startedAt: now,
+    createdBy: user,
+    payload: { sourceReportId: report.Id, sourceTaskId: bankResult.id, location: 'kendari',
+      banksComplete: true, requiredBankKeys: Object.keys(BANK_ACCOUNT_BANKS), auditBankReports: retainedAudits },
+    attachments: Object.assign({}, sourceAttachments, retainedProofs)
+  });
 }
 
 function recordBankAuditReports_(taskId, user, report, fields, savedFiles) {
@@ -2916,10 +3106,142 @@ function recordBankAuditReports_(taskId, user, report, fields, savedFiles) {
     };
     return row;
   });
+  const failedBanks = auditBanks.filter(function(entry) { return entry.auditStatus === 'kendala'; });
+  if (failedBanks.length) {
+    applyAuditKendalaToSource_(String(taskId), report, failedBanks.map(function(entry) { return entry.bankName; }),
+      failedBanks.map(function(entry) { return BANK_ACCOUNT_BANKS[entry.bankName] + ': ' + (entry.description || 'Kendala'); }).join('; '));
+  }
   return result;
 }
 
+function auditedSourceTask_(auditTask) {
+  if (!auditTask) return null;
+  const types = { audit_harian: 'pendapatan_harian', audit_pekanan: 'laporan_akun_bank',
+    audit_barang_tiba: 'rincian_barang_tiba', audit_kasbon: 'kasbon_di_atas_limit' };
+  const sourceType = types[String(auditTask.TaskType || '')];
+  if (!sourceType) return null;
+  const payload = parseJsonSafe_(auditTask.PayloadJson, {});
+  const tasks = readObjects_('tasks');
+  if (payload.sourceTaskId) {
+    const direct = tasks.find(function(task) { return task.Id === payload.sourceTaskId && task.TaskType === sourceType; });
+    if (direct) return direct;
+  }
+  const sourceReportId = String(payload.sourceReportId || auditTask.RelatedReportId || '');
+  if (!sourceReportId) return null;
+  return tasks.find(function(task) {
+    if (task.TaskType !== sourceType) return false;
+    if (String(task.RelatedReportId || '') === sourceReportId) return true;
+    if (sourceType !== 'laporan_akun_bank') return false;
+    const reports = parseJsonSafe_(task.PayloadJson, {}).bankReports || {};
+    return Object.keys(reports).some(function(key) { return reports[key] && reports[key].reportId === sourceReportId; });
+  }) || null;
+}
+
+function applyAuditKendalaToSource_(auditTaskId, auditReport, bankNames, reason) {
+  const auditTask = readObjects_('tasks').find(function(task) { return task.Id === auditTaskId; });
+  const source = auditedSourceTask_(auditTask);
+  if (!source) return null;
+  const now = parseDate_(auditReport.CreatedAt);
+  const affectedBanks = (bankNames || []).filter(function(key) { return Boolean(BANK_ACCOUNT_BANKS[key]); });
+  const explanation = String(reason || '').trim().slice(0, 2000);
+  let outcome;
+  updateObjectById_('tasks', source.Id, function(row) {
+    const payload = parseJsonSafe_(row.PayloadJson, {});
+    const previous = activeRevision_(payload);
+    const stillPending = Boolean(previous && previous.pending && String(row.Status || '') === 'berjalan');
+    const count = stillPending ? Number(previous.count) : Number(previous && previous.count || 0) + 1;
+    const mergedBanks = Array.from(new Set([].concat(stillPending && previous.bankNames || [], affectedBanks)));
+    if (count > 3) {
+      payload.revision = Object.assign({}, previous || {}, { count: 4, pending: false, limitReached: true,
+        finalAuditAt: toIso_(now), reason: explanation, auditTaskId: auditTaskId, bankNames: mergedBanks });
+      row.Status = 'selesai';
+      row.KpiStatus = 'meleset';
+      row.CompletedAt = row.CompletedAt || now;
+      row.Notes = 'Pemeriksaan ke-4 masih berkendala. Batas 3 revisi tercapai; hasil akhir meleset.';
+      outcome = { sourceTaskId: row.Id, revisionCount: 4, limitReached: true };
+    } else {
+      payload.revision = { count: count, pending: true, limitReached: false, startedAt: toIso_(now),
+        auditTaskId: auditTaskId, reason: explanation || String(stillPending && previous.reason || ''),
+        bankNames: mergedBanks, remainingBankNames: Array.from(new Set([].concat(stillPending && previous.remainingBankNames || [], affectedBanks))) };
+      row.Status = 'berjalan';
+      row.KpiStatus = 'berjalan';
+      row.CompletedAt = '';
+      row.CompletedBy = '';
+      row.Notes = 'Revisi ' + count + '/3: upload ulang dalam 1x24 jam kerja setelah kendala audit.';
+      outcome = { sourceTaskId: row.Id, revisionCount: count, limitReached: false };
+    }
+    row.PayloadJson = JSON.stringify(payload);
+    row.UpdatedAt = now;
+    return row;
+  });
+  return outcome;
+}
+
+function queueStandaloneAuditRevision_(rootAuditTaskId, auditor, report, fields, count, sourceAuditLabel) {
+  const root = readObjects_('tasks').find(function(task) { return task.Id === String(rootAuditTaskId || ''); });
+  if (!root || !['audit_bank_jago', 'audit_nota_ipos', 'audit_piutang', 'audit_hutang'].includes(root.TaskType)) {
+    throw new Error('Tugas audit asal tidak ditemukan.');
+  }
+  if (count < 1 || count > 3) throw new Error('Batas revisi audit tercapai.');
+  const recipient = auditRevisionRecipient_(fields.revisionRecipientId);
+  const reason = String(fields.description || '').trim().slice(0, 2000);
+  const label = sourceAuditLabel || REPORT_TYPES[root.TaskType].label;
+  const revision = createTask_({
+    taskType: 'revisi_audit', title: 'Revisi ' + label + ' (' + count + '/3)',
+    assigneeRole: normalizeRole_(recipient.Role), assigneeLocation: getUserLocation_(recipient),
+    assigneeName: recipient.Name, relatedReportId: report.Id,
+    timeLimitHours: 24, startedAt: parseDate_(report.CreatedAt), createdBy: auditor,
+    payload: { rootAuditTaskId: root.Id, sourceAuditLabel: label,
+      revisionCount: count, revisionReason: reason, revisionRecipientName: recipient.Name,
+      assigneeUserId: recipient.Id, auditorName: auditor.Name, auditReportId: report.Id },
+    attachments: {}
+  });
+  updateObjectById_('tasks', root.Id, function(row) {
+    const payload = parseJsonSafe_(row.PayloadJson, {});
+    payload.auditRevision = { count: count, pending: true, recipientId: recipient.Id,
+      recipientName: recipient.Name, revisionTaskId: revision.id, reason: reason,
+      startedAt: toIso_(report.CreatedAt), limitReached: false };
+    row.PayloadJson = JSON.stringify(payload);
+    row.UpdatedAt = parseDate_(report.CreatedAt);
+    return row;
+  });
+  return revision;
+}
+
+function closeStandaloneAuditRevision_(rootAuditTaskId, report, limitReached) {
+  updateObjectById_('tasks', String(rootAuditTaskId || ''), function(row) {
+    const payload = parseJsonSafe_(row.PayloadJson, {});
+    payload.auditRevision = Object.assign({}, payload.auditRevision || {}, {
+      pending: false, limitReached: Boolean(limitReached), completedAt: toIso_(report.CreatedAt)
+    });
+    row.PayloadJson = JSON.stringify(payload);
+    row.UpdatedAt = parseDate_(report.CreatedAt);
+    if (limitReached) row.Notes = 'Pemeriksaan ke-4 masih berkendala; batas 3 revisi tercapai.';
+    return row;
+  });
+}
+
+function finishStandaloneAuditRevisionLimit_(review, report) {
+  const revisionTaskId = String(review.revisionTaskId || '');
+  if (!revisionTaskId) throw new Error('Tugas revisi yang diperiksa tidak ditemukan.');
+  updateObjectById_('tasks', revisionTaskId, function(row) {
+    if (row.TaskType !== 'revisi_audit' || String(row.Status || '') !== 'selesai')
+      throw new Error('Tugas revisi yang diperiksa tidak valid.');
+    const payload = parseJsonSafe_(row.PayloadJson, {});
+    payload.auditRevisionFinal = { status: 'meleset', auditReportId: report.Id,
+      auditedAt: toIso_(report.CreatedAt) };
+    row.PayloadJson = JSON.stringify(payload);
+    row.KpiStatus = 'meleset';
+    row.Notes = 'Tiga kali revisi masih berkendala; hasil akhir meleset.';
+    row.UpdatedAt = parseDate_(report.CreatedAt);
+    return row;
+  });
+  closeStandaloneAuditRevision_(review.rootAuditTaskId, report, true);
+}
+
 function canUserCompleteTask_(user, task) {
+  const payload = parseJsonSafe_(task.PayloadJson, {});
+  if (payload.assigneeUserId && payload.assigneeUserId !== user.Id) return false;
   if (user.Role === 'owner') {
     return true;
   }
@@ -2959,13 +3281,14 @@ function refreshTaskKpiStatuses_() {
 }
 
 function buildTaskTimer_(task, now, attendanceMap) {
-  const startedAt = parseDate_(task.StartedAt || task.CreatedAt || now);
+  const payload = parseJsonSafe_(task.PayloadJson, {});
+  const revision = activeRevision_(payload);
+  const startedAt = parseDate_(revision ? revision.startedAt : task.StartedAt || task.CreatedAt || now);
   const completedAt = task.CompletedAt ? parseDate_(task.CompletedAt) : null;
   const endAt = completedAt || now;
-  const payload = parseJsonSafe_(task.PayloadJson, {});
   const nextDay = startOfDay_(now);
   nextDay.setDate(nextDay.getDate() + 1);
-  if (payload.noDeadline || payload.excludeFromKpi || (REPORT_TYPES[task.TaskType] && REPORT_TYPES[task.TaskType].excludeFromKpi)) {
+  if (!revision && (payload.noDeadline || payload.excludeFromKpi || (REPORT_TYPES[task.TaskType] && REPORT_TYPES[task.TaskType].excludeFromKpi))) {
     return { limitMs: 0, workedMs: 0, remainingMs: 0, overdueMs: 0, deadlineAt: '', isPaused: false, pauseReason: '', noDeadline: true, serverNow: now.toISOString(), refreshAt: nextDay.toISOString() };
   }
   const activeAttendanceMap = attendanceMap || getAttendanceMap_();
@@ -2998,8 +3321,9 @@ function buildTaskTimer_(task, now, attendanceMap) {
 
 function calculateKpiStatus_(task, endAt, attendanceMap) {
   const payload = parseJsonSafe_(task.PayloadJson, {});
-  if (payload.noDeadline || payload.excludeFromKpi || (REPORT_TYPES[task.TaskType] && REPORT_TYPES[task.TaskType].excludeFromKpi)) return 'tepat_waktu';
-  const startedAt = parseDate_(task.StartedAt || task.CreatedAt || endAt);
+  const revision = activeRevision_(payload);
+  if (!revision && (payload.noDeadline || payload.excludeFromKpi || (REPORT_TYPES[task.TaskType] && REPORT_TYPES[task.TaskType].excludeFromKpi))) return 'tepat_waktu';
+  const startedAt = parseDate_(revision ? revision.startedAt : task.StartedAt || task.CreatedAt || endAt);
   const effectiveDeadline = taskEffectiveDeadline_(task, startedAt, attendanceMap || getAttendanceMap_(), taskPausePolicy_());
   return !effectiveDeadline || parseDate_(endAt) <= effectiveDeadline ? 'tepat_waktu' : 'meleset';
 }
@@ -3008,10 +3332,18 @@ function taskPausePolicy_() {
   return { pauseSunday: true, useFullDay: true };
 }
 
+function activeRevision_(payload) {
+  const revision = payload && payload.revision;
+  return revision && Number(revision.count) > 0 && parseDate_(revision.startedAt) ? revision : null;
+}
+
 function taskEffectiveDeadline_(task, startedAt, attendanceMap, pausePolicy) {
   const start = parseDate_(startedAt || task.StartedAt || task.CreatedAt);
   if (!start) return null;
   const payload = parseJsonSafe_(task.PayloadJson, {});
+  if (activeRevision_(payload)) {
+    return effectiveDeadlineAt_(start, 24 * 60 * 60 * 1000, task.AssigneeName, attendanceMap, pausePolicy);
+  }
   let nominalDeadline = parseDate_(payload.deadlineAt);
   if (!nominalDeadline && ['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(task.TaskType) !== -1) {
     nominalDeadline = startOfDay_(start);

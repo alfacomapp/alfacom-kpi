@@ -238,6 +238,8 @@
       gap: 7px;
     }
 
+    .field[hidden] { display: none; }
+
     .field label {
       font-size: 13px;
       font-weight: 700;
@@ -2863,7 +2865,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-14-follow-up-nota-tagihan';
+    const CLIENT_CACHE_VERSION = '2026-10-14-audit-revisions';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2884,6 +2886,7 @@
 
     const REPORT_FORMS = {
       kasbon_di_atas_limit: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas revisi (jika ada)', match: ['kasbon_di_atas_limit'], full: true },
         { kind: 'notice', text: '* Limit bulanan kasbon Rp700.000. Bila lebih dari itu, wajib upload screenshot bukti chat persetujuan Abu Caca. Tugas ini berlaku untuk semua karyawan. *' },
         { kind: 'number', field: 'amount', label: 'Nominal kasbon', required: true },
         { kind: 'file', field: 'approvalProof', label: 'Bukti persetujuan pengambilan kasbon di atas limit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
@@ -2959,7 +2962,7 @@
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_harian: [
-        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_harian'] },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', required: true, match: ['audit_harian'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
         { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
@@ -2971,6 +2974,7 @@
       audit_bank_jago: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['audit_bank_jago'], full: true },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'revisionRecipient', field: 'revisionRecipientId' },
         { kind: 'file', field: 'auditProof', label: 'Bukti laporan audit Bank Jago', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
@@ -2989,20 +2993,35 @@
       audit_nota_ipos: [
         { kind: 'select', field: 'auditLocation', label: 'Pekerjaan', required: true, options: [['', 'Pilih lokasi'], ['kendari', 'Kendari'], ['raha', 'Raha']] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'revisionRecipient', field: 'revisionRecipientId' },
         { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_piutang: [
         { kind: 'select', field: 'auditLocation', label: 'Pekerjaan', required: true, options: [['', 'Pilih lokasi'], ['kendari', 'Kendari'], ['raha', 'Raha']] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'revisionRecipient', field: 'revisionRecipientId' },
         { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', help: 'Piutang lebih dari satu bulan harus di-follow up.', full: true }
       ],
       audit_hutang: [
         { kind: 'select', field: 'auditLocation', label: 'Pekerjaan', required: true, options: [['', 'Pilih lokasi'], ['kendari', 'Kendari'], ['raha', 'Raha']] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'revisionRecipient', field: 'revisionRecipientId' },
         { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      revisi_audit: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas revisi', required: true, match: ['revisi_audit'], full: true },
+        { kind: 'file', field: 'revisionProof', label: 'Bukti revisi', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan revisi', full: true }
+      ],
+      audit_revisi: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas pemeriksaan revisi', required: true, match: ['audit_revisi'], full: true },
+        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'revisionRecipient', field: 'revisionRecipientId' },
+        { kind: 'file', field: 'auditProof', label: 'Bukti pemeriksaan revisi', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan kendala', full: true }
       ],
       laporan_investor: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_investor'], full: true },
@@ -3147,6 +3166,9 @@
         renderReportForm();
       });
       byId('dynamicReportFields').addEventListener('change', function(event) {
+        if (event.target && (event.target.dataset.field === 'auditStatus' || event.target.dataset.field === 'relatedTaskId')) {
+          toggleRevisionRecipient();
+        }
         if (event.target && event.target.dataset.field === 'relatedTaskId' && byId('reportType').value === 'rincian_barang_tiba') {
           updateShipmentReceipt(true);
         }
@@ -3215,6 +3237,7 @@
             updateSelectedFileCount(input);
           });
           if (usesPreparedReportUploads()) refreshBankUploadPreparation();
+          toggleRevisionRecipient();
         }, 0);
       });
       byId('resetReportButton').addEventListener('click', function() {
@@ -5329,19 +5352,25 @@
 
     function taskDateForPeriod(task) {
       const payload = task && task.payload || {};
-      const source = payload.deadlineAt || task.startedAt || task.createdAt || task.completedAt;
+      const source = payload.revision && payload.revision.pending && payload.revision.startedAt ||
+        payload.deadlineAt || task.startedAt || task.createdAt || task.completedAt;
       const date = new Date(source || '');
       return isNaN(date.getTime()) ? null : date;
     }
 
     function taskDateForFormPeriod(task) {
       const payload = task && task.payload || {};
-      const date = new Date(task && (task.startedAt || task.createdAt) || payload.deadlineAt || '');
+      const date = new Date(payload.revision && payload.revision.pending && payload.revision.startedAt ||
+        task && (task.startedAt || task.createdAt) || payload.deadlineAt || '');
       return isNaN(date.getTime()) ? null : date;
     }
 
     function taskMatchesFormPeriod(task) {
       const dates = [taskDateForFormPeriod(task)];
+      if (task && task.payload && task.payload.revision && task.payload.revision.pending && task.payload.revision.startedAt) {
+        const revisionDate = new Date(task.payload.revision.startedAt);
+        if (!isNaN(revisionDate.getTime())) dates.push(revisionDate);
+      }
       if (task && task.taskType === 'follow_up_nota_tagihan' && task.payload && task.payload.deadlineAt) {
         const deadline = new Date(task.payload.deadlineAt);
         if (!isNaN(deadline.getTime())) dates.push(deadline);
@@ -5358,6 +5387,7 @@
       const userName = normalizeSearchText(user.Name);
       const roleName = normalizeSearchText(user.RoleLabel);
       return ((state.reportMeta && state.reportMeta.openTasks) || []).filter(function(task) {
+        if (task.payload && task.payload.assigneeUserId && task.payload.assigneeUserId !== user.Id) return false;
         if (String(task.assigneeRole || '').toLowerCase() !== role) return false;
         if (role.indexOf('admin_') === 0 && String(task.assigneeLocation || '').toLowerCase() !== location) return false;
         const assignedName = normalizeSearchText(task.assigneeName);
@@ -5381,6 +5411,23 @@
       renumberShipmentItems();
       updateShipmentReceipt(false);
       updateAuditBankOptions();
+      toggleRevisionRecipient();
+    }
+
+    function toggleRevisionRecipient() {
+      const wrapper = document.querySelector('[data-revision-recipient]');
+      if (!wrapper) return;
+      const status = document.querySelector('[data-field="auditStatus"]');
+      let needed = Boolean(status && status.value === 'kendala');
+      if (needed && byId('reportType').value === 'audit_revisi') {
+        const taskSelect = document.querySelector('[data-field="relatedTaskId"]');
+        const task = reportTasksForCurrentUser().find(function(item) { return item.id === (taskSelect && taskSelect.value); });
+        needed = !task || Number(task.payload && task.payload.revisionCount || 0) < 3;
+      }
+      wrapper.hidden = !needed;
+      const select = wrapper.querySelector('select');
+      select.required = needed;
+      if (!needed) select.value = '';
     }
 
     function updateAuditBankOptions() {
@@ -5463,6 +5510,16 @@
             ${help}
           </div>
         `;
+      }
+
+      if (field.kind === 'revisionRecipient') {
+        const recipients = state.reportMeta && state.reportMeta.revisionRecipients || [];
+        return `<div class="field${full}" data-revision-recipient hidden>
+          <label>Penerima revisi *</label>
+          <select data-field="revisionRecipientId"><option value="">Pilih penerima revisi</option>
+            ${recipients.map(function(person) { return `<option value="${escapeAttr(person.id)}">${escapeHtml(person.name + ' (' + person.role + ')')}</option>`; }).join('')}
+          </select><small>Pilih Admin Kendari, Admin Raha, atau Auditor, termasuk diri sendiri.</small>
+        </div>`;
       }
 
       if (field.kind === 'taskSelect') {
