@@ -11,8 +11,9 @@
   function isPdf(file) {
     return file.type === 'application/pdf' || ((!file.type || file.type === 'application/octet-stream') && /\.pdf$/i.test(file.name));
   }
-  async function validate(entries) {
-    if (entries.length > MAX_FILES) throw new Error('Lampiran maksimal 50 file per laporan.');
+  async function validate(entries, options = {}) {
+    const maxFiles = Number(options.maxFiles || MAX_FILES);
+    if (entries.length > maxFiles) throw new Error('Lampiran maksimal ' + maxFiles + ' file per laporan.');
     for (const entry of entries) {
       const file = entry.file;
       if (!file.size) throw new Error(file.name + ' kosong.');
@@ -159,15 +160,16 @@
         }
       }));
     }
-    await validate(entries);
+    await validate(entries, options);
+    const maxBytes = Number(options.maxBytes || MAX_BYTES);
     const originalBytes = totalBytes(entries.map(entry => entry.file));
-    if (originalBytes <= MAX_BYTES) return { entries, originalBytes, bytes: originalBytes, compressed: 0 };
-    const ratio = MAX_BYTES * 0.9 / originalBytes;
+    if (originalBytes <= maxBytes) return { entries, originalBytes, bytes: originalBytes, compressed: 0 };
+    const ratio = maxBytes * 0.9 / originalBytes;
     const prepared = [];
     let remainingBytes = originalBytes;
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
-      if (remainingBytes <= MAX_BYTES) {
+      if (remainingBytes <= maxBytes) {
         prepared.push(...entries.slice(i));
         break;
       }
@@ -178,7 +180,7 @@
       remainingBytes += file.size - entry.file.size;
     }
     const bytes = totalBytes(prepared.map(entry => entry.file));
-    if (bytes > MAX_BYTES) throw new Error('Total file setelah kompresi masih ' + (bytes / 1048576).toFixed(2) + ' MB. Kurangi lampiran atau gunakan file lebih kecil; maksimal 10 MB per laporan.');
+    if (bytes > maxBytes) throw new Error('Total file setelah kompresi masih ' + (bytes / 1048576).toFixed(2) + ' MB. Kurangi lampiran atau gunakan file lebih kecil; maksimal ' + (maxBytes / 1048576) + ' MB.');
     return { entries: prepared, originalBytes, bytes, compressed: prepared.filter((entry, i) => entry.file !== entries[i].file).length };
   }
   root.KpiBankUpload = { MAX_FILES, MAX_BYTES, prepare, validate, compressPdf, compressImage };

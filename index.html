@@ -1138,6 +1138,9 @@
       display: grid;
       gap: 10px;
       text-align: left;
+      min-width: 0;
+      box-sizing: border-box;
+      overflow: hidden;
       min-height: 138px;
       transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease;
     }
@@ -1151,11 +1154,13 @@
 
     .kpi-card h3 {
       font-size: 15px;
+      overflow-wrap: anywhere;
     }
 
     .metric-row {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      min-width: 0;
       gap: 6px;
     }
 
@@ -1171,13 +1176,14 @@
     .metric span {
       color: var(--muted);
       font-size: 11px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow-wrap: anywhere;
     }
 
     .metric strong {
       font-size: 20px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      line-height: 1.1;
     }
 
     .metric small {
@@ -1185,7 +1191,8 @@
       color: var(--muted);
       font-size: 10px;
       font-weight: 800;
-      line-height: 1;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
     }
 
     .metric small:empty {
@@ -1508,6 +1515,12 @@
     #reportMonthFilter { flex: 0 1 58px; }
     #reportYearFilter { flex: 0 1 68px; }
     #reportTaskStatusFilter { flex: 1 1 108px; }
+
+    #reportFormPanel .panel-head { flex-direction: row; align-items: center; flex-wrap: wrap; }
+    .report-form-period { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; margin-left: auto; }
+    .report-form-period select { width: auto; min-width: 0; font-size: 12px; padding: 7px 24px 7px 8px; }
+    .report-form-period #reportFormMonthFilter { max-width: 90px; }
+    .report-form-period #reportFormYearFilter { max-width: 82px; }
 
     .form-grid {
       display: grid;
@@ -2335,7 +2348,7 @@
       }
 
       .metric-row {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 4px;
       }
 
@@ -2719,6 +2732,10 @@
           <div id="reportFormPanel" class="panel">
             <div class="panel-head">
               <h3>Form Laporan</h3>
+              <div class="report-form-period" aria-label="Periode tugas untuk form laporan">
+                <select id="reportFormMonthFilter" aria-label="Bulan tugas"></select>
+                <select id="reportFormYearFilter" aria-label="Tahun tugas"></select>
+              </div>
               <button id="jumpToOpenTasks" class="btn btn-ghost report-jump" type="button" title="Ke Tugas" aria-label="Ke Tugas">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>
               </button>
@@ -2771,7 +2788,7 @@
   </section>
   <div id="noteMentionPicker" class="note-mention-picker hidden" role="listbox" aria-label="Pilih pengguna yang ditandai"></div>
 
-  <script src="assets/kpi-bank-upload.js?v=2026-10-12-1"></script>
+  <script src="assets/kpi-bank-upload.js?v=2026-10-14-1"></script>
   <script>
     const bankUploadPreparation = { version: 0, promise: null, result: null, urls: [] };
     const reportFileSelections = new WeakMap();
@@ -2780,10 +2797,12 @@
         ? 'Maksimal 10 file per bagian foto. Total seluruh lampiran maksimal 10 MB per laporan.'
         : byId('reportType').value === 'audit_pekanan'
           ? 'Bukti tiap bank terpisah. Total seluruh lampiran maksimal 10 MB per kiriman.'
-          : 'Maksimal 50 file dan 10 MB total per laporan, termasuk seluruh bagian lampiran.';
+          : 'Setiap bagian lampiran mengikuti batasnya. Total seluruh lampiran maksimal 10 MB per laporan.';
     }
     function usesPreparedReportUploads() {
-      return ['laporan_akun_bank', 'pendapatan_harian', 'audit_pekanan'].includes(byId('reportType').value);
+      return (REPORT_FORMS[byId('reportType').value] || []).some(function(field) {
+        return field.kind === 'file' || field.kind === 'auditBankReports' || field.kind === 'shipmentItems';
+      });
     }
     const state = {
       token: sessionStorage.getItem('kpi_sla_token') || '',
@@ -2802,6 +2821,8 @@
       reportTaskStatus: '',
       reportMonth: new Date().getMonth() + 1,
       reportYear: new Date().getFullYear(),
+      reportFormMonth: new Date().getMonth() + 1,
+      reportFormYear: new Date().getFullYear(),
       reportSection: 'tasks',
       kpiPanelCollapsed: false,
       hiddenTaskColumns: {},
@@ -2841,7 +2862,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-12-bank-audit-mentions';
+    const CLIENT_CACHE_VERSION = '2026-10-14-task-number-compression';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2849,6 +2870,7 @@
     const MONTH_LABELS = Array.from({ length: 12 }, function(_, index) {
       return 'Bln ' + (index + 1);
     });
+    const FORM_MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
     const MENU_ICONS = {
       dashboard: '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9z"></path><path d="M14 20h6V4h-6v16z"></path><path d="M4 20h6v-3H4v3z"></path></svg>',
@@ -2867,7 +2889,7 @@
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       pendapatan_harian: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['pendapatan_harian'], full: true },
         { kind: 'number', field: 'amount', label: 'Total setoran harian', required: true },
         { kind: 'file', field: 'physicalCash', label: 'Foto uang fisik', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*' },
         { kind: 'file', field: 'cashierState', label: 'Foto keadaan kas aplikasi kasir', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*' },
@@ -2881,36 +2903,36 @@
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_akun_bank: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_akun_bank'], full: true },
         { kind: 'select', field: 'bankName', label: 'Bank yang dilaporkan', required: true, options: BANK_ACCOUNT_OPTIONS },
         { kind: 'file', field: 'bankAccountProof', label: 'Bukti akun bank', required: true, multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf' },
         { kind: 'file', field: 'bankStatement', label: 'Statement bank (PDF)', multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'application/pdf,.pdf', help: 'Opsional. Maksimal 50 file dan 10 MB total, termasuk bukti akun bank. PDF dapat dilihat dan diunduh setelah upload.' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_keadaan_kas_bank: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_keadaan_kas_bank'], full: true },
         { kind: 'file', field: 'bankCashStateProof', label: 'Bukti keadaan kas bank', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_saldo_bank_jago: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_saldo_bank_jago'], full: true },
         { kind: 'number', field: 'amount', label: 'Nominal isi saldo Bank Jago', required: true },
         { kind: 'file', field: 'saldoProof', label: 'Bukti isi saldo Bank Jago', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       rekap_storan_setengah_bulan: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['rekap_storan_setengah_bulan'], full: true },
         { kind: 'number', field: 'amount', label: 'Angka yang tercantum pada speedometer', required: true },
         { kind: 'file', field: 'storanProof', label: 'Bukti laporan ganti oli', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       sales_upload_harian_10: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['sales_upload_harian_10'], full: true },
         { kind: 'file', field: 'salesFiles', label: 'Lampiran minimal 10 file', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       sales_upload_harian_1_10: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['sales_upload_harian_1_10'], full: true },
         { kind: 'file', field: 'salesFiles', label: 'Lampiran 1-10 file', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
@@ -2941,8 +2963,7 @@
         { kind: 'auditBankReports', full: true }
       ],
       audit_bank_jago: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
-        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', match: ['audit_bank_jago'] },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['audit_bank_jago'], full: true },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
         { kind: 'file', field: 'auditProof', label: 'Bukti laporan audit Bank Jago', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
@@ -2978,13 +2999,13 @@
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_investor: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_investor'], full: true },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
         { kind: 'file', field: 'reportProof', label: 'Bukti laporan investor', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       laporan_raport_fee_freelance: [
-        { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_raport_fee_freelance'], full: true },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
         { kind: 'file', field: 'reportProof', label: 'Bukti laporan raport & fee freelance', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
@@ -3102,6 +3123,14 @@
         state.reportYear = Number(event.target.value) || new Date().getFullYear();
         renderOpenTasks();
       });
+      byId('reportFormMonthFilter').addEventListener('change', function(event) {
+        state.reportFormMonth = Number(event.target.value) || new Date().getMonth() + 1;
+        renderReportForm();
+      });
+      byId('reportFormYearFilter').addEventListener('change', function(event) {
+        state.reportFormYear = Number(event.target.value) || new Date().getFullYear();
+        renderReportForm();
+      });
       byId('jumpToReportForm').addEventListener('click', function() {
         setReportSection('form');
       });
@@ -3124,7 +3153,7 @@
           if (event.target && event.target.dataset && event.target.dataset.fileField) {
             const input = event.target;
             const config = findFileConfig(byId('reportType').value, input.dataset.fileField);
-            if (config && config.autoCompress && config.multiple) {
+            if (config && usesPreparedReportUploads() && config.multiple) {
               mergeFileSelection(input, input.files, Number(config.max || 10), Infinity, reportFileSelections.get(input) || []);
             } else {
               updateSelectedFileCount(input);
@@ -3138,7 +3167,7 @@
         });
         const config = findFileConfig(byId('reportType').value, cameraFor);
         const maxFiles = config && config.multiple ? Number(config.max || 10) : 1;
-        const maxTotalMb = config && config.autoCompress ? Infinity : config && config.maxTotalMb || (config && config.multiple ? maxFiles : 8);
+        const maxTotalMb = usesPreparedReportUploads() ? Infinity : config && config.maxTotalMb || (config && config.multiple ? maxFiles : 8);
         mergeFileSelection(storageInput, event.target.files, maxFiles, maxTotalMb);
         event.target.value = '';
         updateSelectedFileCount(storageInput);
@@ -3579,7 +3608,12 @@
     }
 
     function navigate(page) {
+      const previousPage = state.page;
       state.page = page;
+      if (page === 'laporan' && previousPage !== 'laporan') {
+        state.reportFormMonth = new Date().getMonth() + 1;
+        state.reportFormYear = new Date().getFullYear();
+      }
       Array.prototype.forEach.call(document.querySelectorAll('.nav button'), function(button) {
         button.classList.toggle('active', button.dataset.page === page);
       });
@@ -5167,6 +5201,7 @@
       }
 
       renderReportPeriodFilter();
+      renderFormPeriodFilter();
       renderOpenTasks();
       renderReportForm();
     }
@@ -5197,6 +5232,26 @@
           return `<option value="${year}">${year}</option>`;
         }).join('');
       yearSelect.value = String(Number(state.reportYear || new Date().getFullYear()));
+    }
+
+    function renderFormPeriodFilter() {
+      const monthSelect = byId('reportFormMonthFilter');
+      const yearSelect = byId('reportFormYearFilter');
+      const years = {};
+      reportTasksForCurrentUser().forEach(function(task) {
+        const date = taskDateForFormPeriod(task);
+        if (date) years[date.getFullYear()] = true;
+      });
+      years[state.reportFormYear] = true;
+      years[new Date().getFullYear()] = true;
+      monthSelect.innerHTML = FORM_MONTH_LABELS.map(function(label, index) {
+        return `<option value="${index + 1}">${escapeHtml(label)}</option>`;
+      }).join('');
+      monthSelect.value = String(state.reportFormMonth);
+      yearSelect.innerHTML = Object.keys(years).map(Number).sort(function(a, b) { return b - a; }).map(function(year) {
+        return `<option value="${year}">${year}</option>`;
+      }).join('');
+      yearSelect.value = String(state.reportFormYear);
     }
 
     function renderOpenTasks() {
@@ -5245,6 +5300,17 @@
       const source = payload.deadlineAt || task.startedAt || task.createdAt || task.completedAt;
       const date = new Date(source || '');
       return isNaN(date.getTime()) ? null : date;
+    }
+
+    function taskDateForFormPeriod(task) {
+      const payload = task && task.payload || {};
+      const date = new Date(task && (task.startedAt || task.createdAt) || payload.deadlineAt || '');
+      return isNaN(date.getTime()) ? null : date;
+    }
+
+    function taskMatchesFormPeriod(task) {
+      const date = taskDateForFormPeriod(task);
+      return date && date.getMonth() + 1 === Number(state.reportFormMonth) && date.getFullYear() === Number(state.reportFormYear);
     }
 
     function reportTasksForCurrentUser() {
@@ -5363,7 +5429,7 @@
 
       if (field.kind === 'taskSelect') {
         const tasks = reportTasksForCurrentUser().filter(function(task) {
-          return !field.match || field.match.indexOf(task.taskType) !== -1;
+          return taskMatchesFormPeriod(task) && (!field.match || field.match.indexOf(task.taskType) !== -1);
         });
         return `
           <div class="field${full}">
@@ -5430,7 +5496,7 @@
               </label>
             </div>
             <div class="selected-file-count" data-file-count="${escapeAttr(field.field)}">Belum ada file dipilih.</div>
-            <div class="file-hint">Maksimal ${maxFiles} file dengan total ukuran maksimal ${maxTotalMb} MB${field.autoCompress ? ' per laporan, termasuk seluruh bagian lampiran. Kompresi otomatis bila melebihi batas' : ''}.</div>
+            <div class="file-hint">Maksimal ${maxFiles} file dengan total ukuran maksimal ${maxTotalMb} MB per bagian. File besar dikompresi otomatis sebelum dikirim.</div>
             ${help}
           </div>
         `;
@@ -5745,15 +5811,37 @@
         if (version === bankUploadPreparation.version && status) status.textContent = message;
       };
       update('Memeriksa ' + entries.length + ' lampiran...');
-      const promise = Promise.resolve().then(function() {
+      const promise = Promise.resolve().then(async function() {
         document.querySelectorAll('[data-file-field]').forEach(function(input) {
           const config = findFileConfig(byId('reportType').value, input.dataset.fileField);
           validateFileList(input.files, config && config.multiple ? Number(config.max || 10) : 1, Infinity, config && config.label || 'Lampiran');
         });
-        return KpiBankUpload.prepare(entries, function(message) {
+        const type = byId('reportType').value;
+        const maxFiles = type === 'input_pengiriman' ? 200 : 50;
+        const groups = new Map();
+        entries.forEach(function(entry, index) {
+          if (!groups.has(entry.field)) groups.set(entry.field, []);
+          groups.get(entry.field).push({ field: entry.field, file: entry.file, index: index });
+        });
+        const preparedByIndex = [];
+        for (const [field, group] of groups) {
+          const config = findFileConfig(type, field);
+          const maxTotalMb = Number(config && config.maxTotalMb || (config && config.multiple ? Number(config.max || 10) : 8));
+          const result = await KpiBankUpload.prepare(group, function(message) {
+            if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
+            update(message);
+          }, { normalizeImages: true, maxBytes: maxTotalMb * 1048576, maxFiles: maxFiles });
+          result.entries.forEach(function(entry, index) {
+            preparedByIndex[group[index].index] = { field: field, file: entry.file };
+          });
+        }
+        const result = await KpiBankUpload.prepare(preparedByIndex, function(message) {
           if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
           update(message);
-        }, { normalizeImages: byId('reportType').value === 'audit_pekanan' });
+        }, { maxBytes: 10 * 1048576, maxFiles: maxFiles });
+        result.originalBytes = entries.reduce(function(total, entry) { return total + entry.file.size; }, 0);
+        result.compressed = result.entries.filter(function(entry, index) { return entry.file !== entries[index].file; }).length;
+        return result;
       }).then(function(result) {
         if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
         bankUploadPreparation.result = result;
@@ -5864,7 +5952,7 @@
         return;
       }
       const config = findFileConfig(byId('reportType').value, input.dataset.fileField);
-      if (config && config.autoCompress && config.multiple) {
+      if (config && usesPreparedReportUploads() && config.multiple) {
         reportFileSelections.set(input, Array.from(input.files || []));
       }
       const count = input.files ? input.files.length : 0;

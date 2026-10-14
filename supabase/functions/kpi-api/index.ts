@@ -312,6 +312,13 @@ const REPORT_FILE_LIMITS = {
   laporan_raport_fee_freelance: { reportProof: [10, 10] }
 };
 
+const PERIOD_REPORT_TASK_TYPES = new Set([
+  'pendapatan_harian', 'laporan_akun_bank', 'laporan_keadaan_kas_bank',
+  'laporan_saldo_bank_jago', 'rekap_storan_setengah_bulan',
+  'sales_upload_harian_10', 'sales_upload_harian_1_10', 'audit_bank_jago',
+  'laporan_investor', 'laporan_raport_fee_freelance'
+]);
+
 function doGet() {
   return responseJson({
     ok: true,
@@ -2087,6 +2094,19 @@ function ensureReportPermission_(user, type) {
 }
 
 function validateReportPayload_(user, type, fields, files) {
+  if (PERIOD_REPORT_TASK_TYPES.has(type)) {
+    const relatedTaskId = String(fields.relatedTaskId || '').trim();
+    if (relatedTaskId) {
+      const related = readObjects_('tasks').find(function(task) { return task.Id === relatedTaskId; });
+      if (!related || related.TaskType !== type || String(related.Status || 'berjalan') !== 'berjalan' ||
+          !isReportTaskAssignedToUser_(user, enrichTask_(related))) {
+        throw new Error('Nomor tugas terkait tidak ditemukan, sudah selesai, atau bukan tugas Anda.');
+      }
+      fields.reportDate = dateKey_(parseDate_(related.StartedAt || related.CreatedAt));
+    } else if (!fields.reportDate) {
+      throw new Error('Pilih nomor tugas terkait.');
+    }
+  }
   if (type === 'kasbon_di_atas_limit') {
     requireNumber_(fields.amount, 'Nominal kasbon wajib diisi.');
     requireFile_(files, 'approvalProof', 'Bukti persetujuan pengambilan kasbon di atas limit wajib diupload.');
@@ -2119,6 +2139,12 @@ function validateReportPayload_(user, type, fields, files) {
       throw new Error('Pilih bank yang dilaporkan: BRI Kendari, BRI Raha, Mandiri, Bank Sultra, atau Bank Aladin Syariah. Muat ulang KPI bila pilihan bank belum diperbarui.');
     }
     requireFile_(files, 'bankAccountProof', 'Bukti akun bank wajib diupload.');
+    if (fields.relatedTaskId) {
+      const related = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
+      if (parseJsonSafe_(related.PayloadJson, {}).bankReports?.[bankName]) {
+        throw new Error('Laporan bank ini untuk nomor tugas tersebut sudah dikirim.');
+      }
+    }
     return;
   }
 
@@ -2655,6 +2681,10 @@ function completeTaskFromReport_(taskId, user, report, savedFiles) {
 }
 
 function completeOpenTaskByTypePeriod_(taskType, periodKey, user, report, savedFiles, fallbackOptions) {
+  const relatedTaskId = String(parseJsonSafe_(report.PayloadJson, {}).relatedTaskId || '');
+  if (relatedTaskId && PERIOD_REPORT_TASK_TYPES.has(taskType)) {
+    return completeTaskFromReport_(relatedTaskId, user, report, savedFiles);
+  }
   const existing = readObjects_('tasks').find(function(row) {
     return row.TaskType === taskType &&
       row.PeriodKey === periodKey &&
@@ -2701,7 +2731,8 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
   }
 
   const existing = readObjects_('tasks').find(function(row) {
-    return row.TaskType === 'laporan_akun_bank' && row.PeriodKey === periodKey;
+    return fields.relatedTaskId ? row.Id === fields.relatedTaskId :
+      row.TaskType === 'laporan_akun_bank' && row.PeriodKey === periodKey;
   });
   const taskAttachments = {};
   taskAttachments['bankAccountProof_' + bankName] = savedFiles.bankAccountProof || [];

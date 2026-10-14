@@ -81,7 +81,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderTaskAttachmentCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderTaskAttachmentCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod };', context);
   return { ...context.__ui, elements };
 }
 
@@ -231,4 +231,30 @@ test('note reaction picker contains exactly the seven allowed emojis', () => {
   const counts = app.renderNoteReactionCounts(note);
   assert.match(counts, /🕋 2/);
   assert.ok(!counts.includes('😂'));
+});
+
+
+test('dated report forms select a numbered task and default to the current period', () => {
+  const app = ui();
+  const now = new Date();
+  assert.equal(app.state.reportFormMonth, now.getMonth() + 1);
+  assert.equal(app.state.reportFormYear, now.getFullYear());
+  assert.match(html, /id="reportFormMonthFilter"/);
+  assert.match(html, /id="reportFormYearFilter"/);
+  const types = [
+    'pendapatan_harian', 'laporan_akun_bank', 'laporan_keadaan_kas_bank',
+    'laporan_saldo_bank_jago', 'rekap_storan_setengah_bulan',
+    'sales_upload_harian_10', 'sales_upload_harian_1_10', 'audit_bank_jago',
+    'laporan_investor', 'laporan_raport_fee_freelance'
+  ];
+  for (const type of types) {
+    const form = app.REPORT_FORMS[type];
+    assert.equal(form.some(field => field.field === 'reportDate'), false, type);
+    assert.equal(form.find(field => field.field === 'relatedTaskId').required, true, type);
+  }
+  const task = { startedAt: new Date(now.getFullYear(), now.getMonth(), 8, 12).toISOString() };
+  assert.equal(app.taskMatchesFormPeriod(task), true);
+  app.state.reportFormMonth = now.getMonth() === 0 ? 12 : now.getMonth();
+  app.state.reportFormYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+  assert.equal(app.taskMatchesFormPeriod(task), false);
 });
