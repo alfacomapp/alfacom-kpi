@@ -1127,12 +1127,16 @@
     }
 
     .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+      display: flex;
       gap: 10px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 4px 2px 10px;
+      scrollbar-width: thin;
     }
 
     .kpi-card {
+      flex: 0 0 245px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #fff;
@@ -1569,6 +1573,18 @@
     .audit-bank-grid select {
       min-width: 0;
       height: 44px;
+    }
+
+    .investor-help { white-space: pre-line; }
+
+    .bank-cash-list { display: grid; gap: 10px; }
+    .bank-cash-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+    .bank-cash-row .field { min-width: 0; }
+    .bank-cash-row .btn { margin-bottom: 1px; }
+    .bank-cash-total { font-weight: 800; color: var(--green-dark); }
+    @media (max-width: 600px) {
+      .bank-cash-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+      .bank-cash-row .btn { grid-column: 1 / -1; justify-self: start; }
     }
 
     .field.full {
@@ -2803,7 +2819,7 @@
     }
     function usesPreparedReportUploads() {
       return (REPORT_FORMS[byId('reportType').value] || []).some(function(field) {
-        return field.kind === 'file' || field.kind === 'auditBankReports' || field.kind === 'shipmentItems';
+        return field.kind === 'file' || field.kind === 'auditBankReports' || field.kind === 'shipmentItems' || field.kind === 'investorTasks';
       });
     }
     const state = {
@@ -2883,6 +2899,12 @@
 
     const NOTE_REACTION_OPTIONS = [['👍🏽', 'Jempol coklat'], ['🏳️', 'Bendera putih'], ['⭐', 'Bintang'], ['🔥', 'Api'], ['❤️', 'Hati'], ['💎', 'Berlian'], ['🕋', "Ka'bah"]];
     const BANK_ACCOUNT_OPTIONS = [['', 'Pilih bank'], ['bri_kendari', 'BRI Kendari'], ['bri_raha', 'BRI Raha'], ['mandiri', 'Mandiri'], ['bank_sultra', 'Bank Sultra'], ['aladin_syariah', 'Bank Aladin Syariah']];
+    const INVESTOR_CHECKS = [
+      ['analisa_laba_jual', 'Cek analisa laba jual'],
+      ['pegangan_karyawan', 'Cek pegangan karyawan di masing-masing akun piutang mereka'],
+      ['validasi_sales', 'Validasi sales kirim ke Abu Caca untuk cek'],
+      ['laporan_bank_jago', 'Pastikan laporan Bank Jago sudah terinput pada bulan yang mau dilaporkan laba ruginya']
+    ];
 
     const REPORT_FORMS = {
       kasbon_di_atas_limit: [
@@ -2916,6 +2938,7 @@
       laporan_keadaan_kas_bank: [
         { kind: 'date', field: 'reportDate', label: 'Tanggal laporan', required: true },
         { kind: 'file', field: 'bankCashStateProof', label: 'Bukti keadaan kas bank', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
+        { kind: 'bankCashCalculator' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       follow_up_nota_tagihan: [
@@ -2987,7 +3010,7 @@
       audit_barang_tiba: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Rincian barang tiba yang diperiksa', required: true, match: ['audit_barang_tiba'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'auditProof', label: 'Bukti pemeriksaan barang tiba', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
+        { kind: 'file', field: 'auditProof', label: 'Bukti pemeriksaan barang tiba (opsional)', multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_nota_ipos: [
@@ -3024,10 +3047,9 @@
         { kind: 'textarea', field: 'description', label: 'Keterangan kendala', full: true }
       ],
       laporan_investor: [
-        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_investor'], full: true },
-        { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
-        { kind: 'file', field: 'reportProof', label: 'Bukti laporan investor', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
-        { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_investor'], full: true,
+          helpClass: 'investor-help', help: INVESTOR_CHECKS.map(function(entry, index) { return (index + 1) + '. ' + entry[1]; }).join('\n') },
+        { kind: 'investorTasks', full: true }
       ],
       laporan_raport_fee_freelance: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_raport_fee_freelance'], full: true },
@@ -3176,6 +3198,10 @@
             (event.target.dataset.field === 'relatedTaskId' || event.target.hasAttribute('data-audit-bank'))) {
           updateAuditBankOptions();
         }
+        if (byId('reportType').value === 'laporan_investor' && event.target &&
+            (event.target.dataset.field === 'relatedTaskId' || event.target.hasAttribute('data-investor-check'))) {
+          updateInvestorCheckOptions();
+        }
         const cameraFor = event.target && event.target.dataset && event.target.dataset.cameraFor;
         if (!cameraFor) {
           if (event.target && event.target.dataset && event.target.dataset.fileField) {
@@ -3201,6 +3227,9 @@
         updateSelectedFileCount(storageInput);
         if (usesPreparedReportUploads()) refreshBankUploadPreparation();
       });
+      byId('dynamicReportFields').addEventListener('input', function(event) {
+        if (event.target.closest('[data-bank-cash-row]')) updateBankCashTotal();
+      });
       byId('dynamicReportFields').addEventListener('click', function(event) {
         const addButton = event.target.closest('[data-add-shipment-item]');
         const removeButton = event.target.closest('[data-remove-shipment-item]');
@@ -3208,7 +3237,27 @@
         const removeSupplierButton = event.target.closest('[data-remove-shipment-supplier]');
         const addAuditBankButton = event.target.closest('[data-add-audit-bank]');
         const removeAuditBankButton = event.target.closest('[data-remove-audit-bank]');
-        if (addAuditBankButton) {
+        const addInvestorCheckButton = event.target.closest('[data-add-investor-check]');
+        const removeInvestorCheckButton = event.target.closest('[data-remove-investor-check]');
+        const addBankCashButton = event.target.closest('[data-add-bank-cash]');
+        const removeBankCashButton = event.target.closest('[data-remove-bank-cash]');
+        if (addBankCashButton) {
+          document.querySelector('[data-bank-cash-list]').insertAdjacentHTML('beforeend', renderBankCashRow('', true));
+          updateBankCashTotal();
+        } else if (removeBankCashButton) {
+          removeBankCashButton.closest('[data-bank-cash-row]').remove();
+          updateBankCashTotal();
+        } else if (addInvestorCheckButton) {
+          document.querySelector('[data-investor-check-list]').insertAdjacentHTML('beforeend', renderInvestorCheckRow());
+          updateInvestorCheckOptions();
+        } else if (removeInvestorCheckButton) {
+          const row = removeInvestorCheckButton.closest('[data-investor-check-row]');
+          if (document.querySelectorAll('[data-investor-check-row]').length > 1) {
+            row.remove();
+            refreshBankUploadPreparation();
+            updateInvestorCheckOptions();
+          }
+        } else if (addAuditBankButton) {
           document.querySelector('[data-audit-bank-list]').insertAdjacentHTML('beforeend', renderAuditBankRow());
           updateAuditBankOptions();
         } else if (removeAuditBankButton) {
@@ -3238,6 +3287,7 @@
           });
           if (usesPreparedReportUploads()) refreshBankUploadPreparation();
           toggleRevisionRecipient();
+          updateBankCashTotal();
         }, 0);
       });
       byId('resetReportButton').addEventListener('click', function() {
@@ -5071,7 +5121,16 @@
         })
         .join('\n')
         .trim();
-      return text ? `<div class="task-detail">${escapeHtml(text)}</div>` : '';
+      const cashTotal = task && task.taskType === 'laporan_keadaan_kas_bank' &&
+        state.user && state.user.Role === 'admin_kendari' && String(state.user.Location || '').toLowerCase() === 'kendari' &&
+        task.payload && Array.isArray(task.payload.bankCashEntries) && task.payload.bankCashEntries.length
+        ? 'Total kas bank: ' + formatRupiah(task.payload.bankCashTotal) : '';
+      const detail = [text, cashTotal].filter(Boolean).join('\n');
+      return detail ? `<div class="task-detail">${escapeHtml(detail)}</div>` : '';
+    }
+
+    function formatRupiah(value) {
+      return 'Rp' + Number(value || 0).toLocaleString('id-ID');
     }
 
     function renderTaskDeadline(task) {
@@ -5402,6 +5461,7 @@
       state.shipmentItemSeq = 0;
       state.shipmentSupplierSeq = 0;
       state.auditBankSeq = 0;
+      state.investorCheckSeq = 0;
       byId('dynamicReportFields').innerHTML = config.map(renderField).join('') + (usesPreparedReportUploads() ? '<div class="field full"><div class="file-hint" data-bank-upload-status role="status" aria-live="polite">' + preparedUploadLimitText() + ' File besar dikompresi otomatis sebelum dikirim. Periksa pratinjau hasil kompresi.</div></div>' : '');
       Array.prototype.forEach.call(document.querySelectorAll('[data-default-date]'), function(input) {
         if (!input.value) {
@@ -5411,6 +5471,8 @@
       renumberShipmentItems();
       updateShipmentReceipt(false);
       updateAuditBankOptions();
+      updateInvestorCheckOptions();
+      updateBankCashTotal();
       toggleRevisionRecipient();
     }
 
@@ -5458,6 +5520,50 @@
       if (addButton) addButton.disabled = !task || rows.length >= 5 - Object.keys(audited).length;
     }
 
+    function updateInvestorCheckOptions() {
+      if (byId('reportType').value !== 'laporan_investor') return;
+      const taskSelect = document.querySelector('[data-field="relatedTaskId"]');
+      const task = reportTasksForCurrentUser().find(function(entry) {
+        return entry.id === (taskSelect && taskSelect.value) && entry.taskType === 'laporan_investor';
+      });
+      const submitted = task && task.payload && task.payload.investorChecks || {};
+      const rows = Array.prototype.slice.call(document.querySelectorAll('[data-investor-check-row]'));
+      const selected = rows.map(function(row) { return row.querySelector('[data-investor-check]').value; });
+      rows.forEach(function(row, index) {
+        const select = row.querySelector('[data-investor-check]');
+        Array.prototype.forEach.call(select.options, function(option) {
+          if (!option.value) return;
+          const label = INVESTOR_CHECKS.find(function(entry) { return entry[0] === option.value; });
+          option.disabled = Boolean(submitted[option.value]) || selected.some(function(value, other) {
+            return other !== index && value === option.value;
+          });
+          option.textContent = (label ? label[1] : option.value) + (submitted[option.value] ? ' (sudah disetor)' : '');
+        });
+        if (select.value && submitted[select.value]) select.value = '';
+        select.disabled = !task;
+        row.querySelector('[data-remove-investor-check]').disabled = rows.length <= 1;
+        row.querySelector('[data-investor-check-title]').textContent = 'Tugas ' + (index + 1);
+      });
+      const addButton = document.querySelector('[data-add-investor-check]');
+      if (addButton) addButton.disabled = !task || rows.length >= INVESTOR_CHECKS.length - Object.keys(submitted).length;
+    }
+
+    function renderInvestorCheckRow() {
+      const key = String(++state.investorCheckSeq);
+      return `<section class="audit-bank-row" data-investor-check-row="${key}">
+        <div class="audit-bank-head"><strong data-investor-check-title>Tugas</strong><button type="button" class="btn btn-ghost btn-mini" data-remove-investor-check>Hapus</button></div>
+        <div class="audit-bank-grid">
+          <div class="field"><label>Tugas yang disetor *</label><select data-investor-check required>
+            <option value="">Pilih tugas</option>
+            ${INVESTOR_CHECKS.map(function(entry) { return `<option value="${escapeAttr(entry[0])}">${escapeHtml(entry[1])}</option>`; }).join('')}
+          </select></div>
+          <div class="field"><label>Status *</label><select data-investor-status required><option value="">Pilih status</option><option value="aman">Aman</option><option value="kendala">Kendala</option></select></div>
+          ${renderField({ kind: 'file', field: 'investorProofRow_' + key, label: 'Bukti hasil pemeriksaan (opsional)', multiple: true, max: 10, accept: 'image/*,application/pdf' })}
+          <div class="field full"><label>Keterangan tugas ini</label><textarea data-investor-description></textarea></div>
+        </div>
+      </section>`;
+    }
+
     function renderAuditBankRow() {
       const key = String(++state.auditBankSeq);
       return `<section class="audit-bank-row" data-audit-bank-row="${key}">
@@ -5484,9 +5590,20 @@
       if (field.kind === 'notice') {
         return '<div class="field full"><p class="report-warning">' + escapeHtml(field.text) + '</p></div>';
       }
+      if (field.kind === 'bankCashCalculator') {
+        return `<div class="field full bank-cash-list" data-bank-cash-calculator>
+          <label>Kalkulator kas bank (opsional)</label>
+          <small>Isi nominal bank yang ingin dihitung. Tambahkan bank lain bila perlu.</small>
+          <div class="bank-cash-list" data-bank-cash-list>
+            ${['BRI', 'Mandiri', 'Bank Sultra'].map(function(name) { return renderBankCashRow(name, false); }).join('')}
+          </div>
+          <button class="btn btn-ghost btn-mini" type="button" data-add-bank-cash>+ Tambah bank lain</button>
+          <div class="bank-cash-total" data-bank-cash-total aria-live="polite">Total kas bank: Rp0</div>
+        </div>`;
+      }
       const required = field.required ? 'required' : '';
       const full = field.full || field.kind === 'textarea' || field.kind === 'file' ? ' full' : '';
-      const help = field.help ? `<small>${escapeHtml(field.help)}</small>` : '';
+      const help = field.help ? `<small class="${escapeAttr(field.helpClass || '')}">${escapeHtml(field.help)}</small>` : '';
 
       if (field.kind === 'textarea') {
         return `
@@ -5548,6 +5665,14 @@
           <div class="shipment-add-row"><button class="btn btn-ghost shipment-add-button" type="button" data-add-audit-bank>+ Tambah bank</button></div>
         </div>`;
       }
+      if (field.kind === 'investorTasks') {
+        return `<div class="field full audit-bank-field" data-investor-check-root>
+          <label>Hasil pemeriksaan tugas investor</label>
+          <small>Pilih tugas yang sudah dikerjakan. Satu kiriman dapat berisi 1 sampai 4 tugas; tugas investor selesai setelah keempatnya disetor. Bukti hasil pemeriksaan opsional.</small>
+          <div class="audit-bank-list" data-investor-check-list>${renderInvestorCheckRow()}</div>
+          <div class="shipment-add-row"><button class="btn btn-ghost shipment-add-button" type="button" data-add-investor-check>+ Tambahkan tugas</button></div>
+        </div>`;
+      }
       if (field.kind === 'shipmentItems') {
         return `
           <div class="field full shipment-items-field" data-shipment-items-root>
@@ -5605,6 +5730,26 @@
           ${help}
         </div>
       `;
+    }
+
+    function renderBankCashRow(name, removable) {
+      return `<div class="bank-cash-row" data-bank-cash-row>
+        <div class="field"><label>Nama bank</label><input data-bank-cash-name type="text" maxlength="60" value="${escapeAttr(name)}" ${removable ? 'placeholder="Nama bank lain"' : 'readonly'}></div>
+        <div class="field"><label>Nominal (Rp)</label><input data-bank-cash-amount type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>
+        ${removable ? '<button class="btn btn-ghost btn-mini" type="button" data-remove-bank-cash>Hapus</button>' : '<span></span>'}
+      </div>`;
+    }
+
+    function updateBankCashTotal() {
+      const output = document.querySelector('[data-bank-cash-total]');
+      if (!output) return;
+      const addButton = document.querySelector('[data-add-bank-cash]');
+      if (addButton) addButton.disabled = document.querySelectorAll('[data-bank-cash-row]').length >= 20;
+      const amounts = Array.prototype.map.call(document.querySelectorAll('[data-bank-cash-row] [data-bank-cash-amount]'), function(input) {
+        return input.value.trim() === '' ? 0 : Number(input.value);
+      });
+      const total = amounts.reduce(function(sum, value) { return sum + (Number.isSafeInteger(value) && value >= 0 ? value : 0); }, 0);
+      output.textContent = Number.isSafeInteger(total) ? 'Total kas bank: ' + formatRupiah(total) : 'Total kas bank melebihi batas angka.';
     }
 
     function nextShipmentItemKey() {
@@ -5742,6 +5887,11 @@
       Array.prototype.forEach.call(document.querySelectorAll('[data-field]'), function(input) {
         fields[input.dataset.field] = input.value;
       });
+      if (type === 'laporan_keadaan_kas_bank') {
+        fields.bankCashEntries = Array.prototype.slice.call(document.querySelectorAll('[data-bank-cash-row]')).map(function(row) {
+          return { bankName: row.querySelector('[data-bank-cash-name]').value.trim(), amount: row.querySelector('[data-bank-cash-amount]').value.trim() };
+        }).filter(function(entry) { return entry.amount !== '' || (entry.bankName !== '' && !['BRI', 'Mandiri', 'Bank Sultra'].includes(entry.bankName)); });
+      }
       const auditFileFields = {};
       if (type === 'audit_pekanan') {
         const rows = Array.prototype.slice.call(document.querySelectorAll('[data-audit-bank-row]'));
@@ -5757,6 +5907,21 @@
           selected.add(bankName);
           auditFileFields[fileInput.dataset.fileField] = 'auditProof_' + bankName;
           return { bankName: bankName, auditStatus: status, description: row.querySelector('[data-audit-description]').value.trim() };
+        });
+      }
+      if (type === 'laporan_investor') {
+        const rows = Array.prototype.slice.call(document.querySelectorAll('[data-investor-check-row]'));
+        const selected = new Set();
+        fields.investorSubmissions = rows.map(function(row) {
+          const checkId = row.querySelector('[data-investor-check]').value;
+          const status = row.querySelector('[data-investor-status]').value;
+          const fileInput = row.querySelector('[data-file-field]');
+          if (!checkId) throw new Error('Pilih tugas investor yang akan disetor.');
+          if (selected.has(checkId)) throw new Error('Tugas investor yang sama hanya boleh dipilih sekali.');
+          if (!status) throw new Error('Pilih status untuk setiap tugas investor.');
+          selected.add(checkId);
+          auditFileFields[fileInput.dataset.fileField] = 'investorProof_' + checkId;
+          return { checkId: checkId, auditStatus: status, description: row.querySelector('[data-investor-description]').value.trim() };
         });
       }
       if (document.querySelector('[data-shipment-items-root]')) {
@@ -5795,6 +5960,9 @@
 
     function findFileConfig(type, fieldName) {
       if (type === 'audit_pekanan' && /^auditProofRow_\d+$/.test(String(fieldName || ''))) {
+        return { field: fieldName, label: 'Bukti hasil pemeriksaan', multiple: true, max: 10, maxTotalMb: 10 };
+      }
+      if (type === 'laporan_investor' && /^investorProofRow_\d+$/.test(String(fieldName || ''))) {
         return { field: fieldName, label: 'Bukti hasil pemeriksaan', multiple: true, max: 10, maxTotalMb: 10 };
       }
       if (type === 'input_pengiriman' && /^shipment(Item|Supplier)Files_\d+$/.test(String(fieldName || ''))) {

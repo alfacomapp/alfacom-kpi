@@ -303,6 +303,13 @@ const BANK_ACCOUNT_BANKS = {
   aladin_syariah: 'Bank Aladin Syariah'
 };
 
+const INVESTOR_CHECK_LABELS = {
+  analisa_laba_jual: 'Cek analisa laba jual',
+  pegangan_karyawan: 'Cek pegangan karyawan di masing-masing akun piutang mereka',
+  validasi_sales: 'Validasi sales kirim ke Abu Caca untuk cek',
+  laporan_bank_jago: 'Pastikan laporan Bank Jago sudah terinput pada bulan yang mau dilaporkan laba ruginya'
+};
+
 const REPORT_FILE_LIMITS = {
   kasbon_di_atas_limit: { approvalProof: [10, 10] },
   pendapatan_harian: { physicalCash: [10, 10], cashierState: [10, 10], notaAttachments: [10, 10], bankProof: [1, 10] },
@@ -327,7 +334,7 @@ const REPORT_FILE_LIMITS = {
   audit_hutang: { auditProof: [10, 10] },
   revisi_audit: { revisionProof: [10, 10] },
   audit_revisi: { auditProof: [10, 10] },
-  laporan_investor: { reportProof: [10, 10] },
+  laporan_investor: {},
   laporan_raport_fee_freelance: { reportProof: [10, 10] }
 };
 
@@ -607,7 +614,7 @@ function apiGetDashboard(token, filters) {
     });
     const attendanceMap = periodTasks.length ? getAttendanceMap_() : {};
     const dashboardTasks = periodTasks.map(function(task) {
-      return enrichTask_(task, now, attendanceMap);
+      return cashBankTaskForViewer_(enrichTask_(task, now, attendanceMap), user);
     });
 
     const cards = getVisibleCards_(user, activeUsers).map(function(card) {
@@ -1969,6 +1976,7 @@ function enrichTask_(task, now, attendanceMap) {
   }
   const displayKpiStatus = excludedFromKpi ? 'data' : (status === 'berjalan' && kpiStatus === 'berjalan' && timer.isPaused ? 'pause' : kpiStatus);
   let taskTitle = String(task.Title || '').replace(/^Audit Nota IPOS/i, REPORT_TYPES.audit_nota_ipos.label);
+  if (type === 'laporan_investor') taskTitle = REPORT_TYPES.laporan_investor.label;
   const sourceLocation = normalizeLocation_(payload.location || '');
   if (type === 'audit_harian' && (sourceLocation === 'kendari' || sourceLocation === 'raha') &&
       taskTitle.toLowerCase().indexOf(sourceLocation) === -1) {
@@ -2010,6 +2018,15 @@ function enrichTask_(task, now, attendanceMap) {
   };
 }
 
+function cashBankTaskForViewer_(task, user) {
+  if (task.taskType !== 'laporan_keadaan_kas_bank' ||
+      (user.Role === 'admin_kendari' && getUserLocation_(user) === 'kendari')) return task;
+  const payload = Object.assign({}, task.payload);
+  delete payload.bankCashEntries;
+  delete payload.bankCashTotal;
+  return Object.assign({}, task, { payload: payload });
+}
+
 function buildTaskDetailText_(task, payload) {
   const detail = payload || {};
   const parts = [];
@@ -2032,7 +2049,8 @@ function buildTaskDetailText_(task, payload) {
   } else if (detail.itemSummary) {
     parts.push('Rincian kiriman: ' + detail.itemSummary);
   }
-  if (detail.arrivedSummary) {
+  const shipmentSummary = shipmentItems.length ? formatShipmentItemSummary_(shipmentItems) : String(detail.itemSummary || '');
+  if (detail.arrivedSummary && String(detail.arrivedSummary).replace(/\s+/g, ' ').trim() !== shipmentSummary.replace(/\s+/g, ' ').trim()) {
     parts.push('Rincian tiba: ' + detail.arrivedSummary);
   }
   if (detail.description) {
@@ -2076,6 +2094,17 @@ function buildTaskDetailText_(task, payload) {
     if (bankReports.bri && requiredBanks.indexOf('bri') === -1) {
       parts.push('BRI (laporan lama) tersimpan; laporkan BRI Kendari dan BRI Raha secara terpisah.');
     }
+  }
+  if (String(task.TaskType || '') === 'laporan_investor') {
+    const checks = detail.investorChecks || {};
+    const ids = Object.keys(INVESTOR_CHECK_LABELS);
+    const completed = ids.filter(function(id) { return Boolean(checks[id]); });
+    if (String(task.Status || 'berjalan') === 'berjalan' || completed.length) {
+      parts.push('Tugas investor disetor: ' + completed.length + '/' + ids.length);
+    }
+    completed.forEach(function(id) {
+      parts.push('- ' + INVESTOR_CHECK_LABELS[id] + ': ' + String(checks[id].auditStatus || '-'));
+    });
   }
   if (detail.deadlineAt && !(detail.revision && detail.revision.pending)) {
     parts.push('Deadline: ' + Utilities.formatDate(parseDate_(detail.deadlineAt), getScriptTimeZone_(), 'dd/MM/yyyy HH:mm'));
@@ -2254,6 +2283,30 @@ function validateReportPayload_(user, type, fields, files) {
       throw new Error('Laporan keadaan kas bank hanya untuk Kendari.');
     }
     requireFile_(files, 'bankCashStateProof', 'Bukti keadaan kas bank wajib diupload.');
+    const entries = fields.bankCashEntries == null ? [] : fields.bankCashEntries;
+    if (!Array.isArray(entries) || entries.length > 20) {
+      throw new Error('Kalkulator kas bank maksimal 20 bank.');
+    }
+    const seenBanks = new Set();
+    let total = 0;
+    fields.bankCashEntries = entries.map(function(entry) {
+      const bankName = String(entry && entry.bankName || '').trim();
+      const amountText = String(entry && entry.amount != null ? entry.amount : '').trim();
+      if (!bankName || bankName.length > 60 || !/^(0|[1-9]\d*)$/.test(amountText)) {
+        throw new Error('Isi nama bank dan nominal rupiah yang valid pada kalkulator kas bank.');
+      }
+      const key = bankName.toLocaleLowerCase('id-ID');
+      if (seenBanks.has(key)) throw new Error('Nama bank pada kalkulator tidak boleh sama.');
+      seenBanks.add(key);
+      const amount = Number(amountText);
+      if (!Number.isSafeInteger(amount) || !Number.isSafeInteger(total + amount)) {
+        throw new Error('Total kas bank terlalu besar.');
+      }
+      total += amount;
+      return { bankName: bankName, amount: amount };
+    });
+    if (fields.bankCashEntries.length) fields.bankCashTotal = total;
+    else delete fields.bankCashTotal;
     return;
   }
 
@@ -2409,11 +2462,44 @@ function validateReportPayload_(user, type, fields, files) {
         ['audit_bank_jago', 'audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
       auditRevisionRecipient_(fields.revisionRecipientId);
     }
-    requireFile_(files, 'auditProof', 'Bukti foto audit wajib diupload.');
+    if (type !== 'audit_barang_tiba') requireFile_(files, 'auditProof', 'Bukti foto audit wajib diupload.');
     return;
   }
 
-  if (type === 'laporan_investor' || type === 'laporan_raport_fee_freelance') {
+  if (type === 'laporan_investor') {
+    requireText_(fields.relatedTaskId, 'Pilih nomor tugas Stor Laporan Investor.');
+    const task = openReportTask_(user, fields.relatedTaskId, type);
+    const submissions = fields.investorSubmissions;
+    if (!Array.isArray(submissions) || !submissions.length || submissions.length > 4) {
+      throw new Error('Pilih 1 sampai 4 tugas investor yang akan disetor.');
+    }
+    const existing = parseJsonSafe_(task.PayloadJson, {}).investorChecks || {};
+    const selected = new Set();
+    fields.investorSubmissions = submissions.map(function(entry) {
+      const checkId = String(entry && entry.checkId || '').trim();
+      if (!Object.prototype.hasOwnProperty.call(INVESTOR_CHECK_LABELS, checkId)) {
+        throw new Error('Tugas investor tidak dikenal.');
+      }
+      if (selected.has(checkId) || existing[checkId]) {
+        throw new Error('Tugas investor ' + INVESTOR_CHECK_LABELS[checkId] + ' sudah dipilih atau disetor.');
+      }
+      const auditStatus = String(entry.auditStatus || '').trim();
+      if (auditStatus !== 'aman' && auditStatus !== 'kendala') {
+        throw new Error('Pilih status untuk ' + INVESTOR_CHECK_LABELS[checkId] + '.');
+      }
+      selected.add(checkId);
+      return { checkId: checkId, auditStatus: auditStatus,
+        description: String(entry.description || '').trim().slice(0, 2000) };
+    });
+    Object.keys(files || {}).forEach(function(field) {
+      if ((files[field] || []).length && /^investorProof_/.test(field) && !selected.has(field.slice('investorProof_'.length))) {
+        throw new Error('Bukti pemeriksaan tidak sesuai dengan tugas investor yang dipilih.');
+      }
+    });
+    return;
+  }
+
+  if (type === 'laporan_raport_fee_freelance') {
     requireText_(fields.auditStatus, 'Status wajib dipilih.');
     requireFile_(files, 'reportProof', 'Bukti laporan wajib diupload.');
   }
@@ -2721,7 +2807,11 @@ function processReportTasks_(user, report, fields, savedFiles) {
     }
   }
 
-  if (type === 'laporan_investor' || type === 'laporan_raport_fee_freelance') {
+  if (type === 'laporan_investor') {
+    results.push(recordInvestorChecks_(fields.relatedTaskId, user, report, fields, savedFiles));
+  }
+
+  if (type === 'laporan_raport_fee_freelance') {
     const periodDate = parseDate_(fields.reportDate || now);
     const deadlineAt = deadlineDateForMonth_(periodDate, REPORT_TYPES[type].deadlineDay);
     results.push(completeOpenTaskByTypePeriod_(type, periodKeyForMonth_(periodDate, type), user, report, savedFiles, {
@@ -3111,6 +3201,54 @@ function recordBankAuditReports_(taskId, user, report, fields, savedFiles) {
     applyAuditKendalaToSource_(String(taskId), report, failedBanks.map(function(entry) { return entry.bankName; }),
       failedBanks.map(function(entry) { return BANK_ACCOUNT_BANKS[entry.bankName] + ': ' + (entry.description || 'Kendala'); }).join('; '));
   }
+  return result;
+}
+
+function recordInvestorChecks_(taskId, user, report, fields, savedFiles) {
+  const submissions = fields.investorSubmissions || [];
+  const ids = Object.keys(INVESTOR_CHECK_LABELS);
+  let result;
+  updateObjectById_('tasks', String(taskId), function(row) {
+    if (row.TaskType !== 'laporan_investor' || String(row.Status || 'berjalan') !== 'berjalan' || !canUserCompleteTask_(user, row)) {
+      throw new Error('Tugas Stor Laporan Investor tidak ditemukan atau sudah selesai.');
+    }
+    const previousPayload = parseJsonSafe_(row.PayloadJson, {});
+    const checks = Object.assign({}, previousPayload.investorChecks || {});
+    const attachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
+    submissions.forEach(function(entry) {
+      if (checks[entry.checkId]) throw new Error('Tugas investor ini sudah disetor.');
+      checks[entry.checkId] = {
+        label: INVESTOR_CHECK_LABELS[entry.checkId], reportId: report.Id,
+        submittedAt: toIso_(report.CreatedAt), auditor: user.Name,
+        auditStatus: entry.auditStatus, description: entry.description || ''
+      };
+      const proofField = 'investorProof_' + entry.checkId;
+      if (savedFiles[proofField] && savedFiles[proofField].length) attachments[proofField] = savedFiles[proofField];
+    });
+    const completedCount = ids.filter(function(id) { return Boolean(checks[id]); }).length;
+    const completed = completedCount === ids.length;
+    row.RelatedReportId = report.Id;
+    row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, {
+      investorChecks: checks,
+      auditStatus: ids.some(function(id) { return checks[id] && checks[id].auditStatus === 'kendala'; }) ? 'kendala' : 'aman'
+    }));
+    row.AttachmentUrlsJson = JSON.stringify(attachments);
+    row.UpdatedAt = parseDate_(report.CreatedAt);
+    row.Notes = completedCount + '/' + ids.length + ' tugas investor telah disetor.';
+    if (completed) {
+      row.Status = 'selesai';
+      row.KpiStatus = calculateKpiStatus_(row, parseDate_(report.CreatedAt));
+      row.CompletedAt = parseDate_(report.CreatedAt);
+      row.CompletedBy = user.Name;
+    } else {
+      const timer = buildTaskTimer_(row, parseDate_(report.CreatedAt), getAttendanceMap_());
+      row.Status = 'berjalan';
+      row.KpiStatus = timer.remainingMs < 0 ? 'meleset' : 'berjalan';
+    }
+    result = { id: row.Id, taskType: row.TaskType, title: REPORT_TYPES.laporan_investor.label,
+      kpiStatus: row.KpiStatus, completed: completed, checksSubmitted: completedCount, checksRequired: ids.length };
+    return row;
+  });
   return result;
 }
 
@@ -4168,7 +4306,9 @@ function validateReportFileLimits_(type, files) {
     const limit = type === 'input_pengiriman' && /^shipment(Item|Supplier)Files_\d+$/.test(field)
       ? [1, 8]
       : type === 'audit_pekanan' && /^auditProof_(bri_kendari|bri_raha|mandiri|bank_sultra|aladin_syariah)$/.test(field)
-        ? [10, 10] : limits[field];
+        ? [10, 10]
+        : type === 'laporan_investor' && /^investorProof_(analisa_laba_jual|pegangan_karyawan|validasi_sales|laporan_bank_jago)$/.test(field)
+          ? [10, 10] : limits[field];
     if (!limit) {
       throw new Error('Lampiran ' + field + ' tidak dikenal untuk laporan ini.');
     }
@@ -4183,7 +4323,7 @@ function validateReportFileLimits_(type, files) {
         throw new Error('Bukti follow up harus berupa foto JPG, PNG, atau WebP.');
     });
   }
-  if (type === 'audit_pekanan') {
+  if (type === 'audit_pekanan' || type === 'laporan_investor') {
     const allFiles = Object.keys(files || {}).flatMap(function(field) { return files[field] || []; });
     allFiles.forEach(function(file) {
       const mime = String(file && file.mimeType || '').toLowerCase();

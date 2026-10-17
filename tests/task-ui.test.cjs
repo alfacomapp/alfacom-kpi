@@ -82,7 +82,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderTaskAttachmentCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskDetail, renderTaskAttachmentCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 
@@ -265,6 +265,44 @@ test('Admin Kendari cash-bank report keeps the report-date field', () => {
   const fields = ui().REPORT_FORMS.laporan_keadaan_kas_bank;
   assert.equal(fields.some(field => field.kind === 'date' && field.field === 'reportDate'), true);
   assert.equal(fields.some(field => field.field === 'relatedTaskId'), false);
+});
+
+test('barang-tiba proof is optional in the form and cash total renders only for Admin Kendari', () => {
+  const app = ui();
+  const proofField = app.REPORT_FORMS.audit_barang_tiba.find(field => field.field === 'auditProof');
+  assert.equal(proofField.required, undefined);
+  assert.doesNotMatch(app.renderField(proofField), /type="file"[^>]*required/);
+  const calculator = app.REPORT_FORMS.laporan_keadaan_kas_bank.find(field => field.kind === 'bankCashCalculator');
+  const calculatorHtml = app.renderField(calculator);
+  assert.match(calculatorHtml, /BRI/);
+  assert.match(calculatorHtml, /Mandiri/);
+  assert.match(calculatorHtml, /Bank Sultra/);
+  assert.match(calculatorHtml, /data-add-bank-cash/);
+  const task = { taskType: 'laporan_keadaan_kas_bank', detailText: '',
+    payload: { bankCashEntries: [{ bankName: 'BRI', amount: 5000000 }], bankCashTotal: 5000000 } };
+  app.state.user = { Role: 'admin_kendari', Location: 'kendari' };
+  assert.match(app.renderTaskDetail(task), /Total kas bank: Rp5\.000\.000/);
+  app.state.user = { Role: 'owner', Location: 'all' };
+  assert.doesNotMatch(app.renderTaskDetail(task), /Total kas bank/);
+});
+
+test('investor form explains four checks and allows optional proof per selected task', () => {
+  const app = ui();
+  const fields = app.REPORT_FORMS.laporan_investor;
+  assert.equal(fields.some(field => field.field === 'reportProof'), false);
+  const select = fields.find(field => field.field === 'relatedTaskId');
+  assert.match(select.help, /Cek analisa laba jual/);
+  assert.match(select.help, /Cek pegangan karyawan/);
+  assert.match(select.help, /Validasi sales/);
+  assert.match(select.help, /laporan Bank Jago/);
+  app.state.user = { Id: 'AUD', Name: 'Auditor', Role: 'auditor', Location: 'all' };
+  app.state.reportMeta = { openTasks: [] };
+  assert.match(app.renderField(select), /class="investor-help"/);
+  app.state.investorCheckSeq = 0;
+  const html = app.renderField(fields.find(field => field.kind === 'investorTasks'));
+  assert.match(html, /Tambahkan tugas/);
+  assert.match(html, /Bukti hasil pemeriksaan \(opsional\)/);
+  assert.doesNotMatch(html, /type="file"[^>]*required/);
 });
 
 test('browser countdown stops at the next WITA day boundary until server refresh', () => {
