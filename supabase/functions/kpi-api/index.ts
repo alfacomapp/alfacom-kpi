@@ -614,7 +614,9 @@ function apiGetDashboard(token, filters) {
     });
     const attendanceMap = periodTasks.length ? getAttendanceMap_() : {};
     const dashboardTasks = periodTasks.map(function(task) {
-      return cashBankTaskForViewer_(enrichTask_(task, now, attendanceMap), user);
+      const enriched = cashBankTaskForViewer_(enrichTask_(task, now, attendanceMap), user);
+      enriched.canAddAttachments = canUserAppendTaskFiles_(user, task, enriched);
+      return enriched;
     });
 
     const cards = getVisibleCards_(user, activeUsers).map(function(card) {
@@ -1167,6 +1169,51 @@ function apiSubmitReport(token, request) {
       reportId: reportId,
       tasks: taskResults
     });
+  } catch (error) {
+    return fail_(error);
+  }
+}
+
+function canUserAppendTaskFiles_(user, task, enriched) {
+  return String(task && (task.Status || task.status) || '') === 'selesai' &&
+    canUserCompleteTask_(user, task) &&
+    canUserSeeTask_(user, enriched || enrichTask_(task, new Date(), {}));
+}
+
+function apiAddTaskAttachments(token, taskId, files) {
+  try {
+    const user = requireUser_(token);
+    const id = String(taskId || '').trim();
+    const task = readObjects_('tasks').find(function(row) { return row.Id === id; });
+    if (!task || !canUserAppendTaskFiles_(user, task)) {
+      throw new Error('Tugas selesai tidak ditemukan atau Anda tidak berhak menambah file.');
+    }
+    if (!Array.isArray(files) || !files.length || files.length > 10) {
+      throw new Error('Pilih 1 sampai 10 file tambahan.');
+    }
+    limitFileGroupSize_(files, 10, 'Total file tambahan maksimal 10 MB.');
+    files.forEach(function(file) {
+      const mime = String(file && file.mimeType || '').toLowerCase();
+      if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].indexOf(mime) === -1) {
+        throw new Error('File tambahan harus berupa JPG, PNG, WebP, atau PDF.');
+      }
+      if (mime === 'application/pdf' && !String(file.data || '').split(',').pop().startsWith('JVBERi0')) {
+        throw new Error('File PDF tambahan tidak valid.');
+      }
+    });
+    const added = saveUploadedFiles_(files, 'task-additional/' + id);
+    updateObjectById_('tasks', id, function(row) {
+      if (!canUserAppendTaskFiles_(user, row)) {
+        throw new Error('Tugas sudah berubah atau Anda tidak berhak menambah file.');
+      }
+      const attachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
+      attachments.additionalFiles = (Array.isArray(attachments.additionalFiles) ? attachments.additionalFiles : []).concat(added);
+      row.AttachmentUrlsJson = JSON.stringify(attachments);
+      row.UpdatedAt = new Date();
+      return row;
+    });
+    touchDataVersion_();
+    return ok_({ message: added.length + ' file tambahan tersimpan.', addedCount: added.length });
   } catch (error) {
     return fail_(error);
   }
@@ -3448,6 +3495,7 @@ function buildTaskTimer_(task, now, attendanceMap) {
     limitMs: limitMs,
     workedMs: workedMs,
     remainingMs: remainingMs,
+    calendarRemainingMs: effectiveDeadline.getTime() - endAt.getTime(),
     overdueMs: remainingMs < 0 ? Math.abs(remainingMs) : 0,
     deadlineAt: effectiveDeadline.toISOString(),
     isPaused: pauseState.paused,
@@ -4741,7 +4789,7 @@ function fail_(error) {
   const actions = {
     apiLogout, apiLogActivity, apiGetSession, apiGetDashboard,
     apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiReactNote, apiMarkNoteMentionsSeen, apiUpdateTaskStatus,
-    apiGetReportMeta, apiSubmitReport, apiUpdateProfile, apiUpdateTaskColumnPreferences
+    apiGetReportMeta, apiSubmitReport, apiAddTaskAttachments, apiUpdateProfile, apiUpdateTaskColumnPreferences
   };
   const tableNames = {
     users: 'kpi_users', notes: 'kpi_notes', reports: 'kpi_reports',
@@ -5132,7 +5180,7 @@ Deno.serve(async request => {
     const tables = Object.fromEntries(fetched);
     for (const key of Object.keys(KPI_TABLES)) tables[key] ||= [];
     const userRecord = findKpiUser(tables.users, identity);
-    const needsAttendance = !['apiGetSession', 'apiLogout', 'apiLogActivity', 'apiUpdateProfile', 'apiUpdateTaskColumnPreferences'].includes(action);
+    const needsAttendance = !['apiGetSession', 'apiLogout', 'apiLogActivity', 'apiUpdateProfile', 'apiUpdateTaskColumnPreferences', 'apiAddTaskAttachments'].includes(action);
     let absensi = [];
     let leaveRequests = [];
     if (needsAttendance) {

@@ -1094,6 +1094,12 @@
       max-width: 96px;
     }
 
+    .task-file-cell {
+      display: grid;
+      gap: 7px;
+      justify-items: start;
+    }
+
     .task-title-wrap {
       display: block;
       min-width: 0;
@@ -3683,8 +3689,11 @@
 
       ['tasks', 'openTasks', 'cardTasks'].forEach(function(key) {
         (data[key] || []).forEach(function(task) {
-          if (task.status === 'berjalan' && task.timer && !task.timer.isPaused) {
-            task.timer.remainingMs = Number(task.timer.remainingMs || 0) - ageMs;
+          if (task.status === 'berjalan' && task.timer) {
+            if (task.timer.calendarRemainingMs != null) {
+              task.timer.calendarRemainingMs = Number(task.timer.calendarRemainingMs) - ageMs;
+            }
+            if (!task.timer.isPaused) task.timer.remainingMs = Number(task.timer.remainingMs || 0) - ageMs;
           }
         });
       });
@@ -4664,6 +4673,46 @@
       });
     }
 
+    function renderTaskFileCell(task) {
+      const attachments = renderTaskAttachmentCell(task);
+      if (!task.canAddAttachments || task.status !== 'selesai') return attachments;
+      return `<div class="task-file-cell">
+        ${attachments}
+        <div class="task-file-add">
+          <button class="btn btn-mini btn-ghost" type="button" onclick="selectAdditionalTaskFiles(this)">+ Tambah file</button>
+          <input class="visually-hidden-file" type="file" multiple accept="image/*,application/pdf,.pdf" data-task-id="${escapeAttr(task.id)}" aria-label="File tambahan tugas" onchange="uploadAdditionalTaskFiles(this)">
+        </div>
+      </div>`;
+    }
+
+    function selectAdditionalTaskFiles(button) {
+      const input = button && button.parentElement && button.parentElement.querySelector('input[type="file"]');
+      if (input) input.click();
+    }
+
+    async function uploadAdditionalTaskFiles(input) {
+      const selected = Array.prototype.slice.call(input && input.files || []);
+      if (!selected.length) return;
+      const button = input.parentElement.querySelector('button');
+      button.disabled = true;
+      button.textContent = 'Mengunggah...';
+      try {
+        const prepared = await KpiBankUpload.prepare(selected.map(function(file) {
+          return { field: 'additionalFiles', file: file };
+        }), null, { normalizeImages: true, maxFiles: 10, maxBytes: 10 * 1048576 });
+        const files = await readFiles(prepared.entries.map(function(entry) { return entry.file; }), 10);
+        const response = await api('apiAddTaskAttachments', state.token, input.dataset.taskId, files);
+        toast(response.message || 'File tambahan tersimpan.');
+        await loadDashboard();
+      } catch (error) {
+        showError(error);
+      } finally {
+        input.value = '';
+        button.disabled = false;
+        button.textContent = '+ Tambah file';
+      }
+    }
+
     function renderBankTaskAttachments(task) {
       const groups = task && task.attachments || {};
       const isBankTask = task && (task.taskType === 'laporan_akun_bank' ||
@@ -5112,7 +5161,7 @@
           <td class="${taskColumnClass('timer')}" data-label="Timer">${renderTimerCell(task)}</td>
           <td class="${taskColumnClass('dibuat')}" data-label="Dibuat">${formatDate(task.createdAt || task.startedAt)}</td>
           <td class="${taskColumnClass('selesai')}" data-label="Selesai">${task.completedAt ? formatDate(task.completedAt) : '-'}</td>
-          <td class="${taskColumnClass('file')}" data-label="File">${renderTaskAttachmentCell(task)}</td>
+          <td class="${taskColumnClass('file')}" data-label="File">${renderTaskFileCell(task)}</td>
           <td class="${taskColumnClass('catatan')}" data-label="Catatan">${escapeHtml(task.notes || '-')}</td>
           ${ownerAction}
         </tr>
@@ -5194,7 +5243,7 @@
           data-refresh-at="${escapeAttr(timer.refreshAt || '')}"
           data-paused="${paused}"
           data-reason="${escapeAttr(timer.pauseReason || '')}"
-          data-remaining="${Number(timer.remainingMs || 0)}"></span>
+          data-remaining="${Number(timer.calendarRemainingMs == null ? timer.remainingMs || 0 : timer.calendarRemainingMs)}"></span>
       `;
     }
 
@@ -5254,11 +5303,8 @@
         const paused = element.dataset.paused === 'true';
         const baseRemaining = Number(element.dataset.remaining || 0);
         const started = Number(element.dataset.start || Date.now());
-        const serverNow = Date.parse(element.dataset.serverNow || '');
-        const refreshAt = Date.parse(element.dataset.refreshAt || '');
         const elapsed = Math.max(0, Date.now() - started);
-        const untilBoundary = isFinite(serverNow) && isFinite(refreshAt) ? Math.max(0, refreshAt - serverNow) : elapsed;
-        const remaining = paused ? baseRemaining : baseRemaining - Math.min(elapsed, untilBoundary);
+        const remaining = baseRemaining - elapsed;
 
         element.classList.toggle('overdue', remaining < 0 && !paused);
         element.classList.toggle('paused', paused);

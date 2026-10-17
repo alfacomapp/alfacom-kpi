@@ -42,6 +42,15 @@ test('two working days from Saturday finish Monday; Sunday timer is paused', () 
   assert.equal(engine.statusForTest(item, iso('2026-06-09', '00:00:00')), 'meleset');
 });
 
+test('calendar countdown matches the Monday deadline while working time excludes Sunday', () => {
+  const { engine } = fixture();
+  const item = task('tugas_notes', iso('2026-10-17', '11:25:00'), 0, iso('2026-10-19', '11:25:00'));
+  const timer = engine.timerForTest(item, iso('2026-10-17', '11:25:00'));
+  assert.equal(timer.deadlineAt, '2026-10-19T03:25:00.000Z');
+  assert.equal(timer.calendarRemainingMs, 2 * 24 * 60 * 60 * 1000);
+  assert.equal(timer.remainingMs, 24 * 60 * 60 * 1000 + 1);
+});
+
 test('seven-day weekly audit beginning Monday the first finishes Monday the eighth', () => {
   const { engine } = fixture();
   const item = task('audit_pekanan', iso('2026-06-01'), 168);

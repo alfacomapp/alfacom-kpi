@@ -82,7 +82,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskDetail, renderTaskAttachmentCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 
@@ -305,7 +305,7 @@ test('investor form explains four checks and allows optional proof per selected 
   assert.doesNotMatch(html, /type="file"[^>]*required/);
 });
 
-test('browser countdown stops at the next WITA day boundary until server refresh', () => {
+test('browser countdown follows the displayed calendar deadline across a day boundary', () => {
   const app = ui();
   const now = Date.now();
   const classes = new Set();
@@ -321,12 +321,28 @@ test('browser countdown stops at the next WITA day boundary until server refresh
     textContent: ''
   };
   app.updateTimers();
-  assert.match(app.elements.timer.textContent, /^Sisa 1h /);
+  assert.match(app.elements.timer.textContent, /^Sisa (11j 59m|12j 0m)/);
   app.elements.timer.dataset.paused = 'true';
   app.elements.timer.dataset.reason = 'izin';
   app.updateTimers();
   assert.equal(app.elements.timer.textContent, 'Pause: izin');
   assert.equal(classes.has('paused'), true);
+});
+
+test('timer display uses calendar time and completed task file row offers an additional upload', () => {
+  const app = ui();
+  const task = { id: 'TASK-1', status: 'berjalan', timer: {
+    remainingMs: 18 * 60 * 60 * 1000,
+    calendarRemainingMs: 2 * 24 * 60 * 60 * 1000,
+    deadlineAt: '2026-10-19T03:25:00.000Z', serverNow: '2026-10-17T03:25:00.000Z'
+  } };
+  assert.match(app.renderTimerCell(task), /data-remaining="172800000"/);
+  assert.match(app.taskDeadlineText(task), /^Deadline: 19 Okt 2026/);
+  const completed = { id: 'TASK-1', status: 'selesai', canAddAttachments: true, attachments: {} };
+  assert.match(app.renderTaskFileCell(completed), /Tambah file/);
+  assert.match(app.renderTaskFileCell(completed), /data-task-id="TASK-1"/);
+  assert.doesNotMatch(app.renderTaskFileCell({ ...completed, canAddAttachments: false }), /Tambah file/);
+  assert.doesNotMatch(app.renderTaskFileCell({ ...completed, status: 'berjalan' }), /Tambah file/);
 });
 
 test('follow-up task stays selectable when its Saturday falls in the next month', () => {
