@@ -562,6 +562,16 @@
       gap: 18px;
     }
 
+    #dashboardPage {
+      grid-template-columns: minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    #dashboardPage > .panel {
+      min-width: 0;
+      max-width: 100%;
+    }
+
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -1128,6 +1138,8 @@
 
     .kpi-grid {
       display: flex;
+      width: 100%;
+      min-width: 0;
       gap: 10px;
       overflow-x: auto;
       overflow-y: hidden;
@@ -1136,7 +1148,7 @@
     }
 
     .kpi-card {
-      flex: 0 0 245px;
+      flex: 0 0 360px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #fff;
@@ -1165,7 +1177,7 @@
 
     .metric-row {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       min-width: 0;
       gap: 6px;
     }
@@ -2045,9 +2057,9 @@
       }
 
       #dashboardPage.show-kpi {
-        height: calc(100dvh - 74px);
-        min-height: 0;
-        overflow: hidden;
+        min-height: calc(100dvh - 74px);
+        height: auto;
+        overflow: visible;
         display: flex;
         flex-direction: column;
       }
@@ -2061,7 +2073,7 @@
         min-height: 0;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        overflow: visible;
       }
 
       #dashboardPage.show-kpi #tasksTable {
@@ -2127,19 +2139,14 @@
       }
 
       .kpi-panel {
-        width: calc(100% + 48px);
-        margin-left: -24px;
-        margin-right: -24px;
-        padding-left: 24px;
-        padding-right: 0;
-        border-left: 0;
-        border-right: 0;
-        border-radius: 0;
-        overflow: hidden;
+        width: 100%;
+        margin: 0;
+        padding: 18px;
+        overflow: visible;
       }
 
       .kpi-panel .panel-head {
-        padding-right: 24px;
+        padding-right: 0;
       }
 
       .kpi-grid {
@@ -2148,14 +2155,14 @@
         gap: 10px;
         overflow-x: auto;
         padding-top: 4px;
-        padding-right: 24px;
+        padding-right: 2px;
         padding-bottom: 10px;
         scroll-snap-type: x proximity;
         -webkit-overflow-scrolling: touch;
       }
 
       .kpi-card {
-        flex: 0 0 258px;
+        flex: 0 0 min(360px, calc(100vw - 84px));
         min-height: 132px;
         scroll-snap-align: start;
       }
@@ -2332,14 +2339,13 @@
       }
 
       .kpi-panel {
-        width: calc(100% + 24px);
-        margin-left: -12px;
-        margin-right: -12px;
-        padding-left: 12px;
+        width: 100%;
+        margin: 0;
+        padding: 12px;
       }
 
       .kpi-panel .panel-head {
-        padding-right: 12px;
+        padding-right: 0;
       }
 
       .kpi-grid {
@@ -2347,11 +2353,11 @@
         grid-template-columns: none;
         gap: 8px;
         padding-top: 4px;
-        padding-right: 12px;
+        padding-right: 2px;
       }
 
       .kpi-card {
-        flex: 0 0 min(270px, calc(100vw - 48px));
+        flex: 0 0 min(360px, calc(100vw - 52px));
         min-height: 0;
         padding: 10px;
         gap: 8px;
@@ -2366,7 +2372,7 @@
       }
 
       .metric-row {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 4px;
       }
 
