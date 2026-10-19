@@ -9,7 +9,12 @@ const source = fs.readFileSync(path.join(__dirname, '../supabase/functions/kpi-a
 const engineSource = source.slice(0, source.indexOf('\nconst PROJECT_URL'));
 const createKpiEngine = new Function('crypto', engineSource + '\nreturn createKpiEngine;')(crypto);
 const admin = { Id: 'KEN', Username: 'kendari', Name: 'Admin Kendari', Role: 'admin_kendari', Location: 'kendari', Active: true };
+const raha = { Id: 'RAH', Username: 'raha', Name: 'Admin Raha', Role: 'admin_raha', Location: 'raha', Active: true };
 const auditor = { Id: 'AUD', Username: 'auditor', Name: 'Auditor', Role: 'auditor', Location: 'all', Active: true };
+const owner = { Id: 'OWN', Username: 'owner', Name: 'Owner', Role: 'owner', Location: 'all', Active: true };
+const sales = { Id: 'SAL', Username: 'sales', Name: 'Sales Director', Role: 'sales_director', Location: 'sales', Active: true };
+const regular = { Id: 'USR', Username: 'user', Name: 'User Biasa', Role: 'user', Location: 'all', Active: true };
+const stranger = { Id: 'OTH', Username: 'other', Name: 'User Lain', Role: 'user', Location: 'all', Active: true };
 const proof = { name: 'susulan.jpg', mimeType: 'image/jpeg', size: 3, data: Buffer.from([1, 2, 3]).toString('base64') };
 
 function completedTask(status = 'selesai') {
@@ -22,7 +27,7 @@ function completedTask(status = 'selesai') {
 }
 
 function fixture(user = admin, task = completedTask()) {
-  const tables = { users: [admin, auditor].map((record, index) => ({ id: record.Id, record, revision: 1, seq: index + 1 })),
+  const tables = { users: [admin, raha, auditor, owner, sales, regular, stranger].map((record, index) => ({ id: record.Id, record, revision: 1, seq: index + 1 })),
     tasks: [{ id: task.Id, record: task, revision: 1, seq: 3 }], reports: [], notes: [], activityLogs: [] };
   const ctx = { jwt: 'test-jwt', expiresAt: Date.now() + 3600000, userRecord: user,
     tables, original: structuredClone(tables), absensi: [], uploads: [], maxSeq: 4, version: 0 };
@@ -50,8 +55,28 @@ test('assigned user appends forgotten files without changing completed task stat
   assert.equal(task.CompletedAt, '2026-10-17T00:00:00.000Z');
 });
 
+test('all user roles can add files to completed tasks they can see in KPI detail', () => {
+  const cases = [
+    [admin, completedTask(), 'kendari'],
+    [raha, { ...completedTask(), AssigneeRole: 'admin_raha', AssigneeLocation: 'raha', AssigneeName: raha.Name }, 'raha'],
+    [auditor, { ...completedTask(), AssigneeRole: 'auditor', AssigneeLocation: 'all', AssigneeName: auditor.Name }, 'auditor'],
+    [owner, { ...completedTask(), PayloadJson: JSON.stringify({ assigneeUserId: admin.Id }) }, 'kendari'],
+    [sales, { ...completedTask(), AssigneeRole: 'sales_director', AssigneeLocation: 'sales', AssigneeName: sales.Name }, 'sales_director'],
+    [regular, { ...completedTask(), AssigneeRole: 'user', AssigneeLocation: 'all', AssigneeName: regular.Name }, 'user']
+  ];
+  for (const [user, task, cardKey] of cases) {
+    const { engine, ctx } = fixture(user, task);
+    const dashboard = engine.execute('apiGetDashboard', ['test-jwt', { month: 10, year: 2026, cardKey }]);
+    assert.equal(dashboard.ok, true, `${user.Role}: ${dashboard.message}`);
+    assert.equal(dashboard.cardTasks.find(item => item.id === task.Id).canAddAttachments, true, user.Role);
+    const result = engine.execute('apiAddTaskAttachments', ['test-jwt', task.Id, [proof]]);
+    assert.equal(result.ok, true, `${user.Role}: ${result.message}`);
+    assert.equal(JSON.parse(ctx.tables.tasks[0].record.AttachmentUrlsJson).additionalFiles.length, 1);
+  }
+});
+
 test('unfinished tasks and unrelated users cannot append files', () => {
-  for (const [user, task] of [[admin, completedTask('berjalan')], [auditor, completedTask()]]) {
+  for (const [user, task] of [[admin, completedTask('berjalan')], [stranger, completedTask()]]) {
     const { engine, ctx } = fixture(user, task);
     const before = JSON.stringify(ctx.tables.tasks[0].record);
     const result = engine.execute('apiAddTaskAttachments', ['test-jwt', 'TASK-1', [proof]]);

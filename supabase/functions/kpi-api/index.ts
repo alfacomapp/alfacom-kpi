@@ -1176,7 +1176,6 @@ function apiSubmitReport(token, request) {
 
 function canUserAppendTaskFiles_(user, task, enriched) {
   return String(task && (task.Status || task.status) || '') === 'selesai' &&
-    canUserCompleteTask_(user, task) &&
     canUserSeeTask_(user, enriched || enrichTask_(task, new Date(), {}));
 }
 
