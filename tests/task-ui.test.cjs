@@ -8,6 +8,18 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const start = html.lastIndexOf('<script>') + '<script>'.length;
 const inlineScript = html.slice(start, html.indexOf('</script>', start));
 
+test('report task cards show nearest active deadline first and overdue tasks last', () => {
+  const sort = ui().sortReportTaskCards;
+  const tasks = [
+    { id: 'late', kpiStatus: 'meleset', timer: { calendarRemainingMs: -1000 } },
+    { id: 'far', kpiStatus: 'berjalan', timer: { calendarRemainingMs: 86400000 } },
+    { id: 'soon', kpiStatus: 'berjalan', timer: { calendarRemainingMs: 3600000 } },
+    { id: 'none', kpiStatus: 'berjalan', timer: { noDeadline: true } },
+    { id: 'late2', kpiStatus: 'meleset', timer: { calendarRemainingMs: -3600000 } }
+  ];
+  assert.deepEqual(tasks.sort(sort).map(task => task.id), ['soon', 'far', 'none', 'late2', 'late']);
+});
+
 function ui() {
   const activePointers = new Set();
   const stageClasses = new Set();
@@ -82,7 +94,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 

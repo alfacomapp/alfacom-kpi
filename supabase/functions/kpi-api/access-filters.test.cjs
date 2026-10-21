@@ -536,7 +536,7 @@ test('approved leave pauses the assigned user task', () => {
   assert.equal(rendered.displayKpiStatus, 'pause');
 });
 
-test('daily Sunday tasks are hidden and a 48-hour deadline skips Sunday', () => {
+test('daily Sunday tasks are hidden and a two-working-day deadline skips Sunday', () => {
   const auditor = user('aud-calendar', 'Auditor Calendar', 'auditor', 'all');
   const sunday = {
     ...task('sunday-daily', auditor, 'berjalan'),
@@ -560,7 +560,7 @@ test('daily Sunday tasks are hidden and a 48-hour deadline skips Sunday', () => 
   }]);
   assert.equal(dashboard.tasks.some(item => item.id === sunday.Id), false);
   const deadline = new Date(dashboard.tasks.find(item => item.id === saturday.Id).timer.deadlineAt);
-  assert.equal(deadline.getDay(), 2);
+  assert.equal(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Makassar', weekday: 'short' }).format(deadline), 'Mon');
 });
 
 test('note comments persist while Sales Director offer assignments stay out of the feed', () => {

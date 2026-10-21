@@ -1059,7 +1059,6 @@ function apiGetReportMeta(token) {
     if (user.Role === 'auditor') ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
     if (user.Role === 'admin_raha') ensureCurrentFollowUpNotaTask_(new Date(), readObjects_('tasks'), user);
 
-    const reportTypes = getReportTypesForUser_(user);
     const now = new Date();
     const attendanceMap = getAttendanceMap_();
     const sourceIndex = user.Role === 'auditor' ? indexAuditSourceReports_(readObjects_('reports')) : null;
@@ -1072,6 +1071,10 @@ function apiGetReportMeta(token) {
         return task.status === 'berjalan' && !isDeprecatedTaskForKpi_(task) && isReportTaskAssignedToUser_(user, task);
       })
       .sort(sortReportTasksByDeadline_);
+    const reportTypes = getReportTypesForUser_(user).filter(function(type) {
+      return (type.value !== 'revisi_audit' && type.value !== 'audit_revisi') ||
+        openTasks.some(function(task) { return task.taskType === type.value; });
+    });
 
     return ok_({
       user: user,
@@ -2167,13 +2170,20 @@ function buildTaskDetailText_(task, payload) {
 }
 
 function sortReportTasksByDeadline_(a, b) {
-  const remaining = function(task) {
+  const timerValue = function(task) {
     const timer = task && task.timer || {};
-    return timer.noDeadline || !Number.isFinite(Number(timer.remainingMs))
-      ? Number.POSITIVE_INFINITY : Number(timer.remainingMs);
+    const value = Number(timer.calendarRemainingMs ?? timer.remainingMs);
+    return timer.noDeadline || !Number.isFinite(value) ? Number.POSITIVE_INFINITY : value;
   };
-  const aRemaining = remaining(a);
-  const bRemaining = remaining(b);
+  const rank = function(task) {
+    const remaining = timerValue(task);
+    return task.kpiStatus === 'meleset' || remaining < 0 ? 2 :
+      remaining === Number.POSITIVE_INFINITY ? 1 : 0;
+  };
+  const rankDifference = rank(a) - rank(b);
+  if (rankDifference) return rankDifference;
+  const aRemaining = timerValue(a);
+  const bRemaining = timerValue(b);
   return aRemaining === bRemaining ? sortTasks_(a, b) : (aRemaining < bRemaining ? -1 : 1);
 }
 
@@ -2627,19 +2637,8 @@ function processReportTasks_(user, report, fields, savedFiles) {
       }
     }
 
-    results.push(createTask_({
-      taskType: 'audit_harian',
-      title: 'Audit pendapatan harian ' + user.Name + ' (' + titleCaseLocation_(getUserLocation_(user)) + ')',
-      assigneeRole: 'auditor',
-      assigneeLocation: 'all',
-      assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
-      relatedReportId: report.Id,
-      timeLimitHours: REPORT_TYPES.audit_harian.timeLimitHours,
-      startedAt: now,
-      createdBy: user,
-      payload: { sourceReportId: report.Id, sourceTaskId: completedTask.id, reporter: user.Name, location: getUserLocation_(user) },
-      attachments: savedFiles
-    }));
+    results.push(createSourceAuditTask_('audit_harian', user, report, savedFiles, now, completedTask.id,
+      'Audit pendapatan harian ' + user.Name + ' (' + titleCaseLocation_(getUserLocation_(user)) + ')'));
   }
 
   if (type === 'bukti_storan_bank') {
@@ -2776,19 +2775,45 @@ function processReportTasks_(user, report, fields, savedFiles) {
     const revisionTask = openReportTask_(user, fields.relatedTaskId, 'revisi_audit');
     const revision = parseJsonSafe_(revisionTask.PayloadJson, {});
     results.push(completeTaskFromReport_(revisionTask.Id, user, report, savedFiles));
-    results.push(createTask_({
-      taskType: 'audit_revisi',
-      title: 'Periksa revisi ' + revision.sourceAuditLabel + ' (' + revision.revisionCount + '/3)',
-      assigneeRole: 'auditor', assigneeLocation: 'all',
-      assigneeName: revision.auditorName || findPrimaryAssigneeName_('auditor', 'all'),
-      relatedReportId: report.Id, timeLimitHours: REPORT_TYPES.audit_revisi.timeLimitHours,
-      startedAt: now, createdBy: user,
-      payload: { rootAuditTaskId: revision.rootAuditTaskId, revisionTaskId: revisionTask.Id,
-        revisionCount: revision.revisionCount, sourceAuditLabel: revision.sourceAuditLabel,
-        auditorName: revision.auditorName, revisionRecipientName: user.Name,
-        revisionReason: revision.revisionReason, sourceReportId: report.Id },
-      attachments: savedFiles
-    }));
+    const reviewTitle = 'Periksa revisi ' + revision.sourceAuditLabel + ' (' + revision.revisionCount + '/3)';
+    const reviewPayload = { rootAuditTaskId: revision.rootAuditTaskId, revisionTaskId: revisionTask.Id,
+      revisionCount: revision.revisionCount, sourceAuditLabel: revision.sourceAuditLabel,
+      auditorName: revision.auditorName, revisionRecipientName: user.Name,
+      revisionReason: revision.revisionReason, sourceReportId: report.Id };
+    const previousReview = readObjects_('tasks').filter(function(row) {
+      return row.TaskType === 'audit_revisi' &&
+        parseJsonSafe_(row.PayloadJson, {}).rootAuditTaskId === revision.rootAuditTaskId;
+    }).sort(function(a, b) {
+      return Number(parseJsonSafe_(b.PayloadJson, {}).revisionCount || 0) -
+        Number(parseJsonSafe_(a.PayloadJson, {}).revisionCount || 0);
+    })[0];
+    if (previousReview) {
+      updateObjectById_('tasks', previousReview.Id, function(row) {
+        if (String(row.Status || '') !== 'selesai') throw new Error('Pemeriksaan revisi sebelumnya masih berjalan.');
+        row.Title = reviewTitle;
+        row.AssigneeName = revision.auditorName || findPrimaryAssigneeName_('auditor', 'all');
+        row.RelatedReportId = report.Id;
+        row.StartedAt = now;
+        row.Status = 'berjalan';
+        row.KpiStatus = 'berjalan';
+        row.PayloadJson = JSON.stringify(reviewPayload);
+        row.AttachmentUrlsJson = JSON.stringify(savedFiles);
+        row.CompletedAt = '';
+        row.CompletedBy = '';
+        row.UpdatedAt = now;
+        row.Notes = 'Periksa ulang revisi ' + revision.revisionCount + '/3.';
+        return row;
+      });
+      results.push({ id: previousReview.Id, taskType: 'audit_revisi', title: reviewTitle, kpiStatus: 'berjalan' });
+    } else {
+      results.push(createTask_({
+        taskType: 'audit_revisi', title: reviewTitle,
+        assigneeRole: 'auditor', assigneeLocation: 'all',
+        assigneeName: revision.auditorName || findPrimaryAssigneeName_('auditor', 'all'),
+        relatedReportId: report.Id, timeLimitHours: REPORT_TYPES.audit_revisi.timeLimitHours,
+        startedAt: now, createdBy: user, payload: reviewPayload, attachments: savedFiles
+      }));
+    }
   }
 
   if (type.indexOf('audit_') === 0) {
@@ -2875,11 +2900,39 @@ function processReportTasks_(user, report, fields, savedFiles) {
   return results;
 }
 
-function createSourceAuditTask_(taskType, user, report, sourceFiles, startedAt, sourceTaskId) {
+function createSourceAuditTask_(taskType, user, report, sourceFiles, startedAt, sourceTaskId, title) {
   const location = getUserLocation_(user);
+  const taskTitle = title || REPORT_TYPES[taskType].label + ' ' + user.Name +
+    (location && location !== 'all' ? ' (' + titleCaseLocation_(location) + ')' : '');
+  const payload = { sourceReportId: report.Id, sourceTaskId: sourceTaskId || '', reporter: user.Name, location: location };
+  const sourceTask = readObjects_('tasks').find(function(row) { return row.Id === sourceTaskId; });
+  const sourcePayload = sourceTask && parseJsonSafe_(sourceTask.PayloadJson, {}) || {};
+  const previousAuditId = String(sourcePayload.revision && sourcePayload.revision.auditTaskId || '');
+  const previousAudit = previousAuditId && readObjects_('tasks').find(function(row) {
+    return row.Id === previousAuditId && row.TaskType === taskType &&
+      parseJsonSafe_(row.PayloadJson, {}).sourceTaskId === sourceTaskId;
+  });
+  if (previousAudit) {
+    updateObjectById_('tasks', previousAudit.Id, function(row) {
+      if (String(row.Status || '') !== 'selesai') throw new Error('Pemeriksaan sebelumnya masih berjalan.');
+      row.Title = taskTitle;
+      row.RelatedReportId = report.Id;
+      row.StartedAt = startedAt;
+      row.Status = 'berjalan';
+      row.KpiStatus = 'berjalan';
+      row.PayloadJson = JSON.stringify(payload);
+      row.AttachmentUrlsJson = JSON.stringify(sourceFiles);
+      row.CompletedAt = '';
+      row.CompletedBy = '';
+      row.UpdatedAt = startedAt;
+      row.Notes = 'Periksa ulang laporan revisi.';
+      return row;
+    });
+    return { id: previousAudit.Id, taskType: taskType, title: taskTitle, kpiStatus: 'berjalan' };
+  }
   return createTask_({
     taskType: taskType,
-    title: REPORT_TYPES[taskType].label + ' ' + user.Name + (location && location !== 'all' ? ' (' + titleCaseLocation_(location) + ')' : ''),
+    title: taskTitle,
     assigneeRole: 'auditor',
     assigneeLocation: 'all',
     assigneeName: findPrimaryAssigneeName_('auditor', 'all'),
@@ -2887,7 +2940,7 @@ function createSourceAuditTask_(taskType, user, report, sourceFiles, startedAt, 
     timeLimitHours: REPORT_TYPES[taskType].timeLimitHours,
     startedAt: startedAt,
     createdBy: user,
-    payload: { sourceReportId: report.Id, sourceTaskId: sourceTaskId || '', reporter: user.Name, location: location },
+    payload: payload,
     attachments: sourceFiles
   });
 }
@@ -3177,6 +3230,25 @@ function queueBankAuditAfterReport_(bankResult, user, report, now, savedFiles) {
     retainedAudits[key] = previousAuditPayload.auditBankReports[key];
     if (priorAttachments['auditProof_' + key]) retainedProofs['auditProof_' + key] = priorAttachments['auditProof_' + key];
   });
+  const nextPayload = { sourceReportId: report.Id, sourceTaskId: bankResult.id, location: 'kendari',
+    banksComplete: true, requiredBankKeys: Object.keys(BANK_ACCOUNT_BANKS), auditBankReports: retainedAudits };
+  const nextAttachments = Object.assign({}, sourceAttachments, retainedProofs);
+  if (priorAudit) {
+    updateObjectById_('tasks', priorAudit.Id, function(row) {
+      row.RelatedReportId = report.Id;
+      row.StartedAt = now;
+      row.Status = 'berjalan';
+      row.KpiStatus = 'berjalan';
+      row.PayloadJson = JSON.stringify(nextPayload);
+      row.AttachmentUrlsJson = JSON.stringify(nextAttachments);
+      row.CompletedAt = '';
+      row.CompletedBy = '';
+      row.UpdatedAt = now;
+      row.Notes = Object.keys(retainedAudits).length + '/5 bank telah diperiksa; periksa ulang bank revisi.';
+      return row;
+    });
+    return { id: priorAudit.Id, taskType: 'audit_pekanan', title: priorAudit.Title, kpiStatus: 'berjalan' };
+  }
   return createTask_({
     taskType: 'audit_pekanan',
     title: 'Audit laporan akun bank pekanan Kendari',
@@ -3187,9 +3259,8 @@ function queueBankAuditAfterReport_(bankResult, user, report, now, savedFiles) {
     timeLimitHours: REPORT_TYPES.audit_pekanan.timeLimitHours,
     startedAt: now,
     createdBy: user,
-    payload: { sourceReportId: report.Id, sourceTaskId: bankResult.id, location: 'kendari',
-      banksComplete: true, requiredBankKeys: Object.keys(BANK_ACCOUNT_BANKS), auditBankReports: retainedAudits },
-    attachments: Object.assign({}, sourceAttachments, retainedProofs)
+    payload: nextPayload,
+    attachments: nextAttachments
   });
 }
 
@@ -3370,16 +3441,47 @@ function queueStandaloneAuditRevision_(rootAuditTaskId, auditor, report, fields,
   const recipient = auditRevisionRecipient_(fields.revisionRecipientId);
   const reason = String(fields.description || '').trim().slice(0, 2000);
   const label = sourceAuditLabel || REPORT_TYPES[root.TaskType].label;
-  const revision = createTask_({
-    taskType: 'revisi_audit', title: 'Revisi ' + label + ' (' + count + '/3)',
-    assigneeRole: normalizeRole_(recipient.Role), assigneeLocation: getUserLocation_(recipient),
-    assigneeName: recipient.Name, relatedReportId: report.Id,
-    timeLimitHours: 24, startedAt: parseDate_(report.CreatedAt), createdBy: auditor,
-    payload: { rootAuditTaskId: root.Id, sourceAuditLabel: label,
-      revisionCount: count, revisionReason: reason, revisionRecipientName: recipient.Name,
-      assigneeUserId: recipient.Id, auditorName: auditor.Name, auditReportId: report.Id },
-    attachments: {}
+  const startedAt = parseDate_(report.CreatedAt);
+  const title = 'Revisi ' + label + ' (' + count + '/3)';
+  const revisionPayload = { rootAuditTaskId: root.Id, sourceAuditLabel: label,
+    revisionCount: count, revisionReason: reason, revisionRecipientName: recipient.Name,
+    assigneeUserId: recipient.Id, auditorName: auditor.Name, auditReportId: report.Id };
+  const rootPayload = parseJsonSafe_(root.PayloadJson, {});
+  const previousRevisionId = String(rootPayload.auditRevision && rootPayload.auditRevision.revisionTaskId || '');
+  const previousRevision = previousRevisionId && readObjects_('tasks').find(function(row) {
+    return row.Id === previousRevisionId && row.TaskType === 'revisi_audit' &&
+      parseJsonSafe_(row.PayloadJson, {}).rootAuditTaskId === root.Id;
   });
+  let revision;
+  if (previousRevision) {
+    updateObjectById_('tasks', previousRevision.Id, function(row) {
+      if (String(row.Status || '') !== 'selesai') throw new Error('Tugas revisi sebelumnya masih berjalan.');
+      row.Title = title;
+      row.AssigneeRole = normalizeRole_(recipient.Role);
+      row.AssigneeLocation = getUserLocation_(recipient);
+      row.AssigneeName = recipient.Name;
+      row.RelatedReportId = report.Id;
+      row.StartedAt = startedAt;
+      row.Status = 'berjalan';
+      row.KpiStatus = 'berjalan';
+      row.PayloadJson = JSON.stringify(revisionPayload);
+      row.AttachmentUrlsJson = '{}';
+      row.CompletedAt = '';
+      row.CompletedBy = '';
+      row.UpdatedAt = startedAt;
+      row.Notes = 'Revisi ' + count + '/3: setor ulang dalam 1x24 jam kerja.';
+      return row;
+    });
+    revision = { id: previousRevision.Id, taskType: 'revisi_audit', title: title, kpiStatus: 'berjalan' };
+  } else {
+    revision = createTask_({
+      taskType: 'revisi_audit', title: title,
+      assigneeRole: normalizeRole_(recipient.Role), assigneeLocation: getUserLocation_(recipient),
+      assigneeName: recipient.Name, relatedReportId: report.Id,
+      timeLimitHours: 24, startedAt: startedAt, createdBy: auditor,
+      payload: revisionPayload, attachments: {}
+    });
+  }
   updateObjectById_('tasks', root.Id, function(row) {
     const payload = parseJsonSafe_(row.PayloadJson, {});
     payload.auditRevision = { count: count, pending: true, recipientId: recipient.Id,

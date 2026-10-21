@@ -2893,7 +2893,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-14-audit-revisions';
+    const CLIENT_CACHE_VERSION = '2026-10-21-revision-reuse';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -5419,11 +5419,29 @@
       yearSelect.value = String(state.reportFormYear);
     }
 
+    function sortReportTaskCards(a, b) {
+      const remaining = function(task) {
+        const timer = task && task.timer || {};
+        const value = Number(timer.calendarRemainingMs ?? timer.remainingMs);
+        return timer.noDeadline || !Number.isFinite(value) ? Number.POSITIVE_INFINITY : value;
+      };
+      const rank = function(task) {
+        const time = remaining(task);
+        return task.kpiStatus === 'meleset' || time < 0 ? 2 :
+          time === Number.POSITIVE_INFINITY ? 1 : 0;
+      };
+      const difference = rank(a) - rank(b);
+      if (difference) return difference;
+      const timeDifference = remaining(a) - remaining(b);
+      return Number.isNaN(timeDifference) || timeDifference === 0
+        ? Number(a.referenceNumber || 0) - Number(b.referenceNumber || 0) : timeDifference;
+    }
+
     function renderOpenTasks() {
       const tasks = reportTasksForCurrentUser().filter(function(task) {
         return taskMatchesReportPeriod(task) && (!state.reportTaskStatus ||
           (state.reportTaskStatus === 'pause' ? task.displayKpiStatus === 'pause' : task.kpiStatus === state.reportTaskStatus));
-      });
+      }).sort(sortReportTaskCards);
       const wrap = byId('openTasksList');
       if (!tasks.length) {
         wrap.innerHTML = '<div class="empty">Tidak ada tugas pada status ini.</div>';
