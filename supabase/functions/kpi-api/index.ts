@@ -2205,7 +2205,10 @@ function canUserSeeTask_(user, task) {
   if (String(task.taskType || task.TaskType || '') === 'revisi_audit' && payload.assigneeUserId &&
       payload.assigneeUserId !== user.Id && user.Role !== 'owner') return false;
   if (payload.ownerOnly) {
-    return user.Role === 'owner';
+    if (user.Role === 'owner') return true;
+    return String(task.taskType || task.TaskType || '') === 'laporan_keadaan_kas_bank' &&
+      normalizeRole_(task.assigneeRole || task.AssigneeRole) === user.Role &&
+      normalizeLocation_(task.assigneeLocation || task.AssigneeLocation) === getUserLocation_(user);
   }
 
   if (user.Role === 'owner' || user.Role === 'auditor') {

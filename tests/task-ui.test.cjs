@@ -20,6 +20,49 @@ test('report task cards show nearest active deadline first and overdue tasks las
   assert.deepEqual(tasks.sort(sort).map(task => task.id), ['soon', 'far', 'none', 'late2', 'late']);
 });
 
+test('report cards and forms use the task period across month boundaries', () => {
+  const app = ui();
+  const cash = { id: 'cash', taskType: 'laporan_keadaan_kas_bank',
+    startedAt: '2026-10-31T15:00:00.000Z',
+    payload: { deadlineAt: '2026-11-01T14:00:00.000Z', ownerOnly: true } };
+  const followUp = { id: 'follow', taskType: 'follow_up_nota_tagihan',
+    startedAt: '2026-10-31T15:00:00.000Z', payload: { deadlineAt: '2026-11-01T14:00:00.000Z' } };
+  app.state.reportMeta = { openTasks: [cash, followUp] };
+  app.state.user = { Role: 'admin_kendari', Location: 'kendari', Name: 'Admin Kendari' };
+  assert.deepEqual(Array.from(app.reportTasksForCurrentUser(), task => task.id), ['cash', 'follow']);
+  app.state.reportMonth = app.state.reportFormMonth = 10;
+  app.state.reportYear = app.state.reportFormYear = 2026;
+  assert.equal(app.taskMatchesReportPeriod(cash), true);
+  assert.equal(app.taskMatchesFormPeriod(cash), true);
+  app.state.reportMonth = app.state.reportFormMonth = 11;
+  assert.equal(app.taskMatchesReportPeriod(cash), false);
+  assert.equal(app.taskMatchesFormPeriod(cash), false);
+  assert.equal(app.taskMatchesReportPeriod(followUp), true);
+  assert.equal(app.taskMatchesFormPeriod(followUp), true);
+});
+
+test('a user with no report form modules still sees assigned task cards', () => {
+  const app = ui();
+  app.state.user = { Id: 'owner', Name: 'Owner A', Role: 'owner', Location: 'all' };
+  app.state.reportMonth = app.state.reportFormMonth = 10;
+  app.state.reportYear = app.state.reportFormYear = 2026;
+  app.state.reportMeta = { reportTypes: [], openTasks: [{
+    id: 'owner-note', referenceNumber: 42, taskType: 'note_tugas', taskLabel: 'Tugas Notes',
+    title: 'Periksa dokumen', assigneeRole: 'owner', assigneeName: 'Owner A', status: 'berjalan',
+    kpiStatus: 'berjalan', kpiLabel: 'Berjalan', startedAt: '2026-10-21T02:00:00.000Z',
+    timer: { noDeadline: true }, attachments: {}, payload: {}
+  }] };
+  app.renderReportPage();
+  assert.match(app.elements.openTasksList.innerHTML, /Periksa dokumen/);
+  assert.match(app.elements.dynamicReportFields.innerHTML, /Tidak ada modul laporan/);
+  app.state.reportMeta.openTasks = Array.from({ length: 85 }, (_, index) => ({
+    ...app.state.reportMeta.openTasks[0], id: 'owner-note-' + index,
+    referenceNumber: index + 1, title: 'Tugas ke-' + (index + 1)
+  }));
+  app.renderReportPage();
+  assert.match(app.elements.openTasksList.innerHTML, /Tugas ke-85/);
+});
+
 function ui() {
   const activePointers = new Set();
   const stageClasses = new Set();
@@ -55,6 +98,12 @@ function ui() {
     imageViewerZoomOut: { disabled: false },
     imageViewerZoomIn: { disabled: false },
     reportType: { value: 'audit_pekanan' },
+    reportMonthFilter: { value: '', innerHTML: '' },
+    reportYearFilter: { value: '', innerHTML: '' },
+    reportFormMonthFilter: { value: '', innerHTML: '' },
+    reportFormYearFilter: { value: '', innerHTML: '' },
+    openTasksList: { innerHTML: '' },
+    dynamicReportFields: { innerHTML: '' },
     relatedTaskSelect: { value: '' },
     bankSelect: { value: '', disabled: false, options: [
       '', 'bri_kendari', 'bri_raha', 'mandiri', 'bank_sultra', 'aladin_syariah'
@@ -90,11 +139,12 @@ function ui() {
         if (selector === '[data-timer]') return elements.timer ? [elements.timer] : [];
         return [];
       } },
-    window: { innerWidth: 400, innerHeight: 800 },
+    window: { innerWidth: 400, innerHeight: 800,
+      setInterval() { return 1; }, clearInterval() {}, setTimeout() { return 1; }, clearTimeout() {} },
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 

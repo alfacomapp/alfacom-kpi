@@ -2893,7 +2893,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-21-revision-reuse';
+    const CLIENT_CACHE_VERSION = '2026-10-21-report-task-visibility';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -5360,14 +5360,13 @@
         return `<option value="${escapeAttr(type.value)}">${escapeHtml(type.label)}</option>`;
       }).join('');
 
+      renderReportPeriodFilter();
+      renderFormPeriodFilter();
+      renderOpenTasks();
       if (!reportTypes.length) {
         byId('dynamicReportFields').innerHTML = '<div class="empty full">Tidak ada modul laporan untuk role ini.</div>';
         return;
       }
-
-      renderReportPeriodFilter();
-      renderFormPeriodFilter();
-      renderOpenTasks();
       renderReportForm();
     }
 
@@ -5376,10 +5375,9 @@
       const yearSelect = byId('reportYearFilter');
       const years = {};
       reportTasksForCurrentUser().forEach(function(task) {
-        const date = taskDateForPeriod(task);
-        if (date && !isNaN(date.getTime())) {
-          years[date.getFullYear()] = true;
-        }
+        taskDatesForReportPeriod(task).forEach(function(date) {
+          years[reportPeriodForDate(date).year] = true;
+        });
       });
       years[state.reportYear || new Date().getFullYear()] = true;
       years[new Date().getFullYear()] = true;
@@ -5404,8 +5402,9 @@
       const yearSelect = byId('reportFormYearFilter');
       const years = {};
       reportTasksForCurrentUser().forEach(function(task) {
-        const date = taskDateForFormPeriod(task);
-        if (date) years[date.getFullYear()] = true;
+        taskDatesForReportPeriod(task).forEach(function(date) {
+          years[reportPeriodForDate(date).year] = true;
+        });
       });
       years[state.reportFormYear] = true;
       years[new Date().getFullYear()] = true;
@@ -5449,7 +5448,7 @@
         return;
       }
 
-      wrap.innerHTML = tasks.slice(0, 80).map(function(task) {
+      wrap.innerHTML = tasks.map(function(task) {
         const detail = renderTaskDetail(task);
         const deadline = renderTaskDeadline(task);
         const attachments = renderTaskAttachmentCell(task);
@@ -5472,56 +5471,38 @@
     }
 
     function taskMatchesReportPeriod(task) {
-      const date = taskDateForPeriod(task);
-      if (!date || isNaN(date.getTime())) {
-        return true;
-      }
-      return date.getMonth() + 1 === Number(state.reportMonth) && date.getFullYear() === Number(state.reportYear);
+      const dates = taskDatesForReportPeriod(task);
+      return !dates.length || dates.some(function(date) {
+        const period = reportPeriodForDate(date);
+        return period.month === Number(state.reportMonth) && period.year === Number(state.reportYear);
+      });
     }
 
-    function taskDateForPeriod(task) {
+    function taskDatesForReportPeriod(task) {
       const payload = task && task.payload || {};
-      const source = payload.revision && payload.revision.pending && payload.revision.startedAt ||
-        payload.deadlineAt || task.startedAt || task.createdAt || task.completedAt;
-      const date = new Date(source || '');
-      return isNaN(date.getTime()) ? null : date;
+      const sources = [task && (task.startedAt || task.createdAt || task.completedAt)];
+      if (payload.revision && payload.revision.pending) sources.push(payload.revision.startedAt);
+      if (task && task.taskType === 'follow_up_nota_tagihan') sources.push(payload.deadlineAt);
+      return sources.map(function(source) { return new Date(source || ''); }).filter(function(date) {
+        return !isNaN(date.getTime());
+      });
     }
 
-    function taskDateForFormPeriod(task) {
-      const payload = task && task.payload || {};
-      const date = new Date(payload.revision && payload.revision.pending && payload.revision.startedAt ||
-        task && (task.startedAt || task.createdAt) || payload.deadlineAt || '');
-      return isNaN(date.getTime()) ? null : date;
+    function reportPeriodForDate(date) {
+      const local = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+      return { month: local.getUTCMonth() + 1, year: local.getUTCFullYear() };
     }
 
     function taskMatchesFormPeriod(task) {
-      const dates = [taskDateForFormPeriod(task)];
-      if (task && task.payload && task.payload.revision && task.payload.revision.pending && task.payload.revision.startedAt) {
-        const revisionDate = new Date(task.payload.revision.startedAt);
-        if (!isNaN(revisionDate.getTime())) dates.push(revisionDate);
-      }
-      if (task && task.taskType === 'follow_up_nota_tagihan' && task.payload && task.payload.deadlineAt) {
-        const deadline = new Date(task.payload.deadlineAt);
-        if (!isNaN(deadline.getTime())) dates.push(deadline);
-      }
-      return dates.some(function(date) {
-        return date && date.getMonth() + 1 === Number(state.reportFormMonth) && date.getFullYear() === Number(state.reportFormYear);
+      const dates = taskDatesForReportPeriod(task);
+      return !dates.length || dates.some(function(date) {
+        const period = reportPeriodForDate(date);
+        return period.month === Number(state.reportFormMonth) && period.year === Number(state.reportFormYear);
       });
     }
 
     function reportTasksForCurrentUser() {
-      const user = state.user || {};
-      const role = String(user.Role || '').toLowerCase();
-      const location = String(user.Location || '').toLowerCase();
-      const userName = normalizeSearchText(user.Name);
-      const roleName = normalizeSearchText(user.RoleLabel);
-      return ((state.reportMeta && state.reportMeta.openTasks) || []).filter(function(task) {
-        if (task.payload && task.payload.assigneeUserId && task.payload.assigneeUserId !== user.Id) return false;
-        if (String(task.assigneeRole || '').toLowerCase() !== role) return false;
-        if (role.indexOf('admin_') === 0 && String(task.assigneeLocation || '').toLowerCase() !== location) return false;
-        const assignedName = normalizeSearchText(task.assigneeName);
-        return !assignedName || assignedName === userName || assignedName === roleName;
-      });
+      return (state.reportMeta && state.reportMeta.openTasks) || [];
     }
 
     function renderReportForm() {

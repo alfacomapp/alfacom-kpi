@@ -199,6 +199,44 @@ test('report task list includes only tasks assigned to the signed-in user', () =
   assert.equal(result.openTasks.filter(item => ['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].includes(item.taskType)).length, 6);
 });
 
+test('every role sees its assigned running dashboard task in Reports, including Kendari cash bank', () => {
+  const people = [
+    user('owner', 'Owner A', 'owner', 'all'),
+    user('auditor', 'Auditor A', 'auditor', 'all'),
+    user('kendari', 'Admin Kendari A', 'admin_kendari', 'kendari'),
+    user('raha', 'Admin Raha A', 'admin_raha', 'raha'),
+    user('sales', 'Sales A', 'sales_director', 'sales'),
+    user('staff', 'Staff A', 'user', 'all')
+  ];
+  const types = ['note_tugas', 'audit_harian', 'pendapatan_harian',
+    'pendapatan_harian', 'sales_penawaran', 'note_tugas'];
+  const tasks = people.map((person, index) => ({
+    ...task('assigned-' + person.Id, person, 'berjalan'), TaskType: types[index], KpiStatus: 'berjalan'
+  }));
+  tasks.push({ ...task('cash-kendari', people[2], 'berjalan'),
+    TaskType: 'laporan_keadaan_kas_bank', KpiStatus: 'berjalan',
+    PayloadJson: JSON.stringify({ ownerOnly: true, bankCashEntries: [{ bankName: 'bri', amount: 5000000 }],
+      bankCashTotal: 5000000 }) });
+  const cards = ['owner', 'auditor', 'kendari', 'raha', 'sales_director', 'user'];
+  people.forEach((person, index) => {
+    const { engine } = engineFor(person, people, [], tasks);
+    const dashboard = engine.execute('apiGetDashboard', ['test-jwt', { cardKey: cards[index], ...period }]);
+    const reports = engine.execute('apiGetReportMeta', ['test-jwt']);
+    assert.equal(dashboard.ok, true);
+    assert.equal(reports.ok, true);
+    assert.equal(dashboard.cardTasks.some(item => item.id === 'assigned-' + person.Id), true);
+    assert.equal(reports.openTasks.some(item => item.id === 'assigned-' + person.Id), true);
+    assert.equal(reports.openTasks.some(item => item.id === 'cash-kendari'), index === 2);
+    if (index === 2) {
+      assert.equal(dashboard.cardTasks.some(item => item.id === 'cash-kendari'), true);
+      assert.equal(reports.openTasks.find(item => item.id === 'cash-kendari').payload.bankCashTotal, 5000000);
+    } else {
+      const kendariCard = engine.execute('apiGetDashboard', ['test-jwt', { cardKey: 'kendari', ...period }]);
+      assert.equal(kendariCard.cardTasks.find(item => item.id === 'cash-kendari').payload.bankCashTotal, undefined);
+    }
+  });
+});
+
 test('report tasks are ordered by shortest remaining time with no-deadline tasks last', () => {
   const admin = user('deadline-admin', 'Admin Kendari', 'admin_kendari', 'kendari');
   const startedAt = new Date().toISOString();
