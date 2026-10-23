@@ -184,8 +184,7 @@ const REPORT_TYPES = {
   follow_up_nota_tagihan: {
     label: 'Follow up nota tagihan ke user',
     roles: ['admin_raha'],
-    timeLimitHours: 144,
-    deadlineWeekday: 6
+    timeLimitHours: 0
   },
   laporan_saldo_bank_jago: {
     label: 'Laporan Isi Saldo Bank Jago',
@@ -341,7 +340,6 @@ const REPORT_FILE_LIMITS = {
 const PERIOD_REPORT_TASK_TYPES = new Set([
   'pendapatan_harian', 'laporan_akun_bank', 'laporan_keadaan_kas_bank',
   'laporan_saldo_bank_jago', 'rekap_storan_setengah_bulan',
-  'follow_up_nota_tagihan',
   'sales_upload_harian_10', 'sales_upload_harian_1_10', 'audit_bank_jago',
   'laporan_investor', 'laporan_raport_fee_freelance'
 ]);
@@ -587,7 +585,6 @@ function apiGetDashboard(token, filters) {
   try {
     const user = requireUser_(token);
     if (user.Role === 'auditor') ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
-    if (user.Role === 'admin_raha') ensureCurrentFollowUpNotaTask_(new Date(), readObjects_('tasks'), user);
 
     const safeFilters = filters || {};
     const period = normalizeDashboardPeriod_(safeFilters);
@@ -633,6 +630,14 @@ function apiGetDashboard(token, filters) {
     }
 
     const selectedCardTasks = selectedCard ? tasksForCard_(dashboardTasks, selectedCard) : [];
+    const salesOnTimeFileTotal = user.Role === 'sales_director' && selectedCardKey === 'sales_director'
+      ? selectedCardTasks.filter(function(task) {
+          return task.taskType === 'sales_upload_harian_1_10' && task.status === 'selesai' && task.kpiStatus === 'tepat_waktu';
+        }).reduce(function(total, task) {
+          return total + Object.keys(task.attachments || {}).reduce(function(count, field) {
+            return count + (Array.isArray(task.attachments[field]) ? task.attachments[field].length : 0);
+          }, 0);
+        }, 0) : 0;
     let detailTasks = selectedCardTasks.slice();
     if (safeFilters.taskType) {
       detailTasks = detailTasks.filter(function(task) {
@@ -676,6 +681,7 @@ function apiGetDashboard(token, filters) {
       periodOptions: periodOptions,
       cards: cards,
       selectedCard: selectedCardKey,
+      salesOnTimeFileTotal: salesOnTimeFileTotal,
       taskTypes: taskTypes,
       cardTasks: selectedCardTasks.slice().sort(sortTasks_).slice(0, 800),
       tasks: detailTasks.slice(0, 400),
@@ -1057,7 +1063,6 @@ function apiGetReportMeta(token) {
   try {
     const user = requireUser_(token);
     if (user.Role === 'auditor') ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
-    if (user.Role === 'admin_raha') ensureCurrentFollowUpNotaTask_(new Date(), readObjects_('tasks'), user);
 
     const now = new Date();
     const attendanceMap = getAttendanceMap_();
@@ -1973,6 +1978,10 @@ function isDeprecatedTaskForKpi_(task) {
   const location = task.assigneeLocation || normalizeLocation_(task.AssigneeLocation);
   const periodKey = String(task.periodKey || task.PeriodKey || '');
 
+  if (taskType === 'follow_up_nota_tagihan' &&
+      String(task.status || task.Status || 'berjalan') === 'berjalan' &&
+      /^follow_up_nota_tagihan:raha:\d{4}-\d{2}-\d{2}$/.test(periodKey)) return true;
+
   if (taskType === 'kasbon_di_atas_limit' &&
       ['admin_kendari', 'admin_raha'].indexOf(normalizeRole_(task.assigneeRole || task.AssigneeRole)) === -1) return true;
 
@@ -2023,7 +2032,7 @@ function enrichTask_(task, now, attendanceMap) {
   if (!excludedFromKpi && status === 'berjalan') {
     kpiStatus = timer.remainingMs < 0 ? 'meleset' : 'berjalan';
   }
-  const displayKpiStatus = excludedFromKpi ? 'data' : (status === 'berjalan' && kpiStatus === 'berjalan' && timer.isPaused ? 'pause' : kpiStatus);
+  const displayKpiStatus = excludedFromKpi ? 'data' : (status === 'berjalan' && timer.isPaused ? 'pause' : kpiStatus);
   let taskTitle = String(task.Title || '').replace(/^Audit Nota IPOS/i, REPORT_TYPES.audit_nota_ipos.label);
   if (type === 'laporan_investor') taskTitle = REPORT_TYPES.laporan_investor.label;
   const sourceLocation = normalizeLocation_(payload.location || '');
@@ -2373,7 +2382,14 @@ function validateReportPayload_(user, type, fields, files) {
     if (getUserLocation_(user) !== 'raha') {
       throw new Error('Follow up nota tagihan hanya untuk Admin Raha.');
     }
-    requireText_(fields.relatedTaskId, 'Pilih nomor tugas follow up nota tagihan.');
+    if (fields.relatedTaskId) {
+      const revisionTask = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
+      const revision = revisionTask && parseJsonSafe_(revisionTask.PayloadJson, {}).revision;
+      if (!revisionTask || revisionTask.TaskType !== type || String(revisionTask.Status || '') !== 'berjalan' ||
+          !revision || !revision.pending || !isReportTaskAssignedToUser_(user, enrichTask_(revisionTask))) {
+        throw new Error('Nomor tugas revisi follow up nota tagihan tidak ditemukan atau bukan tugas Anda.');
+      }
+    }
     requireFile_(files, 'followUpProof', 'Foto bukti chat atau serah terima nota wajib diupload.');
     return;
   }
@@ -2659,7 +2675,22 @@ function processReportTasks_(user, report, fields, savedFiles) {
   }
 
   if (type === 'follow_up_nota_tagihan') {
-    results.push(completeTaskFromReport_(fields.relatedTaskId, user, report, savedFiles));
+    results.push(fields.relatedTaskId
+      ? completeTaskFromReport_(fields.relatedTaskId, user, report, savedFiles)
+      : createTask_({
+          taskType: type,
+          title: REPORT_TYPES[type].label,
+          assigneeRole: user.Role,
+          assigneeLocation: getUserLocation_(user),
+          assigneeName: user.Name,
+          relatedReportId: report.Id,
+          timeLimitHours: 0,
+          startedAt: now,
+          createdBy: user,
+          payload: Object.assign({}, fields, { excludeFromKpi: true, noDeadline: true }),
+          attachments: savedFiles,
+          completeNow: true
+        }));
   }
 
   if (type === 'laporan_keadaan_kas_bank') {
@@ -3805,12 +3836,7 @@ function getAttendanceMap_() {
         ? status : 'masuk';
       const name = normalizeName_(row.nama_pegawai);
       const role = String(row.role || '').trim().toLowerCase();
-      const aliases = [name];
-      if (role === 'admin' && name === 'abu abid') aliases.push('admin kendari');
-      if ((role === 'admin_raha' || String(row.cabang || '').toLowerCase() === 'raha') &&
-          name === 'abu naura') aliases.push('admin raha');
-      if (role === 'manager' && name === 'abu abdillah') aliases.push('auditor');
-      if (role === 'sales' && name === 'juna') aliases.push('sales director');
+      const aliases = [name].concat(kpiAttendanceAliases_(name, role, row.cabang));
       aliases.forEach(function(alias) {
         if (!alias) return;
         const key = alias + '|' + dateKey_(date);
@@ -3858,12 +3884,31 @@ function leaveAliasesForRow_(row) {
   });
   const role = String(firstDefinedValue_(row, ['role', 'jabatan']) || '').trim().toLowerCase();
   const branch = String(firstDefinedValue_(row, ['cabang', 'hak_akses_cabang', 'lokasi']) || '').trim().toLowerCase();
+  aliases.slice().forEach(function(name) {
+    Array.prototype.push.apply(aliases, kpiAttendanceAliases_(name, role, branch));
+  });
   if (role === 'admin' && branch === 'kendari') aliases.push('admin kendari');
   if (role === 'admin_raha' || (role === 'admin' && branch === 'raha')) aliases.push('admin raha');
   if (role === 'manager' || role === 'auditor') aliases.push('auditor');
   if (role === 'sales' || role === 'sales_director') aliases.push('sales director');
   if (role === 'direktur' || role === 'owner') aliases.push('owner');
   return aliases.filter(function(alias, index, list) { return alias && list.indexOf(alias) === index; });
+}
+
+function kpiAttendanceAliases_(name, role, branch) {
+  const employee = normalizeName_(name);
+  const employeeRole = String(role || '').trim().toLowerCase();
+  const location = normalizeLocation_(branch);
+  const aliases = [];
+  if (['abu abdi', 'abu abid'].includes(employee) &&
+      (!employeeRole || employeeRole === 'admin') && (!location || location === 'kendari')) aliases.push('admin kendari');
+  if (employee === 'alif' && (!employeeRole || employeeRole === 'teknisi')) aliases.push('admin raha');
+  if (employee === 'abu naura' && (!employeeRole || employeeRole === 'admin' || employeeRole === 'admin_raha') &&
+      (!location || location === 'raha')) aliases.push('admin raha');
+  if (employee === 'abu abdillah' && (!employeeRole || employeeRole === 'manager' || employeeRole === 'auditor')) aliases.push('auditor');
+  if (employee === 'juna' && (!employeeRole || employeeRole === 'sales' || employeeRole === 'sales_director') &&
+      (!location || location === 'kendari')) aliases.push('sales director');
+  return aliases;
 }
 
 function applyLeaveRequestsToAttendanceMap_(map, rows) {
@@ -3938,7 +3983,6 @@ function createPeriodicTasks_(atDate) {
     });
 
     if (role === 'admin_raha') {
-      ensureCurrentFollowUpNotaTask_(now, tasks, admin);
       ensurePeriodicTask_(tasks, {
         taskType: 'rekap_storan_setengah_bulan',
         periodKey: periodKeyForMonth_(now, 'rekap_storan_setengah_bulan', location),
@@ -4045,23 +4089,6 @@ function createPeriodicTasks_(atDate) {
       deadlineAt: deadlineDateForMonth_(now, REPORT_TYPES[type].deadlineDay),
       createdBy: owner
     });
-  });
-}
-
-function ensureCurrentFollowUpNotaTask_(now, tasks, admin) {
-  const week = weekStart_(now);
-  const location = getUserLocation_(admin);
-  ensurePeriodicTask_(tasks, {
-    taskType: 'follow_up_nota_tagihan',
-    periodKey: periodKeyForWeekType_(week, 'follow_up_nota_tagihan', location),
-    title: REPORT_TYPES.follow_up_nota_tagihan.label + ' ' + dateKey_(week),
-    assigneeRole: 'admin_raha',
-    assigneeLocation: location,
-    assigneeName: admin.Name,
-    timeLimitHours: REPORT_TYPES.follow_up_nota_tagihan.timeLimitHours,
-    startedAt: week,
-    deadlineAt: deadlineDateForWeekday_(week, REPORT_TYPES.follow_up_nota_tagihan.deadlineWeekday),
-    createdBy: { Id: 'system', Name: 'System' }
   });
 }
 
@@ -4546,7 +4573,7 @@ function normalizeLocation_(location) {
 }
 
 function normalizeName_(name) {
-  return String(name || '').trim().toLowerCase();
+  return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function getUserLocation_(user) {

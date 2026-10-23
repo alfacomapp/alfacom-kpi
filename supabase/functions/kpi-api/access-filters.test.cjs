@@ -574,6 +574,60 @@ test('approved leave pauses the assigned user task', () => {
   assert.equal(rendered.displayKpiStatus, 'pause');
 });
 
+test('SLA sick attendance pauses the matching KPI roles for four named employees', () => {
+  const day = '2026-10-22';
+  const now = day + 'T12:00:00+08:00';
+  const cases = [
+    ['Abu Abdillah', 'manager', 'kendari', 'Auditor', 'auditor', 'all'],
+    ['Abu Abdi', 'admin', 'kendari', 'Admin Kendari', 'admin_kendari', 'kendari'],
+    ['Alif', 'teknisi', 'kendari', 'Admin Raha', 'admin_raha', 'raha'],
+    ['Juna', 'sales', 'kendari', 'Sales Director', 'sales_director', 'sales']
+  ];
+  for (const [employee, slaRole, branch, assigneeName, kpiRole, location] of cases) {
+    const current = user('sick-' + kpiRole, assigneeName, kpiRole, location);
+    const { engine, ctx } = engineFor(current, [current]);
+    ctx.absensi.push({ waktu_absen: day + 'T08:00:00+08:00', nama_pegawai: employee,
+      role: slaRole, cabang: branch, tipe_absen: 'sakit' });
+    const map = engine.attendanceMapForTest();
+    assert.equal(map[assigneeName.toLowerCase() + '|' + day], 'sakit', employee);
+    const active = { ...task('task-' + kpiRole, current, 'berjalan'),
+      StartedAt: day + 'T00:00:00+08:00', CreatedAt: day + 'T00:00:00+08:00',
+      KpiStatus: 'berjalan' };
+    const rendered = engine.enrichedTaskForTest(active, now, map);
+    assert.equal(rendered.timer.isPaused, true, employee);
+    assert.equal(rendered.displayKpiStatus, 'pause', employee);
+    assert.equal(rendered.timer.pauseReason, 'sakit', employee);
+    const resumed = engine.enrichedTaskForTest(active, '2026-10-23T12:00:00+08:00', map);
+    assert.equal(resumed.timer.isPaused, false, employee);
+    assert.equal(resumed.kpiStatus, 'berjalan', employee);
+    assert.equal(engine.dateKeyForTest(resumed.timer.deadlineAt), '2026-10-23', employee);
+  }
+});
+
+test('Sales Director file total counts only completed on-time 1-10 file tasks in the chosen month', () => {
+  const sales = user('sales-files', 'Sales Director', 'sales_director', 'sales');
+  const file = (id) => ({ id, name: id + '.jpg', mimeType: 'image/jpeg', size: 1 });
+  const makeSalesTask = (id, type, status, kpi, started, groups) => ({
+    ...task(id, sales, status), TaskType: type, KpiStatus: kpi,
+    StartedAt: started, CreatedAt: started, CompletedAt: status === 'selesai' ? started : '',
+    AttachmentUrlsJson: JSON.stringify(groups)
+  });
+  const rows = [
+    makeSalesTask('on-1', 'sales_upload_harian_1_10', 'selesai', 'tepat_waktu', '2026-10-20T01:00:00Z', { salesFiles: [file('1'), file('2')] }),
+    makeSalesTask('on-2', 'sales_upload_harian_1_10', 'selesai', 'tepat_waktu', '2026-10-21T01:00:00Z', { salesFiles: [file('3')], additionalFiles: [file('4')] }),
+    makeSalesTask('on-3', 'sales_upload_harian_1_10', 'selesai', 'tepat_waktu', '2026-10-22T01:00:00Z', { salesFiles: [file('5'), file('6')] }),
+    makeSalesTask('late', 'sales_upload_harian_1_10', 'selesai', 'meleset', '2026-10-22T01:00:00Z', { salesFiles: [file('7')] }),
+    makeSalesTask('other', 'sales_upload_harian_10', 'selesai', 'tepat_waktu', '2026-10-22T01:00:00Z', { salesFiles: [file('8')] }),
+    makeSalesTask('prior-month', 'sales_upload_harian_1_10', 'selesai', 'tepat_waktu', '2026-09-22T01:00:00Z', { salesFiles: [file('9')] })
+  ];
+  const { engine } = engineFor(sales, [sales], [], rows);
+  const october = engine.execute('apiGetDashboard', ['test-jwt', { cardKey: 'sales_director', month: 10, year: 2026 }]);
+  assert.equal(october.ok, true, october.message);
+  assert.equal(october.salesOnTimeFileTotal, 6);
+  const september = engine.execute('apiGetDashboard', ['test-jwt', { cardKey: 'sales_director', month: 9, year: 2026 }]);
+  assert.equal(september.salesOnTimeFileTotal, 1);
+});
+
 test('daily Sunday tasks are hidden and a two-working-day deadline skips Sunday', () => {
   const auditor = user('aud-calendar', 'Auditor Calendar', 'auditor', 'all');
   const sunday = {

@@ -144,7 +144,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 
@@ -174,6 +174,21 @@ test('every task deadline has a visible value even when no deadline is configure
   assert.equal(app.taskDeadlineText({ timer: { noDeadline: true } }), 'Deadline: Tidak ada');
   assert.equal(app.taskDeadlineText({ timer: {} }), 'Deadline: Belum ditentukan');
   assert.match(app.taskDeadlineText({ timer: { deadlineAt: '2026-10-12T14:00:00Z' } }), /^Deadline: /);
+});
+
+test('Sales Director task title shows the month file total only on completed on-time 1-10 tasks', () => {
+  const app = ui();
+  app.state.user = { Role: 'sales_director', Name: 'Sales Director' };
+  app.state.dashboard = { canEditTaskStatus: false, salesOnTimeFileTotal: 6 };
+  const base = { id: 'sales-1', taskType: 'sales_upload_harian_1_10', title: 'Upload Harian Sales Director 1-10 File',
+    status: 'selesai', kpiStatus: 'tepat_waktu', kpiLabel: 'Tepat Waktu',
+    startedAt: '2026-10-22T01:00:00Z', completedAt: '2026-10-22T02:00:00Z',
+    timer: { noDeadline: true }, payload: {}, attachments: {} };
+  assert.match(app.renderTaskRow(base, 0), /Total lampiran 6 file/);
+  assert.doesNotMatch(app.renderTaskRow({ ...base, kpiStatus: 'meleset' }, 0), /Total lampiran/);
+  assert.doesNotMatch(app.renderTaskRow({ ...base, taskType: 'sales_upload_harian_10' }, 0), /Total lampiran/);
+  app.state.user.Role = 'owner';
+  assert.doesNotMatch(app.renderTaskRow(base, 0), /Total lampiran/);
 });
 
 test('canceling a note checkbox prompt keeps the checkbox unchanged', () => {
@@ -407,7 +422,7 @@ test('timer display uses calendar time and completed task file row offers an add
   assert.doesNotMatch(app.renderTaskFileCell({ ...completed, status: 'berjalan' }), /Tambah file/);
 });
 
-test('follow-up task stays selectable when its Saturday falls in the next month', () => {
+test('historical weekly follow-up remains visible in both its start and deadline months', () => {
   const app = ui();
   const task = { taskType: 'follow_up_nota_tagihan', startedAt: '2026-09-27T16:00:00.000Z',
     payload: { deadlineAt: '2026-10-03T15:59:59.999Z' } };

@@ -2893,7 +2893,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-21-report-task-visibility';
+    const CLIENT_CACHE_VERSION = '2026-10-23-follow-up-pause-sales-files';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2954,7 +2954,7 @@
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       follow_up_nota_tagihan: [
-        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['follow_up_nota_tagihan'], full: true },
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas revisi (jika ada)', match: ['follow_up_nota_tagihan'], full: true },
         { kind: 'file', field: 'followUpProof', label: 'Foto bukti chat atau serah terima nota', required: true, multiple: true, max: 10, maxTotalMb: 10, autoCompress: true, accept: 'image/*' },
         { kind: 'textarea', field: 'description', label: 'Keterangan (opsional)', full: true }
       ],
@@ -5130,6 +5130,9 @@
     function renderTaskRow(task, index) {
       const detail = renderTaskDetail(task);
       const deadline = renderTaskDeadline(task);
+      const salesFileTotal = state.user && state.user.Role === 'sales_director' &&
+        task.taskType === 'sales_upload_harian_1_10' && task.status === 'selesai' && task.kpiStatus === 'tepat_waktu'
+          ? `<br><span class="muted">Total lampiran ${Number(state.dashboard.salesOnTimeFileTotal || 0)} file</span>` : '';
       const ownerAction = state.dashboard.canEditTaskStatus ? `
         <td class="action-cell" data-label="Aksi">
           <div class="inline-actions">
@@ -5150,7 +5153,7 @@
             <div class="task-title-wrap">
               <div class="task-title-content">
                 <strong>${escapeHtml(displayTaskDate(task))}</strong><br>
-                <span class="muted">${escapeHtml(task.title || task.taskLabel)}</span>
+                <span class="muted">${escapeHtml(task.title || task.taskLabel)}</span>${salesFileTotal}
                 ${deadline}
                 ${detail}
               </div>

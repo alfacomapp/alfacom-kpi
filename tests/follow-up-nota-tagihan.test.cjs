@@ -25,59 +25,40 @@ function submit(engine, fields, files) {
   return engine.execute('apiSubmitReport', ['test-jwt', { type: 'follow_up_nota_tagihan', fields, files }]);
 }
 
-test('Admin Raha gets one follow-up task per week, due Saturday at 23:59 WITA', () => {
+test('follow-up reporting does not generate a weekly deadline task', () => {
   const { engine, ctx } = fixture();
   engine.generateTasksForTest(iso('2026-10-14'));
   engine.generateTasksForTest(iso('2026-10-15'));
-  assert.equal(followUps(ctx).length, 1);
-  const first = followUps(ctx)[0];
-  assert.equal(first.AssigneeRole, 'admin_raha');
-  assert.equal(first.AssigneeLocation, 'raha');
-  assert.equal(engine.dateKeyForTest(first.StartedAt), '2026-10-12');
-  assert.equal(engine.timerForTest(first, iso('2026-10-14')).deadlineAt, '2026-10-17T15:59:59.999Z');
   engine.generateTasksForTest(iso('2026-10-19'));
-  assert.equal(followUps(ctx).length, 2);
-  assert.notEqual(followUps(ctx)[0].PeriodKey, followUps(ctx)[1].PeriodKey);
+  assert.equal(followUps(ctx).length, 0);
 });
 
-test('Saturday leave or holiday extends the follow-up deadline past Sunday', () => {
+test('each follow-up report creates completed data with no deadline and no amount', () => {
   const { engine, ctx } = fixture();
-  engine.generateTasksForTest(iso('2026-10-14'));
-  const item = followUps(ctx)[0];
-  for (const status of ['sakit', 'izin', 'libur']) {
-    const absence = { ['admin raha|2026-10-17']: status };
-    const timer = engine.timerForTest(item, iso('2026-10-17', '12:00:00'), absence);
-    assert.equal(engine.dateKeyForTest(timer.deadlineAt), '2026-10-19');
-    assert.equal(timer.isPaused, true);
-    assert.equal(timer.pauseReason, status);
-    assert.equal(engine.statusForTest(item, iso('2026-10-19', '23:59:59'), absence), 'tepat_waktu');
-    assert.equal(engine.statusForTest(item, iso('2026-10-20'), absence), 'meleset');
-  }
-  const twoDays = { 'admin raha|2026-10-17': 'izin', 'admin raha|2026-10-19': 'libur' };
-  assert.equal(engine.dateKeyForTest(engine.timerForTest(item, iso('2026-10-19'), twoDays).deadlineAt), '2026-10-20');
-});
-
-test('required photo completes only the selected weekly task; description is optional', () => {
-  const { engine, ctx } = fixture();
-  engine.generateTasksForTest(iso('2026-10-14'));
-  const item = followUps(ctx)[0];
-  const result = submit(engine, { relatedTaskId: item.Id }, { followUpProof: [photo] });
+  const result = submit(engine, { description: 'Nota diterima' }, { followUpProof: [photo] });
   assert.equal(result.ok, true, result.message);
-  assert.equal(followUps(ctx)[0].Status, 'selesai');
+  assert.equal(followUps(ctx).length, 1);
+  const item = followUps(ctx)[0];
+  assert.equal(item.Status, 'selesai');
+  assert.equal(item.TimeLimitHours, 0);
+  assert.equal(item.AssigneeLocation, 'raha');
+  assert.equal(item.RelatedReportId, ctx.tables.reports[0].record.Id);
+  assert.equal(JSON.parse(item.PayloadJson).noDeadline, true);
+  assert.equal(JSON.parse(item.PayloadJson).excludeFromKpi, true);
+  assert.equal(JSON.parse(item.PayloadJson).amount, undefined);
+  assert.equal(engine.timerForTest(item, iso('2026-10-23')).noDeadline, true);
   assert.equal(ctx.tables.reports.length, 1);
-  assert.equal(engine.dateKeyForTest(ctx.tables.reports[0].record.ReportDate), '2026-10-12');
-  assert.equal(JSON.parse(followUps(ctx)[0].AttachmentUrlsJson).followUpProof.length, 1);
-  assert.equal(submit(engine, { relatedTaskId: item.Id }, { followUpProof: [photo] }).ok, false);
+  assert.equal(JSON.parse(item.AttachmentUrlsJson).followUpProof.length, 1);
+  assert.equal(submit(engine, {}, { followUpProof: [photo] }).ok, true);
+  assert.equal(followUps(ctx).length, 2);
 });
 
-test('a task number and photo are mandatory; PDF and other roles are rejected', () => {
+test('photo is mandatory; PDF, unrelated task numbers and other roles are rejected', () => {
   const { engine, ctx } = fixture();
-  engine.generateTasksForTest(iso('2026-10-14'));
-  const id = followUps(ctx)[0].Id;
   for (const [fields, files] of [
-    [{}, { followUpProof: [photo] }],
-    [{ relatedTaskId: id }, {}],
-    [{ relatedTaskId: id }, { followUpProof: [{ ...photo, mimeType: 'application/pdf' }] }]
+    [{}, {}],
+    [{ relatedTaskId: 'not-a-revision' }, { followUpProof: [photo] }],
+    [{}, { followUpProof: [{ ...photo, mimeType: 'application/pdf' }] }]
   ]) {
     assert.equal(submit(engine, fields, files).ok, false);
   }
@@ -85,36 +66,55 @@ test('a task number and photo are mandatory; PDF and other roles are rejected', 
   assert.equal(ctx.uploads.length, 0);
   const kendari = { ...user, Id: 'K-1', Role: 'admin_kendari', Location: 'kendari' };
   const other = fixture(kendari);
-  assert.equal(submit(other.engine, { relatedTaskId: id }, { followUpProof: [photo] }).ok, false);
+  assert.equal(submit(other.engine, {}, { followUpProof: [photo] }).ok, false);
 });
 
-test('form shows numbered task, required photo, and optional description', () => {
+test('form shows optional revision task, required photo, and no amount', () => {
   const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const form = html.match(/follow_up_nota_tagihan: \[([\s\S]*?)\n      \],/);
   assert.ok(form);
-  assert.match(form[1], /kind: 'taskSelect'.*required: true/);
+  assert.match(form[1], /kind: 'taskSelect'.*Nomor tugas revisi/);
+  assert.doesNotMatch(form[1], /kind: 'taskSelect'.*required: true/);
   assert.match(form[1], /field: 'followUpProof'.*required: true.*accept: 'image\/\*'/);
   assert.match(form[1], /field: 'description'.*Keterangan \(opsional\)/);
   assert.doesNotMatch(form[1], /field: 'reportDate'/);
+  assert.doesNotMatch(form[1], /field: 'amount'/);
 });
 
-test('opening the Raha report menu creates the current weekly task immediately', () => {
+test('opening the Raha report menu offers follow-up without creating a task', () => {
   const { engine, ctx } = fixture();
   const meta = engine.execute('apiGetReportMeta', ['test-jwt']);
   assert.equal(meta.ok, true, meta.message);
-  assert.equal(followUps(ctx).length, 1);
+  assert.equal(followUps(ctx).length, 0);
   assert.ok(meta.reportTypes.some(type => type.value === 'follow_up_nota_tagihan'));
-  assert.ok(meta.openTasks.some(item => item.taskType === 'follow_up_nota_tagihan'));
+  assert.ok(!meta.openTasks.some(item => item.taskType === 'follow_up_nota_tagihan'));
 });
 
-test('weekly follow-up crossing months appears in either dashboard month', () => {
+test('completed historical weekly follow-up remains in the dashboard', () => {
   const { engine, ctx } = fixture();
-  engine.generateTasksForTest(iso('2026-09-30'));
-  const crossed = followUps(ctx)[0];
+  const crossed = { Id: 'legacy-follow-up', TaskType: 'follow_up_nota_tagihan', Title: 'Follow up nota tagihan ke user',
+    AssigneeRole: 'admin_raha', AssigneeLocation: 'raha', AssigneeName: user.Name, Status: 'selesai', KpiStatus: 'tepat_waktu',
+    TimeLimitHours: 144, StartedAt: iso('2026-09-30'), CreatedAt: iso('2026-09-30'), CompletedAt: iso('2026-10-01'),
+    PeriodKey: 'follow_up_nota_tagihan:raha:2026-09-28',
+    PayloadJson: JSON.stringify({ deadlineAt: iso('2026-10-03', '23:59:59') }), AttachmentUrlsJson: '{}' };
+  ctx.tables.tasks.push({ id: crossed.Id, record: crossed, revision: 1, seq: 20 });
   const september = engine.execute('apiGetDashboard', ['test-jwt', { month: 9, year: 2026 }]);
   const october = engine.execute('apiGetDashboard', ['test-jwt', { month: 10, year: 2026 }]);
   assert.equal(september.ok, true, september.message);
   assert.equal(october.ok, true, october.message);
   assert.ok(september.tasks.some(item => item.id === crossed.Id));
   assert.ok(october.tasks.some(item => item.id === crossed.Id));
+});
+
+test('open historical weekly follow-up is hidden after the report-only change', () => {
+  const { engine, ctx } = fixture();
+  const old = { Id: 'legacy-open', TaskType: 'follow_up_nota_tagihan', Title: 'Follow up nota tagihan ke user',
+    AssigneeRole: 'admin_raha', AssigneeLocation: 'raha', AssigneeName: user.Name, Status: 'berjalan', KpiStatus: 'berjalan',
+    TimeLimitHours: 144, StartedAt: iso('2026-10-19'), CreatedAt: iso('2026-10-19'),
+    PeriodKey: 'follow_up_nota_tagihan:raha:2026-10-19', PayloadJson: '{}', AttachmentUrlsJson: '{}' };
+  ctx.tables.tasks.push({ id: old.Id, record: old, revision: 1, seq: 21 });
+  const meta = engine.execute('apiGetReportMeta', ['test-jwt']);
+  assert.ok(!meta.openTasks.some(item => item.id === old.Id));
+  const dashboard = engine.execute('apiGetDashboard', ['test-jwt', { month: 10, year: 2026 }]);
+  assert.ok(!dashboard.tasks.some(item => item.id === old.Id));
 });
