@@ -1105,9 +1105,14 @@ function attachSourceFilesForAuditor_(task, sourceIndex) {
   const direct = sourceIndex.byId[task.relatedReportId];
   if (direct) sourceReports.push(direct);
   if (task.taskType === 'audit_barang_tiba' && direct && direct.TaskType === 'rincian_barang_tiba') {
-    const arrivedSummary = String(parseJsonSafe_(direct.PayloadJson, {}).arrivedSummary || '').trim();
+    const reportFields = parseJsonSafe_(direct.PayloadJson, {});
+    const arrivedSummary = String(reportFields.arrivedSummary || '').trim();
+    const iposNotaNumber = String(reportFields.iposNotaNumber || '').trim();
     if (arrivedSummary && String(task.detailText || '').indexOf('Rincian barang tiba: ' + arrivedSummary) === -1) {
       task.detailText = [task.detailText, 'Rincian barang tiba: ' + arrivedSummary].filter(Boolean).join('\n');
+    }
+    if (iposNotaNumber && String(task.detailText || '').indexOf('Nomor nota IPOS: ' + iposNotaNumber) === -1) {
+      task.detailText = [task.detailText, 'Nomor nota IPOS: ' + iposNotaNumber].filter(Boolean).join('\n');
     }
   }
   const knownIds = {};
@@ -2140,6 +2145,9 @@ function buildTaskDetailText_(task, payload) {
   if (detail.arrivedSummary && String(detail.arrivedSummary).replace(/\s+/g, ' ').trim() !== shipmentSummary.replace(/\s+/g, ' ').trim()) {
     parts.push('Rincian tiba: ' + detail.arrivedSummary);
   }
+  if (detail.iposNotaNumber) {
+    parts.push('Nomor nota IPOS: ' + detail.iposNotaNumber);
+  }
   if (detail.description) {
     parts.push('Keterangan: ' + detail.description);
   }
@@ -2479,6 +2487,8 @@ function validateReportPayload_(user, type, fields, files) {
   if (type === 'rincian_barang_tiba') {
     requireText_(fields.relatedTaskId, 'Pilih tugas barang tiba yang akan diselesaikan.');
     requireText_(fields.arrivedSummary, 'Rincian barang tiba wajib diisi.');
+    fields.iposNotaNumber = String(fields.iposNotaNumber || '').trim();
+    requireText_(fields.iposNotaNumber, 'Nomor nota IPOS wajib diisi.');
     requireFile_(files, 'arrivalProof', 'Bukti barang tiba wajib diupload.');
     return;
   }

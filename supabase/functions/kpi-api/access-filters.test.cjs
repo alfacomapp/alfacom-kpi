@@ -457,7 +457,7 @@ test('arrival report starts a 48-hour auditor task with the reporter proof', () 
   const proof = { name: 'tiba.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' };
   const result = engine.execute('apiSubmitReport', ['test-jwt', {
     type: 'rincian_barang_tiba',
-    fields: { relatedTaskId: arrival.Id, arrivedSummary: 'Semua barang diterima' },
+    fields: { relatedTaskId: arrival.Id, arrivedSummary: 'Semua barang diterima', iposNotaNumber: 'IPOS-RAHA-42' },
     files: { arrivalProof: [proof] }
   }]);
   assert.equal(result.ok, true);
@@ -466,6 +466,7 @@ test('arrival report starts a 48-hour auditor task with the reporter proof', () 
   assert.equal(audit.Status, 'berjalan');
   assert.match(audit.Title, /Admin Raha.*Raha/);
   assert.equal(JSON.parse(audit.AttachmentUrlsJson).arrivalProof.length, 1);
+  assert.equal(JSON.parse(ctx.tables.reports.find(item => item.record.TaskType === 'rincian_barang_tiba').record.PayloadJson).iposNotaNumber, 'IPOS-RAHA-42');
 });
 
 test('auditor report cards show the submitted arrival details from both admins', () => {
@@ -479,7 +480,8 @@ test('auditor report cards show the submitted arrival details from both admins',
   const { engine, ctx } = engineFor(auditor, [auditor], [], audits);
   ctx.tables.reports.push(...['kendari', 'raha'].map(location => record({
     Id: 'arrival-report-' + location, TaskType: 'rincian_barang_tiba',
-    PayloadJson: JSON.stringify({ arrivedSummary: 'Barang tiba dari ' + location + ': 2 dus oli\n1 kotak filter' }),
+    PayloadJson: JSON.stringify({ arrivedSummary: 'Barang tiba dari ' + location + ': 2 dus oli\n1 kotak filter',
+      iposNotaNumber: 'IPOS-' + location.toUpperCase() + '-42' }),
     AttachmentUrlsJson: '{}', ReportDate: stamp, CreatedAt: stamp
   })));
   const meta = engine.execute('apiGetReportMeta', ['test-jwt']);
@@ -488,6 +490,7 @@ test('auditor report cards show the submitted arrival details from both admins',
     const card = meta.openTasks.find(item => item.id === 'audit-arrival-' + location);
     assert.ok(card, location);
     assert.match(card.detailText, new RegExp('Rincian barang tiba: Barang tiba dari ' + location + ': 2 dus oli\\n1 kotak filter'));
+    assert.match(card.detailText, new RegExp('Nomor nota IPOS: IPOS-' + location.toUpperCase() + '-42'));
     assert.ok(!card.detailText.includes('Barang tiba dari ' + (location === 'kendari' ? 'raha' : 'kendari')));
   }
 });

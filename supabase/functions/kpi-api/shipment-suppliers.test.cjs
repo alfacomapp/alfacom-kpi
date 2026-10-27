@@ -46,13 +46,21 @@ for (const sender of admins) {
     const recipientEngine = createEngine(context(receiver, ctx.tables));
     const recipientMeta = recipientEngine.execute('apiGetReportMeta', ['test-jwt']);
     assert.ok(recipientMeta.openTasks.some(task => task.id === arrival.Id));
+    const missingNota = recipientEngine.execute('apiSubmitReport', ['test-jwt', {
+      type: 'rincian_barang_tiba', fields: { relatedTaskId: arrival.Id, arrivedSummary: 'Barang diterima.' }, files: { arrivalProof: [proof] }
+    }]);
+    assert.equal(missingNota.ok, false);
+    assert.match(missingNota.message, /Nomor nota IPOS wajib diisi/);
+    assert.equal(ctx.tables.tasks.find(row => row.id === arrival.Id).record.Status, 'berjalan');
     const received = recipientEngine.execute('apiSubmitReport', ['test-jwt', {
-      type: 'rincian_barang_tiba', fields: { relatedTaskId: arrival.Id, arrivedSummary: 'Kabel, adaptor, monitor diterima lengkap.' }, files: { arrivalProof: [proof] }
+      type: 'rincian_barang_tiba', fields: { relatedTaskId: arrival.Id, arrivedSummary: 'Kabel, adaptor, monitor diterima lengkap.', iposNotaNumber: ' IPOS-2026-001 ' }, files: { arrivalProof: [proof] }
     }]);
     assert.equal(received.ok, true, received.message);
     const completed = ctx.tables.tasks.find(row => row.id === arrival.Id).record;
     assert.equal(completed.Status, 'selesai');
     assert.equal(JSON.parse(completed.PayloadJson).shipmentItems.length, 3);
+    assert.equal(JSON.parse(completed.PayloadJson).iposNotaNumber, 'IPOS-2026-001');
+    assert.match(recipientEngine.enrichedTaskForTest(completed, completed.CompletedAt, {}).detailText, /Nomor nota IPOS: IPOS-2026-001/);
     assert.equal(JSON.parse(completed.AttachmentUrlsJson).shipmentSupplierFiles_1.length, 1);
     assert.equal(JSON.parse(completed.AttachmentUrlsJson).arrivalProof.length, 1);
   });

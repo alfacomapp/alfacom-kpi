@@ -2893,7 +2893,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-27-sales-card-cumulative-viewers';
+    const CLIENT_CACHE_VERSION = '2026-10-27-arrival-ipos-note-number';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2993,6 +2993,7 @@
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', required: true, match: ['rincian_barang_tiba'] },
         { kind: 'shipmentReceipt', label: 'Rincian kiriman per supplier', full: true },
         { kind: 'textarea', field: 'arrivedSummary', label: 'Rincian barang tiba', required: true, full: true },
+        { kind: 'text', field: 'iposNotaNumber', label: 'Nomor nota IPOS', required: true, full: true },
         { kind: 'file', field: 'arrivalProof', label: 'Bukti barang tiba', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],

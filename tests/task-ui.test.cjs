@@ -81,6 +81,17 @@ test('auditor report task card displays the arrival details supplied by an admin
   assert.match(app.elements.openTasksList.innerHTML, /1 kotak filter/);
 });
 
+test('arrival report form requires the IPOS note number immediately after arrival details', () => {
+  const app = ui();
+  const fields = app.REPORT_FORMS.rincian_barang_tiba;
+  const detailsIndex = fields.findIndex(field => field.field === 'arrivedSummary');
+  const number = fields[detailsIndex + 1];
+  assert.equal(number.field, 'iposNotaNumber');
+  assert.equal(number.label, 'Nomor nota IPOS');
+  assert.equal(number.required, true);
+  assert.match(app.renderField(number), /data-field="iposNotaNumber" type="text" required/);
+});
+
 function ui() {
   const activePointers = new Set();
   const stageClasses = new Set();
