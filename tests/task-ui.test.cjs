@@ -194,9 +194,10 @@ test('every task deadline has a visible value even when no deadline is configure
   assert.match(app.taskDeadlineText({ timer: { deadlineAt: '2026-10-12T14:00:00Z' } }), /^Deadline: /);
 });
 
-test('Sales Director task title shows cumulative month files on on-time 1-10 tasks', () => {
+test('Sales Director card title shows cumulative month files to Sales Director, auditor and owner', () => {
   const app = ui();
   app.state.user = { Role: 'sales_director', Name: 'Sales Director' };
+  app.state.selectedCard = 'sales_director';
   app.state.dashboard = { canEditTaskStatus: false };
   const base = { id: 'sales-1', taskType: 'sales_upload_harian_1_10', title: 'Upload Harian Sales Director 1-10 File',
     status: 'selesai', kpiStatus: 'tepat_waktu', kpiLabel: 'Tepat Waktu',
@@ -206,7 +207,11 @@ test('Sales Director task title shows cumulative month files on on-time 1-10 tas
   assert.doesNotMatch(app.renderTaskRow({ ...base, kpiStatus: 'meleset' }, 0), /Akumulasi lampiran/);
   assert.doesNotMatch(app.renderTaskRow({ ...base, status: 'berjalan' }, 0), /Akumulasi lampiran/);
   assert.doesNotMatch(app.renderTaskRow({ ...base, taskType: 'sales_upload_harian_10' }, 0), /Akumulasi lampiran/);
+  app.state.user.Role = 'auditor';
+  assert.match(app.renderTaskRow(base, 0), /Akumulasi lampiran sejak awal bulan: 6 file/);
   app.state.user.Role = 'owner';
+  assert.match(app.renderTaskRow(base, 0), /Akumulasi lampiran sejak awal bulan: 6 file/);
+  app.state.selectedCard = 'owner';
   assert.doesNotMatch(app.renderTaskRow(base, 0), /Akumulasi lampiran/);
 });
 

@@ -657,6 +657,13 @@ test('Sales Director shows cumulative on-time 1-10 file attachments through each
   assert.equal(cumulative.other, undefined);
   const september = engine.execute('apiGetDashboard', ['test-jwt', { cardKey: 'sales_director', month: 9, year: 2026 }]);
   assert.equal(september.cardTasks.find(item => item.id === 'prior-month').salesFileCumulative, 1);
+  for (const role of ['auditor', 'owner']) {
+    const viewer = user('sales-card-' + role, role, role, 'all');
+    const other = engineFor(viewer, [viewer, sales], [], rows).engine.execute('apiGetDashboard',
+      ['test-jwt', { cardKey: 'sales_director', month: 10, year: 2026 }]);
+    assert.equal(other.ok, true, other.message);
+    assert.equal(other.cardTasks.find(item => item.id === 'on-3').salesFileCumulative, 6, role);
+  }
 });
 
 test('daily Sunday tasks are hidden and a two-working-day deadline skips Sunday', () => {

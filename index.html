@@ -2893,7 +2893,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-27-sales-cumulative-arrival-audit';
+    const CLIENT_CACHE_VERSION = '2026-10-27-sales-card-cumulative-viewers';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -5130,7 +5130,7 @@
     function renderTaskRow(task, index) {
       const detail = renderTaskDetail(task);
       const deadline = renderTaskDeadline(task);
-      const salesFileTotal = state.user && state.user.Role === 'sales_director' &&
+      const salesFileTotal = state.selectedCard === 'sales_director' &&
         task.taskType === 'sales_upload_harian_1_10' && task.status === 'selesai' && task.kpiStatus === 'tepat_waktu' &&
         Number.isInteger(task.salesFileCumulative)
           ? `<br><span class="muted">Akumulasi lampiran sejak awal bulan: ${task.salesFileCumulative} file</span>` : '';

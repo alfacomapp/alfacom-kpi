@@ -630,7 +630,7 @@ function apiGetDashboard(token, filters) {
     }
 
     const selectedCardTasks = selectedCard ? tasksForCard_(dashboardTasks, selectedCard) : [];
-    if (user.Role === 'sales_director' && selectedCardKey === 'sales_director') {
+    if (selectedCardKey === 'sales_director') {
       addSalesMonthlyFileCumulative_(selectedCardTasks, period);
     }
     let detailTasks = selectedCardTasks.slice();
