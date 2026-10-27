@@ -468,6 +468,30 @@ test('arrival report starts a 48-hour auditor task with the reporter proof', () 
   assert.equal(JSON.parse(audit.AttachmentUrlsJson).arrivalProof.length, 1);
 });
 
+test('auditor report cards show the submitted arrival details from both admins', () => {
+  const auditor = user('aud-arrival-card', 'Auditor', 'auditor', 'all');
+  const audits = ['kendari', 'raha'].map(location => ({
+    ...task('audit-arrival-' + location, auditor, 'berjalan'),
+    TaskType: 'audit_barang_tiba', RelatedReportId: 'arrival-report-' + location,
+    PayloadJson: JSON.stringify({ sourceReportId: 'arrival-report-' + location,
+      reporter: 'Admin ' + location, location })
+  }));
+  const { engine, ctx } = engineFor(auditor, [auditor], [], audits);
+  ctx.tables.reports.push(...['kendari', 'raha'].map(location => record({
+    Id: 'arrival-report-' + location, TaskType: 'rincian_barang_tiba',
+    PayloadJson: JSON.stringify({ arrivedSummary: 'Barang tiba dari ' + location + ': 2 dus oli\n1 kotak filter' }),
+    AttachmentUrlsJson: '{}', ReportDate: stamp, CreatedAt: stamp
+  })));
+  const meta = engine.execute('apiGetReportMeta', ['test-jwt']);
+  assert.equal(meta.ok, true, meta.message);
+  for (const location of ['kendari', 'raha']) {
+    const card = meta.openTasks.find(item => item.id === 'audit-arrival-' + location);
+    assert.ok(card, location);
+    assert.match(card.detailText, new RegExp('Rincian barang tiba: Barang tiba dari ' + location + ': 2 dus oli\\n1 kotak filter'));
+    assert.ok(!card.detailText.includes('Barang tiba dari ' + (location === 'kendari' ? 'raha' : 'kendari')));
+  }
+});
+
 test('auditor gets separate Kendari and Raha tasks and finishing one leaves the other open', () => {
   const auditor = user('aud-split', 'Auditor', 'auditor', 'all');
   const { engine, ctx } = engineFor(auditor, [auditor]);
@@ -604,7 +628,7 @@ test('SLA sick attendance pauses the matching KPI roles for four named employees
   }
 });
 
-test('Sales Director file total counts only completed on-time 1-10 file tasks in the chosen month', () => {
+test('Sales Director shows cumulative on-time 1-10 file attachments through each date of the chosen month', () => {
   const sales = user('sales-files', 'Sales Director', 'sales_director', 'sales');
   const file = (id) => ({ id, name: id + '.jpg', mimeType: 'image/jpeg', size: 1 });
   const makeSalesTask = (id, type, status, kpi, started, groups) => ({
@@ -614,18 +638,25 @@ test('Sales Director file total counts only completed on-time 1-10 file tasks in
   });
   const rows = [
     makeSalesTask('on-1', 'sales_upload_harian_1_10', 'selesai', 'tepat_waktu', '2026-10-20T01:00:00Z', { salesFiles: [file('1'), file('2')] }),
-    makeSalesTask('on-2', 'sales_upload_harian_1_10', 'selesai', 'tepat_waktu', '2026-10-21T01:00:00Z', { salesFiles: [file('3')], additionalFiles: [file('4')] }),
+    makeSalesTask('on-2', 'sales_upload_harian_1_10', 'selesai', 'tepat_waktu', '2026-10-21T01:00:00Z', { salesFiles: [file('3')], additionalFiles: [file('4'), file('3')] }),
     makeSalesTask('on-3', 'sales_upload_harian_1_10', 'selesai', 'tepat_waktu', '2026-10-22T01:00:00Z', { salesFiles: [file('5'), file('6')] }),
     makeSalesTask('late', 'sales_upload_harian_1_10', 'selesai', 'meleset', '2026-10-22T01:00:00Z', { salesFiles: [file('7')] }),
+    makeSalesTask('running', 'sales_upload_harian_1_10', 'berjalan', 'berjalan', '2026-10-23T01:00:00Z', { salesFiles: [file('not-submitted')] }),
     makeSalesTask('other', 'sales_upload_harian_10', 'selesai', 'tepat_waktu', '2026-10-22T01:00:00Z', { salesFiles: [file('8')] }),
     makeSalesTask('prior-month', 'sales_upload_harian_1_10', 'selesai', 'tepat_waktu', '2026-09-22T01:00:00Z', { salesFiles: [file('9')] })
   ];
   const { engine } = engineFor(sales, [sales], [], rows);
   const october = engine.execute('apiGetDashboard', ['test-jwt', { cardKey: 'sales_director', month: 10, year: 2026 }]);
   assert.equal(october.ok, true, october.message);
-  assert.equal(october.salesOnTimeFileTotal, 6);
+  const cumulative = Object.fromEntries(october.cardTasks.map(item => [item.id, item.salesFileCumulative]));
+  assert.equal(cumulative['on-1'], 2);
+  assert.equal(cumulative['on-2'], 4);
+  assert.equal(cumulative['on-3'], 6);
+  assert.equal(cumulative.late, undefined);
+  assert.equal(cumulative.running, undefined);
+  assert.equal(cumulative.other, undefined);
   const september = engine.execute('apiGetDashboard', ['test-jwt', { cardKey: 'sales_director', month: 9, year: 2026 }]);
-  assert.equal(september.salesOnTimeFileTotal, 1);
+  assert.equal(september.cardTasks.find(item => item.id === 'prior-month').salesFileCumulative, 1);
 });
 
 test('daily Sunday tasks are hidden and a two-working-day deadline skips Sunday', () => {

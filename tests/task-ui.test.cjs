@@ -63,6 +63,24 @@ test('a user with no report form modules still sees assigned task cards', () => 
   assert.match(app.elements.openTasksList.innerHTML, /Tugas ke-85/);
 });
 
+test('auditor report task card displays the arrival details supplied by an admin', () => {
+  const app = ui();
+  app.state.user = { Id: 'aud', Name: 'Auditor', Role: 'auditor', Location: 'all' };
+  app.state.reportMonth = app.state.reportFormMonth = 10;
+  app.state.reportYear = app.state.reportFormYear = 2026;
+  app.state.reportMeta = { reportTypes: [], openTasks: [{
+    id: 'arrival-audit', referenceNumber: 52, taskType: 'audit_barang_tiba',
+    taskLabel: 'Pemeriksaan Rincian Barang Tiba', title: 'Periksa rincian barang tiba Admin Raha',
+    assigneeRole: 'auditor', assigneeName: 'Auditor', status: 'berjalan',
+    kpiStatus: 'berjalan', kpiLabel: 'Berjalan', startedAt: '2026-10-21T02:00:00Z',
+    detailText: 'Rincian barang tiba: 2 dus oli\n1 kotak filter',
+    timer: { noDeadline: true }, attachments: {}, payload: {}
+  }] };
+  app.renderReportPage();
+  assert.match(app.elements.openTasksList.innerHTML, /Rincian barang tiba: 2 dus oli/);
+  assert.match(app.elements.openTasksList.innerHTML, /1 kotak filter/);
+});
+
 function ui() {
   const activePointers = new Set();
   const stageClasses = new Set();
@@ -176,19 +194,20 @@ test('every task deadline has a visible value even when no deadline is configure
   assert.match(app.taskDeadlineText({ timer: { deadlineAt: '2026-10-12T14:00:00Z' } }), /^Deadline: /);
 });
 
-test('Sales Director task title shows the month file total only on completed on-time 1-10 tasks', () => {
+test('Sales Director task title shows cumulative month files on on-time 1-10 tasks', () => {
   const app = ui();
   app.state.user = { Role: 'sales_director', Name: 'Sales Director' };
-  app.state.dashboard = { canEditTaskStatus: false, salesOnTimeFileTotal: 6 };
+  app.state.dashboard = { canEditTaskStatus: false };
   const base = { id: 'sales-1', taskType: 'sales_upload_harian_1_10', title: 'Upload Harian Sales Director 1-10 File',
     status: 'selesai', kpiStatus: 'tepat_waktu', kpiLabel: 'Tepat Waktu',
     startedAt: '2026-10-22T01:00:00Z', completedAt: '2026-10-22T02:00:00Z',
-    timer: { noDeadline: true }, payload: {}, attachments: {} };
-  assert.match(app.renderTaskRow(base, 0), /Total lampiran 6 file/);
-  assert.doesNotMatch(app.renderTaskRow({ ...base, kpiStatus: 'meleset' }, 0), /Total lampiran/);
-  assert.doesNotMatch(app.renderTaskRow({ ...base, taskType: 'sales_upload_harian_10' }, 0), /Total lampiran/);
+    timer: { noDeadline: true }, payload: {}, attachments: {}, salesFileCumulative: 6 };
+  assert.match(app.renderTaskRow(base, 0), /Akumulasi lampiran sejak awal bulan: 6 file/);
+  assert.doesNotMatch(app.renderTaskRow({ ...base, kpiStatus: 'meleset' }, 0), /Akumulasi lampiran/);
+  assert.doesNotMatch(app.renderTaskRow({ ...base, status: 'berjalan' }, 0), /Akumulasi lampiran/);
+  assert.doesNotMatch(app.renderTaskRow({ ...base, taskType: 'sales_upload_harian_10' }, 0), /Akumulasi lampiran/);
   app.state.user.Role = 'owner';
-  assert.doesNotMatch(app.renderTaskRow(base, 0), /Total lampiran/);
+  assert.doesNotMatch(app.renderTaskRow(base, 0), /Akumulasi lampiran/);
 });
 
 test('canceling a note checkbox prompt keeps the checkbox unchanged', () => {

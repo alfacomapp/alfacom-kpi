@@ -630,14 +630,9 @@ function apiGetDashboard(token, filters) {
     }
 
     const selectedCardTasks = selectedCard ? tasksForCard_(dashboardTasks, selectedCard) : [];
-    const salesOnTimeFileTotal = user.Role === 'sales_director' && selectedCardKey === 'sales_director'
-      ? selectedCardTasks.filter(function(task) {
-          return task.taskType === 'sales_upload_harian_1_10' && task.status === 'selesai' && task.kpiStatus === 'tepat_waktu';
-        }).reduce(function(total, task) {
-          return total + Object.keys(task.attachments || {}).reduce(function(count, field) {
-            return count + (Array.isArray(task.attachments[field]) ? task.attachments[field].length : 0);
-          }, 0);
-        }, 0) : 0;
+    if (user.Role === 'sales_director' && selectedCardKey === 'sales_director') {
+      addSalesMonthlyFileCumulative_(selectedCardTasks, period);
+    }
     let detailTasks = selectedCardTasks.slice();
     if (safeFilters.taskType) {
       detailTasks = detailTasks.filter(function(task) {
@@ -681,7 +676,6 @@ function apiGetDashboard(token, filters) {
       periodOptions: periodOptions,
       cards: cards,
       selectedCard: selectedCardKey,
-      salesOnTimeFileTotal: salesOnTimeFileTotal,
       taskTypes: taskTypes,
       cardTasks: selectedCardTasks.slice().sort(sortTasks_).slice(0, 800),
       tasks: detailTasks.slice(0, 400),
@@ -1110,6 +1104,12 @@ function attachSourceFilesForAuditor_(task, sourceIndex) {
   const sourceReports = [];
   const direct = sourceIndex.byId[task.relatedReportId];
   if (direct) sourceReports.push(direct);
+  if (task.taskType === 'audit_barang_tiba' && direct && direct.TaskType === 'rincian_barang_tiba') {
+    const arrivedSummary = String(parseJsonSafe_(direct.PayloadJson, {}).arrivedSummary || '').trim();
+    if (arrivedSummary && String(task.detailText || '').indexOf('Rincian barang tiba: ' + arrivedSummary) === -1) {
+      task.detailText = [task.detailText, 'Rincian barang tiba: ' + arrivedSummary].filter(Boolean).join('\n');
+    }
+  }
   const knownIds = {};
   Object.keys(task.attachments || {}).forEach(function(field) {
     (task.attachments[field] || []).forEach(function(file) { if (file.id) knownIds[file.id] = true; });
@@ -1843,6 +1843,35 @@ function countTaskMetric_(tasks) {
     meleset: meleset,
     performance: performance
   };
+}
+
+function addSalesMonthlyFileCumulative_(tasks, period) {
+  const submitted = (tasks || []).filter(function(task) {
+    const taskPeriod = taskDashboardPeriod_(task);
+    return task.taskType === 'sales_upload_harian_1_10' && task.status === 'selesai' &&
+      task.kpiStatus === 'tepat_waktu' &&
+      taskPeriod && period && taskPeriod.key === period.key;
+  });
+  const filesByDate = {};
+  submitted.forEach(function(task) {
+    const date = dateKey_(task.startedAt || task.createdAt || task.completedAt);
+    const fileIds = new Set();
+    Object.keys(task.attachments || {}).forEach(function(field) {
+      (task.attachments[field] || []).forEach(function(file) {
+        if (file && file.id) fileIds.add(String(file.id));
+      });
+    });
+    filesByDate[date] = (filesByDate[date] || 0) + fileIds.size;
+  });
+  let cumulative = 0;
+  const totalByDate = {};
+  Object.keys(filesByDate).sort().forEach(function(date) {
+    cumulative += filesByDate[date];
+    totalByDate[date] = cumulative;
+  });
+  submitted.forEach(function(task) {
+    task.salesFileCumulative = totalByDate[dateKey_(task.startedAt || task.createdAt || task.completedAt)] || 0;
+  });
 }
 
 function isNoteTask_(task) {
