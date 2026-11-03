@@ -92,6 +92,39 @@ test('arrival report form requires the IPOS note number immediately after arriva
   assert.match(app.renderField(number), /data-field="iposNotaNumber" type="text" required/);
 });
 
+test('stock opname and technician forms have repeatable photo sections with mandatory fields', () => {
+  const app = ui();
+  app.state.repeatPhotoSeq = 0;
+  for (const type of ['stok_opname_raha', 'stok_opname_auditor']) {
+    const fields = app.REPORT_FORMS[type];
+    assert.equal(fields.find(field => field.field === 'totalNominal').required, true);
+    assert.equal(fields.find(field => field.field === 'stockListPhoto').required, true);
+    assert.equal(fields.find(field => field.field === 'iposStockProof').required, true);
+    assert.match(app.renderField(fields.find(field => field.kind === 'repeatPhotos')), /Tambah barang/);
+  }
+  const technician = app.REPORT_FORMS.audit_alat_teknisi;
+  assert.equal(technician.find(field => field.field === 'technicianTablePhoto').required, true);
+  const item = app.renderField(technician.find(field => field.kind === 'repeatPhotos'));
+  assert.match(item, /Foto fisik barang/);
+  assert.match(item, /data-repeat-description required/);
+});
+
+test('task history shows initial and revised notes with their own files safely', () => {
+  const app = ui();
+  app.state.user = { Role: 'auditor', Location: 'all' };
+  const history = app.renderTaskHistory({ taskType: 'audit_barang_tiba', sourceHistory: [
+    { reportId: 'R1', submittedAt: '2026-10-01T04:00:00Z', reporter: 'Admin Raha',
+      fields: { description: '<awal>' }, attachments: { proof: [{ id: 'F1', name: 'awal.jpg' }] } },
+    { reportId: 'R2', submittedAt: '2026-10-02T04:00:00Z', reporter: 'Admin Raha',
+      fields: { description: 'revisi' }, attachments: { proof: [{ id: 'F2', name: 'revisi.jpg' }] } }
+  ] });
+  assert.match(history, /Riwayat laporan yang diperiksa \(2\)/);
+  assert.match(history, /&lt;awal&gt;/);
+  assert.doesNotMatch(history, /<awal>/);
+  assert.match(history, /awal\.jpg/);
+  assert.match(history, /revisi\.jpg/);
+});
+
 function ui() {
   const activePointers = new Set();
   const stageClasses = new Set();
@@ -173,7 +206,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 

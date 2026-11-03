@@ -1449,6 +1449,11 @@
       max-width: 420px;
     }
 
+    .task-history { margin-top: 7px; font-size: 12px; max-width: 420px; }
+    .task-history summary { cursor: pointer; color: var(--blue); font-weight: 700; }
+    .task-history-entry { margin-top: 7px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: #f8faf9; }
+    .task-history-entry .task-detail { max-width: none; overflow-wrap: anywhere; }
+
     .dashboard-jump {
       display: none;
       min-height: 36px;
@@ -2831,7 +2836,7 @@
     }
     function usesPreparedReportUploads() {
       return (REPORT_FORMS[byId('reportType').value] || []).some(function(field) {
-        return field.kind === 'file' || field.kind === 'auditBankReports' || field.kind === 'shipmentItems' || field.kind === 'investorTasks';
+        return field.kind === 'file' || field.kind === 'auditBankReports' || field.kind === 'shipmentItems' || field.kind === 'investorTasks' || field.kind === 'repeatPhotos';
       });
     }
     const state = {
@@ -2893,7 +2898,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-10-27-arrival-ipos-note-number';
+    const CLIENT_CACHE_VERSION = '2026-11-03-stock-audit-history';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2925,6 +2930,27 @@
         { kind: 'number', field: 'amount', label: 'Nominal kasbon', required: true },
         { kind: 'file', field: 'approvalProof', label: 'Bukti persetujuan pengambilan kasbon di atas limit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
+      ],
+      stok_opname_raha: [
+        { kind: 'file', field: 'stockListPhoto', label: 'Foto daftar barang', required: true, multiple: true, max: 10, accept: 'image/*' },
+        { kind: 'number', field: 'totalNominal', label: 'Jumlah nominal barang (Rp)', required: true },
+        { kind: 'repeatPhotos', itemKind: 'stock', label: 'Nama dan foto barang', full: true },
+        { kind: 'file', field: 'iposStockProof', label: 'Bukti stok opname di IPOS', required: true, multiple: true, max: 10, accept: 'image/*' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan (opsional)', full: true }
+      ],
+      stok_opname_auditor: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas stok opname', required: true, match: ['stok_opname_auditor'], full: true },
+        { kind: 'file', field: 'stockListPhoto', label: 'Foto daftar barang', required: true, multiple: true, max: 10, accept: 'image/*' },
+        { kind: 'number', field: 'totalNominal', label: 'Jumlah nominal barang (Rp)', required: true },
+        { kind: 'repeatPhotos', itemKind: 'stock', label: 'Nama dan foto barang', full: true },
+        { kind: 'file', field: 'iposStockProof', label: 'Bukti stok opname di IPOS', required: true, multiple: true, max: 10, accept: 'image/*' },
+        { kind: 'textarea', field: 'description', label: 'Keterangan (opsional)', full: true }
+      ],
+      audit_alat_teknisi: [
+        { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas audit alat teknisi', required: true, match: ['audit_alat_teknisi'], full: true },
+        { kind: 'file', field: 'technicianTablePhoto', label: 'Foto tabel barang teknisi', required: true, multiple: true, max: 10, accept: 'image/*' },
+        { kind: 'repeatPhotos', itemKind: 'technician', label: 'Foto fisik dan keterangan barang', full: true },
+        { kind: 'textarea', field: 'description', label: 'Keterangan umum (opsional)', full: true }
       ],
       pendapatan_harian: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['pendapatan_harian'], full: true },
@@ -3254,12 +3280,27 @@
         const removeInvestorCheckButton = event.target.closest('[data-remove-investor-check]');
         const addBankCashButton = event.target.closest('[data-add-bank-cash]');
         const removeBankCashButton = event.target.closest('[data-remove-bank-cash]');
+        const addRepeatPhotoButton = event.target.closest('[data-add-repeat-photo]');
+        const removeRepeatPhotoButton = event.target.closest('[data-remove-repeat-photo]');
         if (addBankCashButton) {
           document.querySelector('[data-bank-cash-list]').insertAdjacentHTML('beforeend', renderBankCashRow('', true));
           updateBankCashTotal();
         } else if (removeBankCashButton) {
           removeBankCashButton.closest('[data-bank-cash-row]').remove();
           updateBankCashTotal();
+        } else if (addRepeatPhotoButton) {
+          const root = addRepeatPhotoButton.closest('[data-repeat-photos]');
+          if (root.querySelectorAll('[data-repeat-photo-row]').length < 30) {
+            root.querySelector('[data-repeat-photo-list]').insertAdjacentHTML('beforeend', renderRepeatPhotoRow(root.dataset.repeatPhotos));
+            renumberRepeatPhotoRows(root);
+          }
+        } else if (removeRepeatPhotoButton) {
+          const root = removeRepeatPhotoButton.closest('[data-repeat-photos]');
+          if (root.querySelectorAll('[data-repeat-photo-row]').length > 1) {
+            removeRepeatPhotoButton.closest('[data-repeat-photo-row]').remove();
+            renumberRepeatPhotoRows(root);
+            refreshBankUploadPreparation();
+          }
         } else if (addInvestorCheckButton) {
           document.querySelector('[data-investor-check-list]').insertAdjacentHTML('beforeend', renderInvestorCheckRow());
           updateInvestorCheckOptions();
@@ -5158,6 +5199,7 @@
                 <span class="muted">${escapeHtml(task.title || task.taskLabel)}</span>${salesFileTotal}
                 ${deadline}
                 ${detail}
+                ${renderTaskHistory(task)}
               </div>
             </div>
           </td>
@@ -5187,6 +5229,51 @@
         ? 'Total kas bank: ' + formatRupiah(task.payload.bankCashTotal) : '';
       const detail = [text, cashTotal].filter(Boolean).join('\n');
       return detail ? `<div class="task-detail">${escapeHtml(detail)}</div>` : '';
+    }
+
+    function taskHistoryText(entry) {
+      const fields = entry && entry.fields || {};
+      const lines = [];
+      if (fields.bankName) lines.push('Bank: ' + fields.bankName.replace(/_/g, ' '));
+      if (fields.amount) lines.push('Nominal: ' + formatRupiah(fields.amount));
+      if (fields.totalNominal) lines.push('Jumlah nominal barang: ' + formatRupiah(fields.totalNominal));
+      if (fields.arrivedSummary) lines.push('Rincian barang tiba: ' + fields.arrivedSummary);
+      if (fields.iposNotaNumber) lines.push('Nomor nota IPOS: ' + fields.iposNotaNumber);
+      if (fields.auditStatus) lines.push('Status: ' + fields.auditStatus);
+      (fields.stockItems || []).forEach(function(item, index) {
+        lines.push('Barang ' + (index + 1) + ': ' + item.name + (item.description ? ' — ' + item.description : ''));
+      });
+      (fields.technicianItems || []).forEach(function(item, index) {
+        lines.push('Barang teknisi ' + (index + 1) + ': ' + item.name + (item.description ? ' — ' + item.description : ''));
+      });
+      (fields.auditBanks || []).forEach(function(item) {
+        lines.push('Bank ' + item.bankName + ': ' + item.auditStatus + (item.description ? ' — ' + item.description : ''));
+      });
+      (fields.investorSubmissions || []).forEach(function(item) {
+        lines.push(item.checkId.replace(/_/g, ' ') + ': ' + item.auditStatus + (item.description ? ' — ' + item.description : ''));
+      });
+      if (fields.description) lines.push('Keterangan: ' + fields.description);
+      return lines.join('\n');
+    }
+
+    function renderTaskHistory(task) {
+      const own = task && task.submissionHistory || [];
+      const source = task && task.sourceHistory || [];
+      const entries = source.length ? source : own;
+      if (!entries.length) return '';
+      const title = source.length ? 'Riwayat laporan yang diperiksa' : 'Riwayat setoran dan perubahan';
+      return `<details class="task-history"><summary>${escapeHtml(title)} (${entries.length})</summary>
+        ${entries.map(function(entry, index) {
+          const text = taskHistoryText(entry);
+          const files = flattenAttachmentFiles(entry.attachments || {});
+          return `<div class="task-history-entry"><strong>${entry.changeType === 'file_tambahan' ? 'File tambahan' : (index ? 'Setoran / revisi ' + (index + 1) : 'Laporan awal')}</strong>
+            <div>${escapeHtml(entry.reporter || '-')} · ${escapeHtml(formatDate(entry.submittedAt))}</div>
+            ${text ? `<div class="task-detail">${escapeHtml(text)}</div>` : ''}
+            ${files.length ? renderAttachmentDisclosureFromFiles(files, { label: 'File setoran ini',
+              textOnly: isOwnerOnlyTaskFile(task) && !isCurrentUserOwner() }) : ''}
+          </div>`;
+        }).join('')}
+      </details>`;
     }
 
     function formatRupiah(value) {
@@ -5464,6 +5551,7 @@
             <span>${escapeHtml(task.taskLabel)}</span>
             ${deadline}
             ${detail}
+            ${renderTaskHistory(task)}
             <div class="task-chip-attachments"><span class="muted">Lampiran</span>${attachments}</div>
             <div class="inline-actions">
               <span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.displayKpiLabel || task.kpiLabel)}</span>
@@ -5518,6 +5606,7 @@
       state.shipmentSupplierSeq = 0;
       state.auditBankSeq = 0;
       state.investorCheckSeq = 0;
+      state.repeatPhotoSeq = 0;
       byId('dynamicReportFields').innerHTML = config.map(renderField).join('') + (usesPreparedReportUploads() ? '<div class="field full"><div class="file-hint" data-bank-upload-status role="status" aria-live="polite">' + preparedUploadLimitText() + ' File besar dikompresi otomatis sebelum dikirim. Periksa pratinjau hasil kompresi.</div></div>' : '');
       Array.prototype.forEach.call(document.querySelectorAll('[data-default-date]'), function(input) {
         if (!input.value) {
@@ -5525,6 +5614,7 @@
         }
       });
       renumberShipmentItems();
+      document.querySelectorAll('[data-repeat-photos]').forEach(renumberRepeatPhotoRows);
       updateShipmentReceipt(false);
       updateAuditBankOptions();
       updateInvestorCheckOptions();
@@ -5618,6 +5708,29 @@
           <div class="field full"><label>Keterangan tugas ini</label><textarea data-investor-description></textarea></div>
         </div>
       </section>`;
+    }
+
+    function renderRepeatPhotoRow(kind) {
+      const key = String(++state.repeatPhotoSeq);
+      const technician = kind === 'technician';
+      const fileField = (technician ? 'technicianItemPhoto_' : 'stockItemPhoto_') + key;
+      return `<section class="audit-bank-row" data-repeat-photo-row>
+        <div class="audit-bank-head"><strong data-repeat-photo-title>Barang</strong><button type="button" class="btn btn-ghost btn-mini" data-remove-repeat-photo>Hapus</button></div>
+        <div class="audit-bank-grid">
+          <div class="field full"><label>Nama barang *</label><input data-repeat-name type="text" maxlength="200" required></div>
+          ${renderField({ kind: 'file', field: fileField, label: technician ? 'Foto fisik barang' : 'Foto barang', required: true, accept: 'image/*' })}
+          ${technician ? '<div class="field full"><label>Keterangan barang *</label><textarea data-repeat-description required></textarea></div>' : ''}
+        </div>
+      </section>`;
+    }
+
+    function renumberRepeatPhotoRows(root) {
+      const rows = Array.prototype.slice.call(root.querySelectorAll('[data-repeat-photo-row]'));
+      rows.forEach(function(row, index) {
+        row.querySelector('[data-repeat-photo-title]').textContent = 'Barang ' + (index + 1);
+        row.querySelector('[data-remove-repeat-photo]').disabled = rows.length <= 1;
+      });
+      root.querySelector('[data-add-repeat-photo]').disabled = rows.length >= 30;
     }
 
     function renderAuditBankRow() {
@@ -5719,6 +5832,13 @@
           <small>Pilih 1 sampai 5 bank. Tiap bank memerlukan status dan bukti sendiri; waktu tugas berhenti setelah kelimanya terkirim.</small>
           <div class="audit-bank-list" data-audit-bank-list>${renderAuditBankRow()}</div>
           <div class="shipment-add-row"><button class="btn btn-ghost shipment-add-button" type="button" data-add-audit-bank>+ Tambah bank</button></div>
+        </div>`;
+      }
+      if (field.kind === 'repeatPhotos') {
+        return `<div class="field full audit-bank-field" data-repeat-photos="${escapeAttr(field.itemKind)}">
+          <label>${escapeHtml(field.label)} *</label>
+          <div class="audit-bank-list" data-repeat-photo-list>${renderRepeatPhotoRow(field.itemKind)}</div>
+          <div class="shipment-add-row"><button class="btn btn-ghost shipment-add-button" type="button" data-add-repeat-photo>+ Tambah barang</button></div>
         </div>`;
       }
       if (field.kind === 'investorTasks') {
@@ -5980,6 +6100,19 @@
           return { checkId: checkId, auditStatus: status, description: row.querySelector('[data-investor-description]').value.trim() };
         });
       }
+      if (['stok_opname_raha', 'stok_opname_auditor', 'audit_alat_teknisi'].includes(type)) {
+        const kind = type === 'audit_alat_teknisi' ? 'technician' : 'stock';
+        const items = Array.prototype.slice.call(document.querySelectorAll('[data-repeat-photo-row]')).map(function(row, index) {
+          const name = row.querySelector('[data-repeat-name]').value.trim();
+          const description = row.querySelector('[data-repeat-description]');
+          const input = row.querySelector('[data-file-field]');
+          if (!name) throw new Error('Nama barang nomor ' + (index + 1) + ' wajib diisi.');
+          if (!input.files.length) throw new Error('Foto barang nomor ' + (index + 1) + ' wajib diupload.');
+          if (description && !description.value.trim()) throw new Error('Keterangan barang nomor ' + (index + 1) + ' wajib diisi.');
+          return { name: name, description: description ? description.value.trim() : '', fileField: input.dataset.fileField };
+        });
+        fields[kind === 'technician' ? 'technicianItems' : 'stockItems'] = items;
+      }
       if (document.querySelector('[data-shipment-items-root]')) {
         fields.shipmentItems = collectShipmentItems();
       }
@@ -6023,6 +6156,10 @@
       }
       if (type === 'input_pengiriman' && /^shipment(Item|Supplier)Files_\d+$/.test(String(fieldName || ''))) {
         return { field: fieldName, label: 'Lampiran pengiriman', multiple: false, max: 1, accept: 'image/*,application/pdf' };
+      }
+      if (['stok_opname_raha', 'stok_opname_auditor'].includes(type) && /^stockItemPhoto_[1-9]\d*$/.test(String(fieldName || '')) ||
+          type === 'audit_alat_teknisi' && /^technicianItemPhoto_[1-9]\d*$/.test(String(fieldName || ''))) {
+        return { field: fieldName, label: 'Foto barang', multiple: false, max: 1, maxTotalMb: 10, accept: 'image/*' };
       }
       return (REPORT_FORMS[type] || []).find(function(field) {
         return field.field === fieldName;

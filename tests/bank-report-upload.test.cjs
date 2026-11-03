@@ -111,7 +111,8 @@ test('scheduled weekly tasks require five banks before the first report and reta
   const payload=JSON.parse(task.PayloadJson);
   assert.deepEqual(payload.requiredBankKeys,['bri_kendari','bri_raha','mandiri','bank_sultra','aladin_syariah']);
   const closed=engine([{id:task.Id,revision:1,seq:2,record:{...task,Status:'selesai'}}]);
-  const dashboard=closed.execute('apiGetDashboard',['test.jwt.token',{month:10,year:2026}]);
+  const taskDate=new Date(new Date(task.StartedAt).getTime()+8*60*60*1000);
+  const dashboard=closed.execute('apiGetDashboard',['test.jwt.token',{month:taskDate.getUTCMonth()+1,year:taskDate.getUTCFullYear()}]);
   assert.match(dashboard.tasks.find(item=>item.id===task.Id).detailText,/0\/5/);
 });
 test('partial Storage failure cleans only new objects before any report is saved', async () => {

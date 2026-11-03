@@ -160,6 +160,15 @@ const REPORT_TYPES = {
     timeLimitHours: 0,
     excludeFromKpi: true
   },
+  stok_opname_raha: {
+    label: 'Stok Opname', roles: ['admin_raha'], timeLimitHours: 0, excludeFromKpi: true
+  },
+  stok_opname_auditor: {
+    label: 'Stok Opname', roles: ['auditor'], timeLimitHours: 24, deadlineHour: 23, deadlineMinute: 59
+  },
+  audit_alat_teknisi: {
+    label: 'Audit Alat-Alat Teknisi', roles: ['auditor'], timeLimitHours: 24, deadlineHour: 23, deadlineMinute: 59
+  },
   pendapatan_harian: {
     label: 'Pendapatan Harian',
     roles: ['admin_kendari', 'admin_raha'],
@@ -311,6 +320,9 @@ const INVESTOR_CHECK_LABELS = {
 
 const REPORT_FILE_LIMITS = {
   kasbon_di_atas_limit: { approvalProof: [10, 10] },
+  stok_opname_raha: { stockListPhoto: [10, 10], iposStockProof: [10, 10] },
+  stok_opname_auditor: { stockListPhoto: [10, 10], iposStockProof: [10, 10] },
+  audit_alat_teknisi: { technicianTablePhoto: [10, 10] },
   pendapatan_harian: { physicalCash: [10, 10], cashierState: [10, 10], notaAttachments: [10, 10], bankProof: [1, 10] },
   bukti_storan_bank: { bankProof: [1, 8] },
   laporan_akun_bank: { bankAccountProof: [50, 10], bankStatement: [50, 10] },
@@ -341,7 +353,7 @@ const PERIOD_REPORT_TASK_TYPES = new Set([
   'pendapatan_harian', 'laporan_akun_bank', 'laporan_keadaan_kas_bank',
   'laporan_saldo_bank_jago', 'rekap_storan_setengah_bulan',
   'sales_upload_harian_10', 'sales_upload_harian_1_10', 'audit_bank_jago',
-  'laporan_investor', 'laporan_raport_fee_freelance'
+  'laporan_investor', 'laporan_raport_fee_freelance', 'stok_opname_auditor', 'audit_alat_teknisi'
 ]);
 
 function doGet() {
@@ -584,7 +596,10 @@ function apiGetSession(token) {
 function apiGetDashboard(token, filters) {
   try {
     const user = requireUser_(token);
-    if (user.Role === 'auditor') ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
+    if (user.Role === 'auditor') {
+      ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
+      ensureAuditorInventoryTasks_(new Date(), readObjects_('tasks'), readObjects_('users'), { Id: 'system', Name: 'System' });
+    }
 
     const safeFilters = filters || {};
     const period = normalizeDashboardPeriod_(safeFilters);
@@ -610,8 +625,18 @@ function apiGetDashboard(token, filters) {
       return isTaskInDashboardPeriod_(task, period);
     });
     const attendanceMap = periodTasks.length ? getAttendanceMap_() : {};
+    const reportIndex = indexAuditSourceReports_(readObjects_('reports'));
     const dashboardTasks = periodTasks.map(function(task) {
       const enriched = cashBankTaskForViewer_(enrichTask_(task, now, attendanceMap), user);
+      enriched.submissionHistory = submissionHistoryForTask_(task, reportIndex);
+      if (task.TaskType === 'laporan_keadaan_kas_bank' && user.Role !== 'admin_kendari') {
+        enriched.submissionHistory = enriched.submissionHistory.map(function(entry) {
+          const fields = Object.assign({}, entry.fields || {});
+          delete fields.bankCashEntries;
+          delete fields.bankCashTotal;
+          return Object.assign({}, entry, { fields: fields });
+        });
+      }
       enriched.canAddAttachments = canUserAppendTaskFiles_(user, task, enriched);
       return enriched;
     });
@@ -1056,15 +1081,21 @@ function truncateText_(value, maxLength) {
 function apiGetReportMeta(token) {
   try {
     const user = requireUser_(token);
-    if (user.Role === 'auditor') ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
+    if (user.Role === 'auditor') {
+      ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
+      ensureAuditorInventoryTasks_(new Date(), readObjects_('tasks'), readObjects_('users'), { Id: 'system', Name: 'System' });
+    }
 
     const now = new Date();
     const attendanceMap = getAttendanceMap_();
-    const sourceIndex = user.Role === 'auditor' ? indexAuditSourceReports_(readObjects_('reports')) : null;
-    const openTasks = readObjects_('tasks')
+    const reportIndex = indexAuditSourceReports_(readObjects_('reports'));
+    const taskRows = readObjects_('tasks');
+    reportIndex.tasksById = Object.fromEntries(taskRows.map(function(task) { return [task.Id, task]; }));
+    const openTasks = taskRows
       .map(function(task) {
         const enriched = enrichTask_(task, now, attendanceMap);
-        return sourceIndex ? attachSourceFilesForAuditor_(enriched, sourceIndex) : enriched;
+        enriched.submissionHistory = submissionHistoryForTask_(task, reportIndex);
+        return user.Role === 'auditor' ? attachSourceFilesForAuditor_(enriched, reportIndex) : enriched;
       })
       .filter(function(task) {
         return task.status === 'berjalan' && !isDeprecatedTaskForKpi_(task) && isReportTaskAssignedToUser_(user, task);
@@ -1092,11 +1123,52 @@ function apiGetReportMeta(token) {
 }
 
 function indexAuditSourceReports_(reports) {
-  const index = { byId: {} };
+  const index = { byId: {}, byTaskId: {}, reports: reports || [] };
   (reports || []).forEach(function(report) {
     if (report.Id) index.byId[report.Id] = report;
+    const taskId = String(parseJsonSafe_(report.PayloadJson, {}).relatedTaskId || '');
+    if (taskId) (index.byTaskId[taskId] ||= []).push(report);
   });
   return index;
+}
+
+function submissionHistoryForTask_(task, reportIndex) {
+  const payload = parseJsonSafe_(task.PayloadJson, {});
+  const entries = Array.isArray(payload.submissionHistory) ? payload.submissionHistory.slice() : [];
+  const known = new Set(entries.map(function(entry) { return String(entry.reportId || ''); }));
+  const addReport = function(report) {
+    if (!report || report.TaskType !== task.TaskType || known.has(String(report.Id || ''))) return;
+    known.add(String(report.Id || ''));
+    entries.push({ reportId: report.Id, submittedAt: toIso_(report.CreatedAt),
+      reporter: String(report.ReporterName || ''), fields: parseJsonSafe_(report.PayloadJson, {}),
+      attachments: attachmentMetadataGroups_(parseJsonSafe_(report.AttachmentUrlsJson, {})) });
+  };
+  if (reportIndex) {
+    (reportIndex.byTaskId[task.Id] || []).forEach(addReport);
+    addReport(reportIndex.byId[task.RelatedReportId]);
+    addReport(reportIndex.byId[payload.completingReportId]);
+    Object.keys(payload.bankReports || {}).forEach(function(key) {
+      addReport(reportIndex.byId[payload.bankReports[key] && payload.bankReports[key].reportId]);
+    });
+  }
+  return entries.sort(function(a, b) {
+    return Date.parse(a.submittedAt || '') - Date.parse(b.submittedAt || '') ||
+      String(a.reportId || '').localeCompare(String(b.reportId || ''));
+  });
+}
+
+function mergedAttachmentGroups_(previous, added) {
+  const merged = Object.assign({}, previous || {});
+  Object.keys(added || {}).forEach(function(field) {
+    const seen = new Set((merged[field] || []).map(function(file) { return String(file.id || ''); }));
+    merged[field] = (merged[field] || []).concat((added[field] || []).filter(function(file) {
+      const id = String(file.id || '');
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    }));
+  });
+  return merged;
 }
 
 function attachSourceFilesForAuditor_(task, sourceIndex) {
@@ -1104,6 +1176,40 @@ function attachSourceFilesForAuditor_(task, sourceIndex) {
   const sourceReports = [];
   const direct = sourceIndex.byId[task.relatedReportId];
   if (direct) sourceReports.push(direct);
+  if (task.taskType === 'stok_opname_auditor') {
+    (sourceIndex.reports || []).forEach(function(report) {
+      if (report.TaskType === 'stok_opname_raha' && dateKey_(report.CreatedAt) === dateKey_(task.startedAt))
+        sourceReports.push(report);
+    });
+    task.sourceHistory = sourceReports.map(function(report) {
+      return { reportId: report.Id, submittedAt: toIso_(report.CreatedAt), reporter: report.ReporterName,
+        fields: parseJsonSafe_(report.PayloadJson, {}),
+        attachments: attachmentMetadataGroups_(parseJsonSafe_(report.AttachmentUrlsJson, {})) };
+    });
+  }
+  const sourceTaskId = String(task.payload && task.payload.sourceTaskId || '');
+  const sourceTask = sourceIndex.tasksById && sourceIndex.tasksById[sourceTaskId];
+  if (sourceTask) {
+    const history = submissionHistoryForTask_(sourceTask, sourceIndex);
+    task.sourceHistory = history;
+    const sourceDescriptions = reportDescriptionLines_({
+      shipmentItems: parseJsonSafe_(sourceTask.PayloadJson, {}).shipmentItems
+    });
+    if (sourceDescriptions.length) task.detailText = [task.detailText,
+      sourceDescriptions.map(function(line) { return 'Keterangan pengiriman: ' + line; }).join('\n')].filter(Boolean).join('\n');
+    history.forEach(function(entry) {
+      const sourceReport = sourceIndex.byId[entry.reportId];
+      if (sourceReport && !sourceReports.some(function(row) { return row.Id === sourceReport.Id; })) sourceReports.push(sourceReport);
+    });
+  }
+  const sourceDescriptions = sourceReports.sort(function(a, b) {
+    return Date.parse(a.CreatedAt || '') - Date.parse(b.CreatedAt || '');
+  }).flatMap(function(report) {
+    return reportDescriptionLines_(parseJsonSafe_(report.PayloadJson, {})).map(function(line) {
+      return 'Keterangan pelapor: ' + line + ' (' + String(report.ReporterName || '-') + ', ' + dateKey_(report.CreatedAt) + ')';
+    });
+  });
+  if (sourceDescriptions.length) task.detailText = [task.detailText, sourceDescriptions.join('\n')].filter(Boolean).join('\n');
   if (task.taskType === 'audit_barang_tiba' && direct && direct.TaskType === 'rincian_barang_tiba') {
     const reportFields = parseJsonSafe_(direct.PayloadJson, {});
     const arrivedSummary = String(reportFields.arrivedSummary || '').trim();
@@ -1133,6 +1239,19 @@ function attachSourceFilesForAuditor_(task, sourceIndex) {
   return task;
 }
 
+function reportDescriptionLines_(fields) {
+  const lines = [];
+  const add = function(value) {
+    const text = String(value || '').trim();
+    if (text && lines.indexOf(text) === -1) lines.push(text);
+  };
+  add(fields.description);
+  ['shipmentItems', 'stockItems', 'technicianItems', 'auditBanks', 'investorSubmissions'].forEach(function(key) {
+    (Array.isArray(fields[key]) ? fields[key] : []).forEach(function(item) { add(item && item.description); });
+  });
+  return lines;
+}
+
 function apiSubmitReport(token, request) {
   try {
     const user = requireUser_(token);
@@ -1154,7 +1273,7 @@ function apiSubmitReport(token, request) {
     const savedFiles = saveUploadedFileGroups_(files, type);
     const reportId = makeId_('RPT');
     const now = new Date();
-    const amount = Number(fields.amount || 0);
+    const amount = Number(fields.amount || fields.totalNominal || 0);
 
     const report = {
       Id: reportId,
@@ -1221,7 +1340,14 @@ function apiAddTaskAttachments(token, taskId, files) {
       const attachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
       attachments.additionalFiles = (Array.isArray(attachments.additionalFiles) ? attachments.additionalFiles : []).concat(added);
       row.AttachmentUrlsJson = JSON.stringify(attachments);
-      row.UpdatedAt = new Date();
+      const now = new Date();
+      const payload = parseJsonSafe_(row.PayloadJson, {});
+      const history = submissionHistoryForTask_(row, indexAuditSourceReports_(readObjects_('reports')));
+      history.push({ reportId: '', submittedAt: toIso_(now), reporter: user.Name,
+        changeType: 'file_tambahan', fields: {}, attachments: attachmentMetadataGroups_({ additionalFiles: added }) });
+      payload.submissionHistory = history;
+      row.PayloadJson = JSON.stringify(payload);
+      row.UpdatedAt = now;
       return row;
     });
     touchDataVersion_();
@@ -2061,6 +2187,8 @@ function enrichTask_(task, now, attendanceMap) {
   let kpiStatus = normalizeKpiStatus_(task.KpiStatus || 'berjalan');
   const status = String(task.Status || 'berjalan');
   const payload = parseJsonSafe_(task.PayloadJson, {});
+  const displayPayload = Object.assign({}, payload);
+  delete displayPayload.submissionHistory;
   const excludedFromKpi = !activeRevision_(payload) && Boolean(payload.excludeFromKpi || (REPORT_TYPES[type] && REPORT_TYPES[type].excludeFromKpi));
   const timer = buildTaskTimer_(task, now, attendanceMap);
   if (!excludedFromKpi && status === 'berjalan') {
@@ -2105,7 +2233,7 @@ function enrichTask_(task, now, attendanceMap) {
     periodKey: String(task.PeriodKey || ''),
     detailText: buildTaskDetailText_(task, payload),
     timer: timer,
-    payload: payload,
+    payload: displayPayload,
     attachments: attachmentMetadataGroups_(parseJsonSafe_(task.AttachmentUrlsJson, {}))
   };
 }
@@ -2151,6 +2279,13 @@ function buildTaskDetailText_(task, payload) {
   if (detail.description) {
     parts.push('Keterangan: ' + detail.description);
   }
+  if (detail.totalNominal) parts.push('Jumlah nominal barang: Rp' + Number(detail.totalNominal).toLocaleString('id-ID'));
+  (detail.stockItems || []).forEach(function(item, index) {
+    parts.push('Barang ' + (index + 1) + ': ' + item.name + (item.description ? ' — ' + item.description : ''));
+  });
+  (detail.technicianItems || []).forEach(function(item, index) {
+    parts.push('Barang teknisi ' + (index + 1) + ': ' + item.name + (item.description ? ' — ' + item.description : ''));
+  });
   if (detail.auditStatus) {
     parts.push('Status audit: ' + detail.auditStatus);
   }
@@ -2282,7 +2417,8 @@ function isReportTaskAssignedToUser_(user, task) {
 function getReportTypesForUser_(user) {
   return Object.keys(REPORT_TYPES)
     .filter(function(type) {
-      return REPORT_TYPES[type].roles.indexOf(user.Role) !== -1;
+      return REPORT_TYPES[type].roles.indexOf(user.Role) !== -1 &&
+        (type !== 'stok_opname_raha' || getUserLocation_(user) === 'raha');
     })
     .map(function(type) {
       return {
@@ -2293,7 +2429,8 @@ function getReportTypesForUser_(user) {
 }
 
 function ensureReportPermission_(user, type) {
-  if (REPORT_TYPES[type].roles.indexOf(user.Role) === -1) {
+  if (REPORT_TYPES[type].roles.indexOf(user.Role) === -1 ||
+      (type === 'stok_opname_raha' && getUserLocation_(user) !== 'raha')) {
     throw new Error('Role Anda tidak memiliki akses untuk laporan ini.');
   }
 }
@@ -2341,6 +2478,27 @@ function validateReportPayload_(user, type, fields, files) {
     }
     requireNumber_(fields.amount, 'Nominal kasbon wajib diisi.');
     requireFile_(files, 'approvalProof', 'Bukti persetujuan pengambilan kasbon di atas limit wajib diupload.');
+    return;
+  }
+
+  if (type === 'stok_opname_raha' || type === 'stok_opname_auditor') {
+    if (type === 'stok_opname_raha' && getUserLocation_(user) !== 'raha')
+      throw new Error('Stok opname Admin Raha hanya untuk lokasi Raha.');
+    if (type === 'stok_opname_auditor') openReportTask_(user, fields.relatedTaskId, type);
+    const totalNominal = Number(fields.totalNominal);
+    if (!Number.isSafeInteger(totalNominal) || totalNominal <= 0)
+      throw new Error('Jumlah nominal barang wajib diisi dalam rupiah yang valid.');
+    fields.totalNominal = totalNominal;
+    requireFile_(files, 'stockListPhoto', 'Foto daftar barang wajib diupload.');
+    requireFile_(files, 'iposStockProof', 'Bukti stok opname di IPOS wajib diupload.');
+    validateRepeatedPhotoItems_(fields, files, 'stockItems', 'stockItemPhoto_', 'Nama barang', false);
+    return;
+  }
+
+  if (type === 'audit_alat_teknisi') {
+    openReportTask_(user, fields.relatedTaskId, type);
+    requireFile_(files, 'technicianTablePhoto', 'Foto tabel barang teknisi wajib diupload.');
+    validateRepeatedPhotoItems_(fields, files, 'technicianItems', 'technicianItemPhoto_', 'Nama barang', true);
     return;
   }
 
@@ -2503,7 +2661,7 @@ function validateReportPayload_(user, type, fields, files) {
     return;
   }
 
-  if (type.indexOf('audit_') === 0) {
+  if (type.indexOf('audit_') === 0 && type !== 'audit_alat_teknisi') {
     if (type === 'audit_revisi') {
       const reviewTask = openReportTask_(user, fields.relatedTaskId, type);
       const reviewPayload = parseJsonSafe_(reviewTask.PayloadJson, {});
@@ -2619,10 +2777,47 @@ function validateReportPayload_(user, type, fields, files) {
   }
 }
 
+function validateRepeatedPhotoItems_(fields, files, key, prefix, nameLabel, descriptionRequired) {
+  const items = fields[key];
+  if (!Array.isArray(items) || !items.length || items.length > 30)
+    throw new Error('Isi 1 sampai 30 barang.');
+  const seen = new Set();
+  fields[key] = items.map(function(item, index) {
+    const name = String(item && item.name || '').trim().slice(0, 200);
+    const description = String(item && item.description || '').trim().slice(0, 2000);
+    const fileField = String(item && item.fileField || '');
+    requireText_(name, nameLabel + ' nomor ' + (index + 1) + ' wajib diisi.');
+    if (descriptionRequired) requireText_(description, 'Keterangan barang nomor ' + (index + 1) + ' wajib diisi.');
+    if (!new RegExp('^' + prefix + '[1-9]\\d*$').test(fileField) || seen.has(fileField))
+      throw new Error('Kolom foto barang tidak valid atau berulang.');
+    requireFile_(files, fileField, 'Foto barang nomor ' + (index + 1) + ' wajib diupload.');
+    seen.add(fileField);
+    return { name: name, description: description, fileField: fileField };
+  });
+  Object.keys(files || {}).forEach(function(field) {
+    if (field.startsWith(prefix) && (files[field] || []).length && !seen.has(field))
+      throw new Error('Foto barang tidak sesuai dengan rincian barang.');
+  });
+}
+
 function processReportTasks_(user, report, fields, savedFiles) {
   const type = report.TaskType;
   const results = [];
   const now = parseDate_(report.CreatedAt);
+
+  if (type === 'stok_opname_raha') {
+    results.push(createTask_({
+      taskType: type, title: REPORT_TYPES[type].label,
+      assigneeRole: user.Role, assigneeLocation: 'raha', assigneeName: user.Name,
+      relatedReportId: report.Id, timeLimitHours: 0, startedAt: now, createdBy: user,
+      payload: Object.assign({}, fields, { excludeFromKpi: true, noDeadline: true }),
+      attachments: savedFiles, completeNow: true
+    }));
+  }
+
+  if (type === 'stok_opname_auditor' || type === 'audit_alat_teknisi') {
+    results.push(completeTaskFromReport_(fields.relatedTaskId, user, report, savedFiles));
+  }
 
   if (type === 'kasbon_di_atas_limit') {
     const selectedRevisionTaskId = String(fields.relatedTaskId || '');
@@ -2869,8 +3064,10 @@ function processReportTasks_(user, report, fields, savedFiles) {
         row.StartedAt = now;
         row.Status = 'berjalan';
         row.KpiStatus = 'berjalan';
-        row.PayloadJson = JSON.stringify(reviewPayload);
-        row.AttachmentUrlsJson = JSON.stringify(savedFiles);
+        row.PayloadJson = JSON.stringify(Object.assign({}, reviewPayload, {
+          submissionHistory: submissionHistoryForTask_(row, indexAuditSourceReports_(readObjects_('reports')))
+        }));
+        row.AttachmentUrlsJson = JSON.stringify(mergedAttachmentGroups_(parseJsonSafe_(row.AttachmentUrlsJson, {}), savedFiles));
         row.CompletedAt = '';
         row.CompletedBy = '';
         row.UpdatedAt = now;
@@ -2889,7 +3086,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
     }
   }
 
-  if (type.indexOf('audit_') === 0) {
+  if (type.indexOf('audit_') === 0 && type !== 'audit_alat_teknisi') {
     if (type === 'audit_revisi') {
       const reviewTask = openReportTask_(user, fields.relatedTaskId, 'audit_revisi');
       const review = parseJsonSafe_(reviewTask.PayloadJson, {});
@@ -2988,13 +3185,14 @@ function createSourceAuditTask_(taskType, user, report, sourceFiles, startedAt, 
   if (previousAudit) {
     updateObjectById_('tasks', previousAudit.Id, function(row) {
       if (String(row.Status || '') !== 'selesai') throw new Error('Pemeriksaan sebelumnya masih berjalan.');
+      const previousHistory = submissionHistoryForTask_(row, indexAuditSourceReports_(readObjects_('reports')));
       row.Title = taskTitle;
       row.RelatedReportId = report.Id;
       row.StartedAt = startedAt;
       row.Status = 'berjalan';
       row.KpiStatus = 'berjalan';
-      row.PayloadJson = JSON.stringify(payload);
-      row.AttachmentUrlsJson = JSON.stringify(sourceFiles);
+      row.PayloadJson = JSON.stringify(Object.assign({}, payload, { submissionHistory: previousHistory }));
+      row.AttachmentUrlsJson = JSON.stringify(mergedAttachmentGroups_(parseJsonSafe_(row.AttachmentUrlsJson, {}), sourceFiles));
       row.CompletedAt = '';
       row.CompletedBy = '';
       row.UpdatedAt = startedAt;
@@ -3050,6 +3248,11 @@ function createTask_(options) {
   };
 
   if (options.completeNow) {
+    if (options.relatedReportId) {
+      const reportIndex = indexAuditSourceReports_(readObjects_('reports'));
+      payload.submissionHistory = submissionHistoryForTask_(task, reportIndex);
+      task.PayloadJson = JSON.stringify(payload);
+    }
     const status = payload.excludeFromKpi ? 'tepat_waktu' : calculateKpiStatus_(task, now);
     task.Status = 'selesai';
     task.KpiStatus = status;
@@ -3084,15 +3287,17 @@ function completeTaskFromReport_(taskId, user, report, savedFiles) {
   let result;
   updateObjectById_('tasks', id, function(row) {
     const previousAttachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
-    const nextAttachments = Object.assign({}, previousAttachments, savedFiles || {});
+    const nextAttachments = mergedAttachmentGroups_(previousAttachments, savedFiles || {});
     const previousPayload = parseJsonSafe_(row.PayloadJson, {});
     const reportPayload = parseJsonSafe_(report.PayloadJson, {});
+    const submissionHistory = submissionHistoryForTask_(row, indexAuditSourceReports_(readObjects_('reports')));
     row.Status = 'selesai';
     row.KpiStatus = calculateKpiStatus_(row, now);
     row.RelatedReportId = report.Id || row.RelatedReportId;
     const revision = activeRevision_(previousPayload);
     row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, reportPayload, {
       completingReportId: report.Id || '',
+      submissionHistory: submissionHistory,
       revision: revision && revision.pending ? Object.assign({}, revision, { pending: false, submittedAt: toIso_(now) }) : previousPayload.revision
     }));
     row.AttachmentUrlsJson = JSON.stringify(nextAttachments);
@@ -3236,10 +3441,11 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
     row.RelatedReportId = report.Id;
     row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, fields, {
       bankReports: bankReports, requiredBankKeys: requiredBanks,
+      submissionHistory: submissionHistoryForTask_(row, indexAuditSourceReports_(readObjects_('reports'))),
       revision: revisionBank ? Object.assign({}, revision, { remainingBankNames: remainingRevisionBanks,
         pending: remainingRevisionBanks.length > 0, submittedAt: remainingRevisionBanks.length ? '' : toIso_(report.CreatedAt) }) : previousPayload.revision
     }));
-    row.AttachmentUrlsJson = JSON.stringify(Object.assign({}, previousAttachments, taskAttachments));
+    row.AttachmentUrlsJson = JSON.stringify(mergedAttachmentGroups_(previousAttachments, taskAttachments));
     row.UpdatedAt = parseDate_(report.CreatedAt);
     row.Notes = completedCount + '/' + requiredBanks.length + ' bank telah dilaporkan.';
     if (completed) {
@@ -3286,7 +3492,7 @@ function queueBankAuditAfterReport_(bankResult, user, report, now, savedFiles) {
       row.PayloadJson = JSON.stringify(Object.assign({}, payload, { sourceReportId: report.Id, sourceTaskId: bankResult.id,
         auditBankReports: checked, auditStatus: Object.keys(checked).some(function(key) { return checked[key].auditStatus === 'kendala'; }) ? 'kendala' : 'aman' }));
       row.RelatedReportId = report.Id;
-      row.AttachmentUrlsJson = JSON.stringify(Object.assign({}, parseJsonSafe_(row.AttachmentUrlsJson, {}), sourceAttachments));
+      row.AttachmentUrlsJson = JSON.stringify(mergedAttachmentGroups_(parseJsonSafe_(row.AttachmentUrlsJson, {}), sourceAttachments));
       row.Notes = Object.keys(checked).length + '/5 bank telah diperiksa; bank revisi perlu diperiksa ulang.';
       row.UpdatedAt = now;
       result = { id: row.Id, taskType: row.TaskType, title: row.Title, kpiStatus: row.KpiStatus };
@@ -3305,15 +3511,16 @@ function queueBankAuditAfterReport_(bankResult, user, report, now, savedFiles) {
   });
   const nextPayload = { sourceReportId: report.Id, sourceTaskId: bankResult.id, location: 'kendari',
     banksComplete: true, requiredBankKeys: Object.keys(BANK_ACCOUNT_BANKS), auditBankReports: retainedAudits };
-  const nextAttachments = Object.assign({}, sourceAttachments, retainedProofs);
+  const nextAttachments = mergedAttachmentGroups_(sourceAttachments, retainedProofs);
   if (priorAudit) {
     updateObjectById_('tasks', priorAudit.Id, function(row) {
+      nextPayload.submissionHistory = submissionHistoryForTask_(row, indexAuditSourceReports_(readObjects_('reports')));
       row.RelatedReportId = report.Id;
       row.StartedAt = now;
       row.Status = 'berjalan';
       row.KpiStatus = 'berjalan';
       row.PayloadJson = JSON.stringify(nextPayload);
-      row.AttachmentUrlsJson = JSON.stringify(nextAttachments);
+      row.AttachmentUrlsJson = JSON.stringify(mergedAttachmentGroups_(priorAttachments, nextAttachments));
       row.CompletedAt = '';
       row.CompletedBy = '';
       row.UpdatedAt = now;
@@ -3364,6 +3571,7 @@ function recordBankAuditReports_(taskId, user, report, fields, savedFiles) {
     row.RelatedReportId = report.Id;
     row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, {
       auditBankReports: auditBankReports, requiredBankKeys: requiredBanks,
+      submissionHistory: submissionHistoryForTask_(row, indexAuditSourceReports_(readObjects_('reports'))),
       auditStatus: requiredBanks.some(function(key) { return auditBankReports[key] && auditBankReports[key].auditStatus === 'kendala'; })
         ? 'kendala' : 'aman'
     }));
@@ -3420,6 +3628,7 @@ function recordInvestorChecks_(taskId, user, report, fields, savedFiles) {
     row.RelatedReportId = report.Id;
     row.PayloadJson = JSON.stringify(Object.assign({}, previousPayload, {
       investorChecks: checks,
+      submissionHistory: submissionHistoryForTask_(row, indexAuditSourceReports_(readObjects_('reports'))),
       auditStatus: ids.some(function(id) { return checks[id] && checks[id].auditStatus === 'kendala'; }) ? 'kendala' : 'aman'
     }));
     row.AttachmentUrlsJson = JSON.stringify(attachments);
@@ -3529,6 +3738,7 @@ function queueStandaloneAuditRevision_(rootAuditTaskId, auditor, report, fields,
   if (previousRevision) {
     updateObjectById_('tasks', previousRevision.Id, function(row) {
       if (String(row.Status || '') !== 'selesai') throw new Error('Tugas revisi sebelumnya masih berjalan.');
+      const previousHistory = submissionHistoryForTask_(row, indexAuditSourceReports_(readObjects_('reports')));
       row.Title = title;
       row.AssigneeRole = normalizeRole_(recipient.Role);
       row.AssigneeLocation = getUserLocation_(recipient);
@@ -3537,8 +3747,7 @@ function queueStandaloneAuditRevision_(rootAuditTaskId, auditor, report, fields,
       row.StartedAt = startedAt;
       row.Status = 'berjalan';
       row.KpiStatus = 'berjalan';
-      row.PayloadJson = JSON.stringify(revisionPayload);
-      row.AttachmentUrlsJson = '{}';
+      row.PayloadJson = JSON.stringify(Object.assign({}, revisionPayload, { submissionHistory: previousHistory }));
       row.CompletedAt = '';
       row.CompletedBy = '';
       row.UpdatedAt = startedAt;
@@ -4098,6 +4307,8 @@ function createPeriodicTasks_(atDate) {
     });
   }
 
+  ensureAuditorInventoryTasks_(now, tasks, users, owner);
+
   ensureCurrentLocationAudits_(now, tasks, owner);
 
   threeDayPeriodStartsThisMonth_(now).forEach(function(periodStart) {
@@ -4129,6 +4340,40 @@ function createPeriodicTasks_(atDate) {
       createdBy: owner
     });
   });
+}
+
+function ensureAuditorInventoryTasks_(now, tasks, users, owner) {
+  const auditor = users.find(function(user) {
+    return normalizeRole_(user.Role) === 'auditor' && String(user.Active).toLowerCase() !== 'false';
+  });
+  if (auditor) {
+    const launchDate = new Date(2026, 10, 3);
+    dailyBackfillDates_(now).forEach(function(date) {
+      if (date < launchDate) return;
+      ensurePeriodicTask_(tasks, {
+        taskType: 'stok_opname_auditor',
+        periodKey: periodKeyForDay_(date, 'stok_opname_auditor', 'all'),
+        title: 'Stok Opname ' + dateKey_(date),
+        assigneeRole: 'auditor', assigneeLocation: 'all', assigneeName: auditor.Name,
+        timeLimitHours: REPORT_TYPES.stok_opname_auditor.timeLimitHours,
+        startedAt: startOfDay_(date),
+        deadlineAt: deadlineDateForTime_(date, 23, 59), createdBy: owner
+      });
+    });
+    weeklyDeadlineStartsThisMonth_(now, 1).forEach(function(weekStart) {
+      if (weekStart < launchDate) return;
+      ensurePeriodicTask_(tasks, {
+        taskType: 'audit_alat_teknisi',
+        periodKey: periodKeyForWeekType_(weekStart, 'audit_alat_teknisi', 'all'),
+        title: 'Audit Alat-Alat Teknisi ' + dateKey_(weekStart),
+        assigneeRole: 'auditor', assigneeLocation: 'all', assigneeName: auditor.Name,
+        timeLimitHours: REPORT_TYPES.audit_alat_teknisi.timeLimitHours,
+        startedAt: startOfDay_(weekStart),
+        deadlineAt: deadlineDateForTime_(weekStart, 23, 59), createdBy: owner
+      });
+    });
+  }
+
 }
 
 function ensureCurrentLocationAudits_(now, tasks, owner) {
@@ -4523,6 +4768,10 @@ function validateReportFileLimits_(type, files) {
     }
     const limit = type === 'input_pengiriman' && /^shipment(Item|Supplier)Files_\d+$/.test(field)
       ? [1, 8]
+      : ['stok_opname_raha', 'stok_opname_auditor'].includes(type) && /^stockItemPhoto_[1-9]\d*$/.test(field)
+        ? [10, 10]
+      : type === 'audit_alat_teknisi' && /^technicianItemPhoto_[1-9]\d*$/.test(field)
+        ? [10, 10]
       : type === 'audit_pekanan' && /^auditProof_(bri_kendari|bri_raha|mandiri|bank_sultra|aladin_syariah)$/.test(field)
         ? [10, 10]
         : type === 'laporan_investor' && /^investorProof_(analisa_laba_jual|pegangan_karyawan|validasi_sales|laporan_bank_jago)$/.test(field)
@@ -4551,6 +4800,15 @@ function validateReportFileLimits_(type, files) {
         throw new Error('Bukti PDF audit tidak valid.');
     });
     limitFileGroupSize_(allFiles, 10, 'Total seluruh bukti pemeriksaan maksimal 10 MB per kiriman.');
+  }
+  if (['stok_opname_raha', 'stok_opname_auditor', 'audit_alat_teknisi'].includes(type)) {
+    const allFiles = Object.keys(files || {}).flatMap(function(field) { return files[field] || []; });
+    if (allFiles.length > 50) throw new Error('Maksimal 50 foto per laporan.');
+    allFiles.forEach(function(file) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(String(file && file.mimeType || '').toLowerCase()))
+        throw new Error('Lampiran stok opname dan audit alat teknisi harus berupa foto JPG, PNG, atau WebP.');
+    });
+    limitFileGroupSize_(allFiles, 10, 'Total seluruh foto maksimal 10 MB per laporan.');
   }
 }
 

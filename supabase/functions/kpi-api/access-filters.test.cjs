@@ -481,7 +481,7 @@ test('auditor report cards show the submitted arrival details from both admins',
   ctx.tables.reports.push(...['kendari', 'raha'].map(location => record({
     Id: 'arrival-report-' + location, TaskType: 'rincian_barang_tiba',
     PayloadJson: JSON.stringify({ arrivedSummary: 'Barang tiba dari ' + location + ': 2 dus oli\n1 kotak filter',
-      iposNotaNumber: 'IPOS-' + location.toUpperCase() + '-42' }),
+      iposNotaNumber: 'IPOS-' + location.toUpperCase() + '-42', description: 'Catatan ' + location }),
     AttachmentUrlsJson: '{}', ReportDate: stamp, CreatedAt: stamp
   })));
   const meta = engine.execute('apiGetReportMeta', ['test-jwt']);
@@ -491,6 +491,7 @@ test('auditor report cards show the submitted arrival details from both admins',
     assert.ok(card, location);
     assert.match(card.detailText, new RegExp('Rincian barang tiba: Barang tiba dari ' + location + ': 2 dus oli\\n1 kotak filter'));
     assert.match(card.detailText, new RegExp('Nomor nota IPOS: IPOS-' + location.toUpperCase() + '-42'));
+    assert.match(card.detailText, new RegExp('Keterangan pelapor: Catatan ' + location));
     assert.ok(!card.detailText.includes('Barang tiba dari ' + (location === 'kendari' ? 'raha' : 'kendari')));
   }
 });

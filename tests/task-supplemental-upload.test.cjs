@@ -47,6 +47,10 @@ test('assigned user appends forgotten files without changing completed task stat
   const attachments = JSON.parse(task.AttachmentUrlsJson);
   assert.equal(attachments.physicalCash[0].id, 'OLD');
   assert.equal(attachments.additionalFiles.length, 2);
+  const history = JSON.parse(task.PayloadJson).submissionHistory;
+  assert.equal(history.length, 2);
+  assert.equal(history.every(entry => entry.changeType === 'file_tambahan'), true);
+  assert.equal(history[0].attachments.additionalFiles[0].id, attachments.additionalFiles[0].id);
   assert.equal(ctx.uploads.length, 2);
   assert.equal(engine.authorizeFile(attachments.additionalFiles[0].id).name, attachments.additionalFiles[0].name);
   assert.equal(task.Status, 'selesai');
