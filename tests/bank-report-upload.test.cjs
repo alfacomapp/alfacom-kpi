@@ -19,8 +19,22 @@ function engine(tasks=[]) {
   return sandbox.createKpiEngine({jwt:'test.jwt.token',expiresAt:Date.now()+600000,userRecord:user,tables,original:structuredClone(tables),absensi:[],uploads:[],maxSeq:1,version:0});
 }
 function submit(engine, files, bankName='bri_kendari', type='laporan_akun_bank') {
-  return engine.execute('apiSubmitReport',['test.jwt.token',{type,fields:{bankName,reportDate:'2026-10-07'},files}]);
+  return engine.execute('apiSubmitReport',['test.jwt.token',{type,fields:{bankName,reportDate:'2026-10-07',reportStartDate:'2026-10-01',reportEndDate:'2026-10-07'},files}]);
 }
+
+test('weekly bank report requires a valid reported date range', () => {
+  for (const fields of [
+    { bankName: 'bri_kendari', reportDate: '2026-10-07' },
+    { bankName: 'bri_kendari', reportDate: '2026-10-07', reportStartDate: '2026-10-08', reportEndDate: '2026-10-07' },
+    { bankName: 'bri_kendari', reportDate: '2026-10-07', reportStartDate: '2026-02-30', reportEndDate: '2026-03-01' }
+  ]) {
+    const e = engine();
+    const result = e.execute('apiSubmitReport', ['test.jwt.token', { type: 'laporan_akun_bank', fields, files: { bankAccountProof: [image()] } }]);
+    assert.equal(result.ok, false);
+    assert.match(result.message, /tanggal/i);
+    assert.equal(e.uploads().length, 0);
+  }
+});
 test('50 combined attachments accepted and statement is retained in report and weekly bank task', () => {
   const e = engine(); const result = submit(e,{bankAccountProof:Array.from({length:49},image),bankStatement:[pdf()]});
   assert.equal(result.ok,true,result.message); assert.equal(e.uploads().length,50);

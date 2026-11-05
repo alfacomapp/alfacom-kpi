@@ -1481,12 +1481,13 @@
 
     .report-grid {
       display: grid;
-      grid-template-columns: minmax(260px, 340px) 1fr;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
       gap: 16px;
       align-items: stretch;
     }
 
     .report-grid > .panel {
+      min-width: 0;
       height: min(760px, calc(100vh - 140px));
       min-height: 560px;
       display: flex;
@@ -1528,7 +1529,7 @@
     .report-task-filters {
       flex: 1 1 auto;
       min-width: 0;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       justify-content: flex-end;
       gap: 5px;
     }
@@ -1544,6 +1545,11 @@
     #reportMonthFilter { flex: 0 1 58px; }
     #reportYearFilter { flex: 0 1 68px; }
     #reportTaskStatusFilter { flex: 1 1 108px; }
+    #reportTaskTypeFilter { flex: 1 1 160px; max-width: 100%; }
+
+    @media (min-width: 941px) and (max-width: 1260px) {
+      .report-grid { grid-template-columns: minmax(0, 1fr); }
+    }
 
     #reportFormPanel .panel-head { flex-direction: row; align-items: center; flex-wrap: wrap; }
     .report-form-period { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; margin-left: auto; }
@@ -1555,6 +1561,12 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(220px, 1fr));
       gap: 14px;
+    }
+
+    #dynamicReportFields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    @media (max-width: 600px) {
+      #dynamicReportFields { grid-template-columns: minmax(0, 1fr); }
     }
 
     .audit-bank-field,
@@ -2221,13 +2233,13 @@
       }
 
       .report-task-filters {
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         gap: 5px;
       }
 
       .report-task-filters select {
-        flex: 1 1 0;
-        width: 0;
+        flex: 1 1 42%;
+        width: auto;
         min-width: 0;
         padding: 8px 5px;
         font-size: 10px;
@@ -2293,9 +2305,8 @@
       }
 
       .report-task-filters select {
-        flex: 1 1 0 !important;
-        flex-basis: 0 !important;
-        width: 0;
+        flex: 1 1 42% !important;
+        width: auto;
         min-width: 0;
         padding: 8px 4px;
         font-size: 10px;
@@ -2757,6 +2768,9 @@
                   <option value="meleset">Meleset</option>
                   <option value="tepat_waktu">Tepat Waktu</option>
                 </select>
+                <select id="reportTaskTypeFilter" aria-label="Filter jenis tugas">
+                  <option value="">Semua tugas</option>
+                </select>
                 <button id="jumpToReportForm" class="btn btn-ghost report-jump" type="button" title="Ke Form Laporan" aria-label="Ke Form Laporan">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
                 </button>
@@ -2854,6 +2868,7 @@
       auditStatus: '',
       taskSearch: '',
       reportTaskStatus: '',
+      reportTaskType: '',
       reportMonth: new Date().getMonth() + 1,
       reportYear: new Date().getFullYear(),
       reportFormMonth: new Date().getMonth() + 1,
@@ -2898,7 +2913,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-11-03-stock-audit-history';
+    const CLIENT_CACHE_VERSION = '2026-11-05-bank-range-task-filter';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -2969,6 +2984,8 @@
       laporan_akun_bank: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Nomor tugas terkait', required: true, match: ['laporan_akun_bank'], full: true },
         { kind: 'select', field: 'bankName', label: 'Bank yang dilaporkan', required: true, options: BANK_ACCOUNT_OPTIONS },
+        { kind: 'date', field: 'reportStartDate', label: 'Tanggal mulai yang dilaporkan', required: true, noDefault: true },
+        { kind: 'date', field: 'reportEndDate', label: 'Tanggal akhir yang dilaporkan', required: true, noDefault: true },
         { kind: 'file', field: 'bankAccountProof', label: 'Bukti akun bank', required: true, multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'image/*,application/pdf' },
         { kind: 'file', field: 'bankStatement', label: 'Statement bank (PDF)', multiple: true, max: 50, maxTotalMb: 10, autoCompress: true, accept: 'application/pdf,.pdf', help: 'Opsional. Maksimal 50 file dan 10 MB total, termasuk bukti akun bank. PDF dapat dilihat dan diunduh setelah upload.' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
@@ -3199,6 +3216,10 @@
       });
       byId('reportTaskStatusFilter').addEventListener('change', function(event) {
         state.reportTaskStatus = event.target.value;
+        renderOpenTasks();
+      });
+      byId('reportTaskTypeFilter').addEventListener('change', function(event) {
+        state.reportTaskType = event.target.value;
         renderOpenTasks();
       });
       byId('reportMonthFilter').addEventListener('change', function(event) {
@@ -3647,6 +3668,8 @@
       byId('auditStatusFilter').classList.add('hidden');
       byId('taskSearchFilter').value = '';
       byId('reportTaskStatusFilter').value = '';
+      state.reportTaskType = '';
+      byId('reportTaskTypeFilter').innerHTML = '<option value="">Semua tugas</option>';
       byId('reportMonthFilter').innerHTML = '';
       byId('reportYearFilter').innerHTML = '';
       byId('laporanPage').classList.remove('show-form');
@@ -4606,7 +4629,7 @@
           if (state.kpiStatus === 'pause') return task.displayKpiStatus === 'pause';
           if (state.kpiStatus === 'meleset_done') return task.kpiStatus === 'meleset' && task.status === 'selesai';
           if (state.kpiStatus === 'meleset') return task.kpiStatus === 'meleset' && task.status === 'berjalan';
-          return task.kpiStatus === state.kpiStatus;
+          return (state.kpiStatus === 'berjalan' ? task.displayKpiStatus : task.kpiStatus) === state.kpiStatus;
         });
       }
       if (state.auditStatus) {
@@ -5529,13 +5552,24 @@
     }
 
     function renderOpenTasks() {
+      const taskTypes = {};
+      reportTasksForCurrentUser().filter(taskMatchesReportPeriod).forEach(function(task) {
+        if (task.taskType) taskTypes[task.taskType] = task.taskLabel || task.title || task.taskType;
+      });
+      if (state.reportTaskType && !taskTypes[state.reportTaskType]) state.reportTaskType = '';
+      const typeSelect = byId('reportTaskTypeFilter');
+      typeSelect.innerHTML = '<option value="">Semua tugas</option>' + Object.keys(taskTypes)
+        .sort(function(a, b) { return taskTypes[a].localeCompare(taskTypes[b], 'id'); })
+        .map(function(type) { return '<option value="' + escapeAttr(type) + '">' + escapeHtml(taskTypes[type]) + '</option>'; }).join('');
+      typeSelect.value = state.reportTaskType;
       const tasks = reportTasksForCurrentUser().filter(function(task) {
-        return taskMatchesReportPeriod(task) && (!state.reportTaskStatus ||
-          (state.reportTaskStatus === 'pause' ? task.displayKpiStatus === 'pause' : task.kpiStatus === state.reportTaskStatus));
+        return taskMatchesReportPeriod(task) && (!state.reportTaskType || task.taskType === state.reportTaskType) &&
+          (!state.reportTaskStatus || (state.reportTaskStatus === 'pause' || state.reportTaskStatus === 'berjalan'
+            ? task.displayKpiStatus === state.reportTaskStatus : task.kpiStatus === state.reportTaskStatus));
       }).sort(sortReportTaskCards);
       const wrap = byId('openTasksList');
       if (!tasks.length) {
-        wrap.innerHTML = '<div class="empty">Tidak ada tugas pada status ini.</div>';
+        wrap.innerHTML = '<div class="empty">Tidak ada tugas untuk filter ini.</div>';
         startTimers();
         return;
       }
@@ -5902,7 +5936,7 @@
       return `
         <div class="field${full}">
           <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
-          <input data-field="${escapeAttr(field.field)}" type="${type}" ${required} ${field.kind === 'date' ? 'data-default-date="1"' : ''}>
+          <input data-field="${escapeAttr(field.field)}" type="${type}" ${required} ${field.kind === 'date' && !field.noDefault ? 'data-default-date="1"' : ''}>
           ${help}
         </div>
       `;

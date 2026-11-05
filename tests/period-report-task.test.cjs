@@ -30,7 +30,8 @@ function fixture(tasks) {
   return { engine: createKpiEngine(ctx), ctx };
 }
 function submit(engine, type, fields, files) {
-  return engine.execute('apiSubmitReport', ['test-jwt', { type, fields, files }]);
+  return engine.execute('apiSubmitReport', ['test-jwt', { type,
+    fields: type === 'laporan_akun_bank' ? { reportStartDate: '2026-10-01', reportEndDate: '2026-10-07', ...fields } : fields, files }]);
 }
 
 test('selected daily task number completes exactly that task and supplies its report date', () => {

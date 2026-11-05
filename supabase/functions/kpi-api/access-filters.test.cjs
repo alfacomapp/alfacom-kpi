@@ -283,7 +283,7 @@ test('weekly Kendari bank task completes only after all five banks are reported'
   ['bri_kendari', 'bri_raha', 'mandiri', 'bank_sultra'].forEach(bankName => {
     const result = engine.execute('apiSubmitReport', ['test-jwt', {
       type: 'laporan_akun_bank',
-      fields: { reportDate: '2026-09-15', bankName },
+      fields: { reportDate: '2026-09-15', bankName, reportStartDate: '2026-09-08', reportEndDate: '2026-09-14' },
       files: { bankAccountProof: [proof] }
     }]);
     assert.equal(result.ok, true);
@@ -292,7 +292,7 @@ test('weekly Kendari bank task completes only after all five banks are reported'
 
   const finalResult = engine.execute('apiSubmitReport', ['test-jwt', {
     type: 'laporan_akun_bank',
-    fields: { reportDate: '2026-09-15', bankName: 'aladin_syariah' },
+    fields: { reportDate: '2026-09-15', bankName: 'aladin_syariah', reportStartDate: '2026-09-08', reportEndDate: '2026-09-14' },
     files: { bankAccountProof: [proof] }
   }]);
   assert.equal(finalResult.ok, true);
@@ -303,6 +303,9 @@ test('weekly Kendari bank task completes only after all five banks are reported'
   assert.equal(bankAudits.length, 1);
   const auditFiles = JSON.parse(bankAudits[0].record.AttachmentUrlsJson);
   assert.equal(Object.keys(auditFiles).filter(key => key.startsWith('bankAccountProof_') && auditFiles[key].length).length, 5);
+  ctx.userRecord = auditor;
+  const auditorCard = engine.execute('apiGetReportMeta', ['test-jwt']).openTasks.find(item => item.taskType === 'audit_pekanan');
+  assert.match(auditorCard.detailText, /Rentang laporan BRI Kendari: 08\/09\/2026 - 14\/09\/2026/);
 });
 
 test('report upload total size follows the decoded multi-file limit', () => {
@@ -317,7 +320,7 @@ test('report upload total size follows the decoded multi-file limit', () => {
   };
   const result = engine.execute('apiSubmitReport', ['test-jwt', {
     type: 'laporan_akun_bank',
-    fields: { reportDate: '2026-09-15', bankName: 'bri_kendari' },
+    fields: { reportDate: '2026-09-15', bankName: 'bri_kendari', reportStartDate: '2026-09-08', reportEndDate: '2026-09-14' },
     files: { bankAccountProof: [tooLarge] }
   }]);
   assert.equal(result.ok, false);
@@ -377,7 +380,7 @@ test('closed legacy weekly bank report keeps its original completed history', ()
   const { engine, ctx } = engineFor(admin, [admin], [], [legacyTask]);
   const result = engine.execute('apiSubmitReport', ['test-jwt', {
     type: 'laporan_akun_bank',
-    fields: { reportDate: '2026-09-15', bankName: 'bri_kendari' },
+    fields: { reportDate: '2026-09-15', bankName: 'bri_kendari', reportStartDate: '2026-09-08', reportEndDate: '2026-09-14' },
     files: { bankAccountProof: [{ name: 'bri.jpg', mimeType: 'image/jpeg', size: 1, data: 'data:image/jpeg;base64,YQ==' }] }
   }]);
   assert.equal(result.ok, false);
@@ -600,6 +603,26 @@ test('approved leave pauses the assigned user task', () => {
   assert.equal(rendered.timer.isPaused, true);
   assert.equal(rendered.timer.pauseReason, today.getDay() === 0 ? 'Minggu' : 'sakit');
   assert.equal(rendered.displayKpiStatus, 'pause');
+});
+
+test('approved SLA sick leave with jenis and no end date pauses auditor only on that day', () => {
+  const auditor = user('aud-sick', 'Auditor', 'auditor', 'all');
+  const { engine } = engineFor(auditor, [auditor], [], [], [{
+    nama_pegawai: 'Abu Abdillah', role: 'manager', cabang: 'Kendari',
+    jenis: 'Sakit', status: 'Disetujui', tanggal_mulai: '2026-11-04',
+    tanggal_selesai: null, tanggal_selesai_disetujui: null,
+    kembali_bekerja_pada: '2026-11-05T00:34:14.342Z'
+  }]);
+  const map = engine.attendanceMapForTest();
+  assert.equal(map['auditor|2026-11-04'], 'sakit');
+  assert.equal(map['auditor|2026-11-05'], undefined);
+  const active = { ...task('audit-sick', auditor, 'berjalan'), TaskType: 'audit_pekanan',
+    KpiStatus: 'berjalan', StartedAt: '2026-11-04T00:00:00+08:00', CreatedAt: '2026-11-04T00:00:00+08:00' };
+  const sick = engine.enrichedTaskForTest(active, '2026-11-04T12:00:00+08:00', map);
+  assert.equal(sick.displayKpiStatus, 'pause');
+  assert.equal(sick.timer.pauseReason, 'sakit');
+  const resumed = engine.enrichedTaskForTest(active, '2026-11-05T12:00:00+08:00', map);
+  assert.equal(resumed.timer.isPaused, false);
 });
 
 test('SLA sick attendance pauses the matching KPI roles for four named employees', () => {

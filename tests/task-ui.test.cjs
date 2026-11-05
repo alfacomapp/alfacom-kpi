@@ -20,6 +20,37 @@ test('report task cards show nearest active deadline first and overdue tasks las
   assert.deepEqual(tasks.sort(sort).map(task => task.id), ['soon', 'far', 'none', 'late2', 'late']);
 });
 
+test('report task filter and weekly bank date inputs are present', () => {
+  const app = ui();
+  assert.match(html, /id="reportTaskTypeFilter"/);
+  for (const field of ['reportStartDate', 'reportEndDate']) {
+    const input = app.REPORT_FORMS.laporan_akun_bank.find(item => item.field === field);
+    assert.equal(input.required, true);
+    assert.match(app.renderField(input), new RegExp('data-field="' + field + '" type="date" required'));
+    assert.doesNotMatch(app.renderField(input), /data-default-date/);
+  }
+});
+
+test('report task dropdown filters cards by type and keeps paused tasks out of Berjalan', () => {
+  const app = ui();
+  const base = { referenceNumber: 1, taskLabel: 'Audit Harian', title: 'Audit Harian',
+    kpiStatus: 'berjalan', kpiLabel: 'Berjalan', displayKpiStatus: 'berjalan',
+    startedAt: '2026-10-21T02:00:00Z', timer: { noDeadline: true }, attachments: {}, payload: {} };
+  app.state.reportMeta = { reportTypes: [], openTasks: [
+    { ...base, id: 'daily', taskType: 'audit_harian' },
+    { ...base, id: 'weekly', referenceNumber: 2, taskType: 'audit_pekanan', taskLabel: 'Audit Pekanan', title: 'Audit Pekanan' },
+    { ...base, id: 'paused', referenceNumber: 3, taskType: 'audit_harian', title: 'Audit Pause', displayKpiStatus: 'pause' }
+  ] };
+  app.state.reportMonth = 10;
+  app.state.reportYear = 2026;
+  app.state.reportTaskType = 'audit_harian';
+  app.state.reportTaskStatus = 'berjalan';
+  app.renderReportPage();
+  assert.match(app.elements.reportTaskTypeFilter.innerHTML, /Audit Pekanan/);
+  assert.match(app.elements.openTasksList.innerHTML, /Audit Harian/);
+  assert.doesNotMatch(app.elements.openTasksList.innerHTML, /Audit Pekanan|Audit Pause/);
+});
+
 test('report cards and forms use the task period across month boundaries', () => {
   const app = ui();
   const cash = { id: 'cash', taskType: 'laporan_keadaan_kas_bank',
@@ -162,6 +193,7 @@ function ui() {
     reportType: { value: 'audit_pekanan' },
     reportMonthFilter: { value: '', innerHTML: '' },
     reportYearFilter: { value: '', innerHTML: '' },
+    reportTaskTypeFilter: { value: '', innerHTML: '' },
     reportFormMonthFilter: { value: '', innerHTML: '' },
     reportFormYearFilter: { value: '', innerHTML: '' },
     openTasksList: { innerHTML: '' },

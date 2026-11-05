@@ -674,6 +674,7 @@ function apiGetDashboard(token, filters) {
         if (requestedStatus === 'meleset') {
           return task.kpiStatus === 'meleset' && task.status === 'berjalan';
         }
+        if (requestedStatus === 'berjalan') return task.displayKpiStatus === 'berjalan';
         return filterStatus === 'pause' ? task.displayKpiStatus === 'pause' : task.kpiStatus === filterStatus;
       });
     }
@@ -1210,6 +1211,19 @@ function attachSourceFilesForAuditor_(task, sourceIndex) {
     });
   });
   if (sourceDescriptions.length) task.detailText = [task.detailText, sourceDescriptions.join('\n')].filter(Boolean).join('\n');
+  if (task.taskType === 'audit_pekanan') {
+    const bankRanges = sourceReports.filter(function(report) {
+      return report.TaskType === 'laporan_akun_bank';
+    }).map(function(report) {
+      const fields = parseJsonSafe_(report.PayloadJson, {});
+      if (!fields.reportStartDate || !fields.reportEndDate) return '';
+      const bank = BANK_ACCOUNT_BANKS[String(fields.bankName || '').toLowerCase()] || fields.bankName || 'Bank';
+      const displayDate = function(value) { return String(value).split('-').reverse().join('/'); };
+      return 'Rentang laporan ' + bank + ': ' + displayDate(fields.reportStartDate) + ' - ' +
+        displayDate(fields.reportEndDate) + ' (' + dateKey_(report.CreatedAt) + ')';
+    }).filter(Boolean);
+    if (bankRanges.length) task.detailText = [task.detailText, bankRanges.join('\n')].filter(Boolean).join('\n');
+  }
   if (task.taskType === 'audit_barang_tiba' && direct && direct.TaskType === 'rincian_barang_tiba') {
     const reportFields = parseJsonSafe_(direct.PayloadJson, {});
     const arrivedSummary = String(reportFields.arrivedSummary || '').trim();
@@ -2523,6 +2537,18 @@ function validateReportPayload_(user, type, fields, files) {
     if (getUserLocation_(user) !== 'kendari') {
       throw new Error('Laporan akun bank pekanan hanya untuk Kendari.');
     }
+    const startDate = String(fields.reportStartDate || '').trim();
+    const endDate = String(fields.reportEndDate || '').trim();
+    const validDate = function(value) {
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseDate_(value + 'T00:00:00Z') : null;
+      return date && date.toISOString().slice(0, 10) === value;
+    };
+    if (!validDate(startDate) || !validDate(endDate)) {
+      throw new Error('Isi tanggal mulai dan tanggal akhir rentang laporan bank.');
+    }
+    if (startDate > endDate) throw new Error('Tanggal akhir laporan bank harus sama atau setelah tanggal mulai.');
+    fields.reportStartDate = startDate;
+    fields.reportEndDate = endDate;
     const bankName = String(fields.bankName || '').trim().toLowerCase();
     if (!Object.prototype.hasOwnProperty.call(BANK_ACCOUNT_BANKS, bankName)) {
       throw new Error('Pilih bank yang dilaporkan: BRI Kendari, BRI Raha, Mandiri, Bank Sultra, atau Bank Aladin Syariah. Muat ulang KPI bila pilihan bank belum diperbarui.');
@@ -3381,6 +3407,8 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
     bankReports[bankName] = {
       label: bankLabel,
       reportId: report.Id,
+      reportStartDate: fields.reportStartDate,
+      reportEndDate: fields.reportEndDate,
       reportedAt: toIso_(report.CreatedAt),
       reporter: user.Name
     };
@@ -3427,6 +3455,8 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
     bankReports[bankName] = {
       label: bankLabel,
       reportId: report.Id,
+      reportStartDate: fields.reportStartDate,
+      reportEndDate: fields.reportEndDate,
       reportedAt: toIso_(report.CreatedAt),
       reporter: user.Name
     };
@@ -4117,7 +4147,7 @@ function isApprovedLeaveRequest_(row) {
 }
 
 function leaveTypeForRow_(row) {
-  const raw = String(firstDefinedValue_(row, ['jenis_cuti', 'jenis_pengajuan', 'jenis_izin', 'tipe_cuti', 'tipe_absen', 'status_kehadiran', 'kategori', 'alasan', 'status']) || '').trim().toLowerCase();
+  const raw = String(firstDefinedValue_(row, ['jenis', 'jenis_cuti', 'jenis_pengajuan', 'jenis_izin', 'tipe_cuti', 'tipe_absen', 'status_kehadiran', 'kategori', 'alasan', 'status']) || '').trim().toLowerCase();
   if (raw.indexOf('sakit') !== -1) return 'sakit';
   if (raw.indexOf('libur') !== -1) return 'libur';
   if (raw.indexOf('izin') !== -1 || raw.indexOf('cuti') !== -1) return 'izin';
@@ -4165,7 +4195,7 @@ function applyLeaveRequestsToAttendanceMap_(map, rows) {
     const leaveType = leaveTypeForRow_(row);
     if (!leaveType) return;
     const start = parseDate_(firstDefinedValue_(row, ['tanggal_mulai', 'tgl_mulai', 'mulai', 'start_date', 'date_from', 'tanggal', 'tanggal_cuti']));
-    const end = parseDate_(firstDefinedValue_(row, ['tanggal_selesai', 'tgl_selesai', 'selesai', 'end_date', 'date_to', 'sampai'])) || start;
+    const end = parseDate_(firstDefinedValue_(row, ['tanggal_selesai_disetujui', 'tanggal_selesai', 'tgl_selesai', 'selesai', 'end_date', 'date_to', 'sampai'])) || start;
     const aliases = leaveAliasesForRow_(row);
     if (!start || !end || !aliases.length || end < start) return;
 

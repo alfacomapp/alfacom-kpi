@@ -31,7 +31,8 @@ function fixture(tasks) {
     original: structuredClone(tables), absensi: [], uploads: [], maxSeq: tasks.length + 5, version: 0 };
   const engine = createKpiEngine(ctx);
   return { ctx, engine, as(id) { ctx.userRecord = people.find(person => person.Id === id); },
-    submit(type, fields, files) { return engine.execute('apiSubmitReport', ['test-jwt', { type, fields, files }]); },
+    submit(type, fields, files) { return engine.execute('apiSubmitReport', ['test-jwt', { type,
+      fields: type === 'laporan_akun_bank' ? { reportStartDate: '2026-10-01', reportEndDate: '2026-10-07', ...fields } : fields, files }]); },
     task(id) { return ctx.tables.tasks.find(row => row.id === id)?.record; } };
 }
 
