@@ -385,6 +385,7 @@ function doPost(e) {
       'apiLogout',
       'apiGetSession',
       'apiGetDashboard',
+      'apiGetTaskTimeHistory',
       'apiCreateNote',
       'apiUpdateNote',
       'apiDeleteNote',
@@ -707,6 +708,21 @@ function apiGetDashboard(token, filters) {
       tasks: detailTasks.slice(0, 400),
       canEditTaskStatus: user.Role === 'owner'
     });
+  } catch (error) {
+    return fail_(error);
+  }
+}
+
+function apiGetTaskTimeHistory(token, taskId) {
+  try {
+    const user = requireUser_(token);
+    const task = readObjects_('tasks').find(function(row) { return row.Id === String(taskId || ''); });
+    if (!task || !canUserSeeDashboardTask_(task)) throw new Error('Tugas tidak ditemukan.');
+    const now = new Date();
+    const attendanceMap = getAttendanceMap_();
+    const enriched = enrichTask_(task, now, attendanceMap);
+    if (!canUserSeeTask_(user, enriched)) throw new Error('Anda tidak dapat melihat riwayat tugas ini.');
+    return ok_({ taskId: task.Id, history: buildTaskTimeHistory_(task, now, attendanceMap, enriched.timer) });
   } catch (error) {
     return fail_(error);
   }
@@ -3727,6 +3743,10 @@ function applyAuditKendalaToSource_(auditTaskId, auditReport, bankNames, reason)
       row.Notes = 'Pemeriksaan ke-4 masih berkendala. Batas 3 revisi tercapai; hasil akhir meleset.';
       outcome = { sourceTaskId: row.Id, revisionCount: 4, limitReached: true };
     } else {
+      if (!stillPending) {
+        payload.timerResetHistory = (Array.isArray(payload.timerResetHistory) ? payload.timerResetHistory : [])
+          .concat([{ at: toIso_(now), count: count }]);
+      }
       payload.revision = { count: count, pending: true, limitReached: false, startedAt: toIso_(now),
         auditTaskId: auditTaskId, reason: explanation || String(stillPending && previous.reason || ''),
         bankNames: mergedBanks, remainingBankNames: Array.from(new Set([].concat(stillPending && previous.remainingBankNames || [], affectedBanks))) };
@@ -3918,6 +3938,75 @@ function buildTaskTimer_(task, now, attendanceMap) {
   };
 }
 
+function buildTaskTimeHistory_(task, now, attendanceMap, timer) {
+  const payload = parseJsonSafe_(task.PayloadJson, {});
+  const revision = activeRevision_(payload);
+  const startedAt = parseDate_(task.StartedAt || task.CreatedAt);
+  const completedAt = parseDate_(task.CompletedAt);
+  const endAt = completedAt && completedAt < now ? completedAt : now;
+  const activeTimer = timer || buildTaskTimer_(task, now, attendanceMap);
+  if (!startedAt) return { events: [], deadlineAt: activeTimer.deadlineAt || '' };
+
+  const events = [{ kind: 'start', at: startedAt.toISOString() }];
+  const cycleStart = revision ? parseDate_(revision.startedAt) : startedAt;
+  const activePolicy = taskPausePolicy_();
+  const policy = Object.assign({}, activePolicy, { pauseSundayUntil: '0000-00-00' });
+  const knownAttendance = attendanceMap || getAttendanceMap_();
+  const countedAttendance = {};
+  const assigneeKey = normalizeName_(task.AssigneeName);
+  let previousDeadline = activeTimer.noDeadline ? null : taskEffectiveDeadline_(task, cycleStart, countedAttendance, policy);
+  let pauseBegan = null;
+
+  if (!activeTimer.noDeadline && endAt >= startedAt) {
+    const day = startOfDay_(startedAt);
+    let guard = 0;
+    while (day <= endAt && guard < 4000) {
+      const at = day > startedAt ? day : startedAt;
+      const pause = currentPauseState_(day, task.AssigneeName, knownAttendance, activePolicy);
+      if (pause.paused) {
+        if (!pauseBegan) pauseBegan = new Date(at);
+        events.push({ kind: 'pause', at: at.toISOString(), reason: pause.reason });
+        const status = attendanceStatusFor_(task.AssigneeName, day, knownAttendance);
+        if (day.getDay() === 0) policy.pauseSundayUntil = dateKey_(day);
+        else if (isPauseStatus_(status)) countedAttendance[assigneeKey + '|' + dateKey_(day)] = status;
+        if (day >= startOfDay_(cycleStart) && (day.getDay() === 0 || isPauseStatus_(status))) {
+          const nextDeadline = taskEffectiveDeadline_(task, cycleStart, countedAttendance, policy);
+          const addedMs = previousDeadline && nextDeadline ? Math.max(0, nextDeadline.getTime() - previousDeadline.getTime()) : 0;
+          if (addedMs) events.push({ kind: 'added', at: at.toISOString(), addedMs: addedMs,
+            previousDeadlineAt: previousDeadline.toISOString(), deadlineAt: nextDeadline.toISOString(), reason: pause.reason });
+          previousDeadline = nextDeadline;
+        }
+      } else if (pauseBegan) {
+        events.push({ kind: 'resume', at: day.toISOString(), pausedMs: day.getTime() - pauseBegan.getTime() });
+        pauseBegan = null;
+      }
+      day.setDate(day.getDate() + 1);
+      guard += 1;
+    }
+  }
+
+  const resets = Array.isArray(payload.timerResetHistory) ? payload.timerResetHistory : [];
+  resets.forEach(function(entry) {
+    const at = parseDate_(entry && entry.at);
+    if (at && at <= endAt) events.push({ kind: 'reset', at: at.toISOString(), count: Number(entry.count || 0) });
+  });
+  if (revision && revision.startedAt && Number(revision.count) <= 3 && !revision.limitReached && !resets.some(function(entry) {
+    return String(entry && entry.at || '') === String(revision.startedAt);
+  })) {
+    const at = parseDate_(revision.startedAt);
+    if (at && at <= endAt) events.push({ kind: 'reset', at: at.toISOString(), count: Number(revision.count || 0) });
+  }
+  if (completedAt && completedAt <= now) events.push({ kind: 'complete', at: completedAt.toISOString() });
+
+  const order = { start: 0, resume: 1, reset: 2, pause: 3, added: 4, complete: 5 };
+  events.sort(function(a, b) {
+    return Date.parse(a.at) - Date.parse(b.at) || order[a.kind] - order[b.kind];
+  });
+  return { events: events, deadlineAt: activeTimer.deadlineAt || '',
+    totalAddedMs: events.filter(function(event) { return event.kind === 'added'; })
+      .reduce(function(total, event) { return total + event.addedMs; }, 0) };
+}
+
 function calculateKpiStatus_(task, endAt, attendanceMap) {
   const payload = parseJsonSafe_(task.PayloadJson, {});
   const revision = activeRevision_(payload);
@@ -3950,7 +4039,7 @@ function taskEffectiveDeadline_(task, startedAt, attendanceMap, pausePolicy) {
     nominalDeadline.setHours(23, 59, 59, 999);
   }
   if (nominalDeadline) {
-    return calendarDeadlineWithPauses_(start, nominalDeadline, task.AssigneeName, attendanceMap);
+    return calendarDeadlineWithPauses_(start, nominalDeadline, task.AssigneeName, attendanceMap, pausePolicy);
   }
   const hours = Number(task.TimeLimitHours || 0);
   if (!isFinite(hours) || hours <= 0) return null;
@@ -3960,7 +4049,7 @@ function taskEffectiveDeadline_(task, startedAt, attendanceMap, pausePolicy) {
   return effectiveDeadlineAt_(start, hours * 60 * 60 * 1000, task.AssigneeName, attendanceMap, pausePolicy);
 }
 
-function calendarDeadlineWithPauses_(startedAt, nominalDeadline, assigneeName, attendanceMap) {
+function calendarDeadlineWithPauses_(startedAt, nominalDeadline, assigneeName, attendanceMap, pausePolicy) {
   const deadline = new Date(nominalDeadline);
   const cursor = startOfDay_(startedAt);
   let guard = 0;
@@ -3971,7 +4060,7 @@ function calendarDeadlineWithPauses_(startedAt, nominalDeadline, assigneeName, a
     cursor.setDate(cursor.getDate() + 1);
     guard += 1;
   }
-  while ((deadline.getDay() === 0 || isPauseStatus_(attendanceStatusFor_(assigneeName, deadline, attendanceMap))) && guard < 4000) {
+  while ((isSundayPausedFor_(deadline, pausePolicy) || isPauseStatus_(attendanceStatusFor_(assigneeName, deadline, attendanceMap))) && guard < 4000) {
     deadline.setDate(deadline.getDate() + 1);
     guard += 1;
   }
@@ -4051,7 +4140,7 @@ function effectiveWorkedMs_(startAt, endAt, assigneeName, attendanceMap, pausePo
 
 function currentPauseState_(date, assigneeName, attendanceMap, pausePolicy) {
   const policy = pausePolicy || { pauseSunday: true };
-  if (policy.pauseSunday && date.getDay() === 0) {
+  if (isSundayPausedFor_(date, policy)) {
     return { paused: true, reason: 'Minggu' };
   }
 
@@ -4065,12 +4154,17 @@ function currentPauseState_(date, assigneeName, attendanceMap, pausePolicy) {
 
 function isCountingDay_(date, assigneeName, attendanceMap, pausePolicy) {
   const policy = pausePolicy || { pauseSunday: true };
-  if (policy.pauseSunday && date.getDay() === 0) {
+  if (isSundayPausedFor_(date, policy)) {
     return false;
   }
 
   const status = attendanceStatusFor_(assigneeName, date, attendanceMap);
   return !isPauseStatus_(status);
+}
+
+function isSundayPausedFor_(date, policy) {
+  return Boolean(policy && policy.pauseSunday && date.getDay() === 0 &&
+    (!policy.pauseSundayUntil || dateKey_(date) <= policy.pauseSundayUntil));
 }
 
 function workWindowForDate_(date, pausePolicy) {
@@ -5245,7 +5339,7 @@ function fail_(error) {
   }
 
   const actions = {
-    apiLogout, apiLogActivity, apiGetSession, apiGetDashboard,
+    apiLogout, apiLogActivity, apiGetSession, apiGetDashboard, apiGetTaskTimeHistory,
     apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiReactNote, apiMarkNoteMentionsSeen, apiUpdateTaskStatus,
     apiGetReportMeta, apiSubmitReport, apiAddTaskAttachments, apiUpdateProfile, apiUpdateTaskColumnPreferences
   };
@@ -5256,6 +5350,7 @@ function fail_(error) {
   return {
     dateKeyForTest(value) { return dateKey_(value); },
     timerForTest(task, atDate, attendanceMap) { return buildTaskTimer_(task, new Date(atDate), attendanceMap || {}); },
+    timeHistoryForTest(task, atDate, attendanceMap) { return buildTaskTimeHistory_(task, new Date(atDate), attendanceMap || {}); },
     enrichedTaskForTest(task, atDate, attendanceMap) { return enrichTask_(task, new Date(atDate), attendanceMap || {}); },
     attendanceMapForTest() { return getAttendanceMap_(); },
     statusForTest(task, atDate, attendanceMap) { return calculateKpiStatus_(task, new Date(atDate), attendanceMap || {}); },

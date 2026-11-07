@@ -625,6 +625,20 @@ test('approved SLA sick leave with jenis and no end date pauses auditor only on 
   assert.equal(resumed.timer.isPaused, false);
 });
 
+test('time history API follows dashboard task visibility', () => {
+  const kendari = user('history-ken', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const raha = user('history-rah', 'Admin Raha', 'admin_raha', 'raha');
+  const item = { ...task('history-task', kendari, 'berjalan'),
+    TaskType: 'pendapatan_harian', KpiStatus: 'berjalan', TimeLimitHours: 24 };
+  const denied = engineFor(raha, [kendari, raha], [], [item]).engine
+    .execute('apiGetTaskTimeHistory', ['test-jwt', item.Id]);
+  assert.equal(denied.ok, false);
+  const allowed = engineFor(kendari, [kendari, raha], [], [item]).engine
+    .execute('apiGetTaskTimeHistory', ['test-jwt', item.Id]);
+  assert.equal(allowed.ok, true, allowed.message);
+  assert.equal(allowed.history.events[0].kind, 'start');
+});
+
 test('SLA sick attendance pauses the matching KPI roles for four named employees', () => {
   const day = '2026-10-22';
   const now = day + 'T12:00:00+08:00';

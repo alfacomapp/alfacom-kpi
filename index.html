@@ -1479,6 +1479,13 @@
       color: var(--gold);
     }
 
+    .timer-history { margin-top: 6px; color: var(--ink); font-size: 12px; font-weight: 400; white-space: normal; }
+    .timer-history summary { cursor: pointer; color: var(--blue); font-weight: 700; }
+    .timer-history-list { max-height: 340px; overflow-y: auto; margin-top: 8px; padding-right: 4px; }
+    .timer-history-entry { padding: 7px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+    .timer-history-entry strong, .timer-history-entry small { display: block; }
+    .timer-history-entry small { color: var(--muted); }
+
     .report-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
@@ -2901,6 +2908,8 @@
       dashboardMonth: new Date().getMonth() + 1,
       dashboardYear: new Date().getFullYear(),
       timerInterval: null,
+      timerHistoryOpen: {},
+      timerHistoryCache: {},
       timerRefreshTimeout: null,
       speech: null,
       authVersion: 0,
@@ -2913,7 +2922,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-11-05-bank-range-task-filter';
+    const CLIENT_CACHE_VERSION = '2026-11-07-task-time-history';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -3380,6 +3389,11 @@
         if (event.target === byId('notePasswordDialog') && !byId('notePasswordConfirm').disabled) closeNotePasswordDialog();
       });
       byId('tasksTable').addEventListener('click', function(event) {
+        const historySummary = event.target.closest('[data-timer-history-task]');
+        if (historySummary) {
+          toggleTimerHistory(historySummary);
+          return;
+        }
         const button = event.target.closest('[data-task-column]');
         if (button) toggleTaskColumn(button.dataset.taskColumn);
       });
@@ -3667,6 +3681,8 @@
       byId('auditStatusFilter').value = '';
       byId('auditStatusFilter').classList.add('hidden');
       byId('taskSearchFilter').value = '';
+      state.timerHistoryOpen = {};
+      state.timerHistoryCache = {};
       byId('reportTaskStatusFilter').value = '';
       state.reportTaskType = '';
       byId('reportTaskTypeFilter').innerHTML = '<option value="">Semua tugas</option>';
@@ -4557,7 +4573,7 @@
         return;
       }
 
-      const columns = [['no', 'No', 58], ['tugas', 'Tugas', 310], ['penanggung', 'Penanggung Jawab', 160], ['status', 'Status KPI', 130], ['timer', 'Timer', 150], ['dibuat', 'Dibuat', 150], ['selesai', 'Selesai', 150], ['file', 'File', 120], ['catatan', 'Catatan', 180]];
+      const columns = [['no', 'No', 58], ['tugas', 'Tugas', 310], ['penanggung', 'Penanggung Jawab', 160], ['status', 'Status KPI', 130], ['timer', 'Timer', 260], ['dibuat', 'Dibuat', 150], ['selesai', 'Selesai', 150], ['file', 'File', 120], ['catatan', 'Catatan', 180]];
       const tableWidth = columns.reduce(function(total, column) {
         return total + (state.hiddenTaskColumns[column[0]] ? 32 : column[2]);
       }, state.dashboard.canEditTaskStatus ? 178 : 0);
@@ -5228,7 +5244,7 @@
           </td>
           <td class="${taskColumnClass('penanggung')}" data-label="Penanggung Jawab">${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
           <td class="${taskColumnClass('status')}" data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.kpiStatus === 'meleset' && task.status === 'selesai' ? 'Meleset (done)' : (task.displayKpiLabel || task.kpiLabel))}</span></td>
-          <td class="${taskColumnClass('timer')}" data-label="Timer">${renderTimerCell(task)}</td>
+          <td class="${taskColumnClass('timer')}" data-label="Timer">${renderTimerCell(task, true)}</td>
           <td class="${taskColumnClass('dibuat')}" data-label="Dibuat">${formatDate(task.createdAt || task.startedAt)}</td>
           <td class="${taskColumnClass('selesai')}" data-label="Selesai">${task.completedAt ? formatDate(task.completedAt) : '-'}</td>
           <td class="${taskColumnClass('file')}" data-label="File">${renderTaskFileCell(task)}</td>
@@ -5339,27 +5355,86 @@
       return String(value).padStart(2, '0');
     }
 
-    function renderTimerCell(task) {
+    function renderTimerCell(task, showHistory) {
       const timer = task.timer || {};
+      let timerText = '';
       if (timer.noDeadline) {
-        return '<span class="muted">Tanpa tenggat</span>';
+        timerText = '<span class="muted">Tanpa tenggat</span>';
+      } else if (task.status !== 'berjalan') {
+        timerText = '<span class="muted">Selesai</span>';
+      } else {
+        const paused = timer.isPaused ? 'true' : 'false';
+        const extraClass = timer.isPaused ? 'paused' : (timer.remainingMs < 0 ? 'overdue' : '');
+        timerText = `
+          <span class="timer ${extraClass}"
+            data-timer
+            data-start="${Date.now()}"
+            data-server-now="${escapeAttr(timer.serverNow || '')}"
+            data-refresh-at="${escapeAttr(timer.refreshAt || '')}"
+            data-paused="${paused}"
+            data-reason="${escapeAttr(timer.pauseReason || '')}"
+            data-remaining="${Number(timer.calendarRemainingMs == null ? timer.remainingMs || 0 : timer.calendarRemainingMs)}"></span>
+        `;
       }
-      if (task.status !== 'berjalan') {
-        return '<span class="muted">Selesai</span>';
-      }
+      if (!showHistory || !task.id) return timerText;
+      const history = state.timerHistoryCache[task.id];
+      return timerText + `<details class="timer-history" ${state.timerHistoryOpen[task.id] ? 'open' : ''}>
+        <summary data-timer-history-task="${escapeAttr(task.id)}">Riwayat waktu</summary>
+        <div class="timer-history-list" data-timer-history-content>${history ? renderTimerHistory(history) : 'Buka untuk melihat riwayat waktu.'}</div>
+      </details>`;
+    }
 
-      const paused = timer.isPaused ? 'true' : 'false';
-      const extraClass = timer.isPaused ? 'paused' : (timer.remainingMs < 0 ? 'overdue' : '');
-      return `
-        <span class="timer ${extraClass}"
-          data-timer
-          data-start="${Date.now()}"
-          data-server-now="${escapeAttr(timer.serverNow || '')}"
-          data-refresh-at="${escapeAttr(timer.refreshAt || '')}"
-          data-paused="${paused}"
-          data-reason="${escapeAttr(timer.pauseReason || '')}"
-          data-remaining="${Number(timer.calendarRemainingMs == null ? timer.remainingMs || 0 : timer.calendarRemainingMs)}"></span>
-      `;
+    function renderTimerHistory(history) {
+      const events = history && history.events || [];
+      if (!events.length) return '<span class="muted">Belum ada riwayat waktu.</span>';
+      const total = Number(history.totalAddedMs || 0);
+      const summary = total > 0 ? '<div class="timer-history-entry"><strong>Total perpanjangan: +' +
+        escapeHtml(formatHistoryDuration(total)) + '</strong></div>' : '';
+      return summary + events.map(function(event) {
+        let title = '';
+        let detail = '';
+        if (event.kind === 'start') title = 'Mulai berjalan';
+        if (event.kind === 'pause') title = 'Pause: ' + String(event.reason || 'absen');
+        if (event.kind === 'resume') {
+          title = 'Berjalan kembali';
+          if (event.pausedMs > 0) detail = 'Lama jeda: ' + formatHistoryDuration(event.pausedMs);
+        }
+        if (event.kind === 'added') {
+          title = 'Waktu bertambah: +' + formatHistoryDuration(event.addedMs);
+          detail = 'Deadline ' + formatDate(event.previousDeadlineAt) + ' → ' + formatDate(event.deadlineAt);
+        }
+        if (event.kind === 'reset') title = 'Timer direset untuk revisi ' + Number(event.count || 0) + ' (1×24 jam)';
+        if (event.kind === 'complete') title = 'Tugas selesai';
+        if (!title) return '';
+        return '<div class="timer-history-entry"><strong>' + escapeHtml(title) + '</strong><small>' +
+          escapeHtml(formatDate(event.at)) + '</small>' + (detail ? '<small>' + escapeHtml(detail) + '</small>' : '') + '</div>';
+      }).join('');
+    }
+
+    function formatHistoryDuration(ms) {
+      const minutes = Math.max(0, Math.round(Number(ms || 0) / 60000));
+      const days = Math.floor(minutes / 1440);
+      const hours = Math.floor((minutes % 1440) / 60);
+      const rest = minutes % 60;
+      return [days && days + ' hari', hours && hours + ' jam', rest && rest + ' menit'].filter(Boolean).join(' ') || '0 menit';
+    }
+
+    function toggleTimerHistory(summary) {
+      const taskId = summary.dataset.timerHistoryTask;
+      const details = summary.closest('details');
+      const opening = !details.open;
+      state.timerHistoryOpen[taskId] = opening;
+      if (!opening) return;
+      const content = details.querySelector('[data-timer-history-content]');
+      content.textContent = 'Memuat riwayat waktu...';
+      const token = state.token;
+      api('apiGetTaskTimeHistory', token, taskId).then(function(response) {
+        if (token !== state.token) return;
+        state.timerHistoryCache[taskId] = response.history;
+        if (content.isConnected) content.innerHTML = renderTimerHistory(response.history);
+      }).catch(function(error) {
+        if (content.isConnected) content.textContent = error.message || 'Riwayat waktu belum dapat dimuat.';
+      });
     }
 
     function saveTaskStatus(taskId) {
@@ -5399,6 +5474,8 @@
     function refreshTimerSnapshot() {
       if (!state.token) return;
       if (state.page === 'dashboard') {
+        state.timerHistoryOpen = {};
+        state.timerHistoryCache = {};
         loadDashboard();
       } else if (state.page === 'laporan') {
         const token = state.token;

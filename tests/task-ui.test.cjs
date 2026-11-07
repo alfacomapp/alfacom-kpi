@@ -20,6 +20,22 @@ test('report task cards show nearest active deadline first and overdue tasks las
   assert.deepEqual(tasks.sort(sort).map(task => task.id), ['soon', 'far', 'none', 'late2', 'late']);
 });
 
+test('dashboard timer row opens a safely rendered time history, including completed tasks', () => {
+  const app = ui();
+  const task = { id: 'T1', status: 'selesai', timer: { deadlineAt: '2026-11-07T15:59:59Z' } };
+  assert.match(app.renderTimerCell(task, true), /Riwayat waktu/);
+  assert.doesNotMatch(app.renderTimerCell(task), /Riwayat waktu/);
+  const markup = app.renderTimerHistory({ totalAddedMs: 86400000, events: [
+    { kind: 'pause', at: '2026-11-04T00:00:00Z', reason: '<sakit>' },
+    { kind: 'resume', at: '2026-11-05T00:00:00Z', pausedMs: 86400000 },
+    { kind: 'added', at: '2026-11-04T00:00:00Z', addedMs: 86400000,
+      previousDeadlineAt: '2026-11-07T15:59:59Z', deadlineAt: '2026-11-08T15:59:59Z' }
+  ] });
+  assert.match(markup, /Pause: &lt;sakit&gt;/);
+  assert.doesNotMatch(markup, /<sakit>/);
+  assert.match(markup, /Berjalan kembali|Waktu bertambah/);
+});
+
 test('report task filter and weekly bank date inputs are present', () => {
   const app = ui();
   assert.match(html, /id="reportTaskTypeFilter"/);
@@ -238,7 +254,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 

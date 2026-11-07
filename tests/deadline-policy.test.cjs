@@ -157,3 +157,38 @@ test('display status follows a newly extended deadline after leave approval', ()
   assert.equal(resumed.displayKpiStatus, 'berjalan');
   assert.equal(date(engine, resumed.timer.deadlineAt), '2026-06-09');
 });
+
+test('timer history records sick pause, resumed date, and the exact deadline extension', () => {
+  const { engine } = fixture();
+  const item = task('pendapatan_harian', iso('2026-06-08'), 24);
+  const leave = { 'admin kendari|2026-06-08': 'sakit' };
+  const history = engine.timeHistoryForTest(item, iso('2026-06-09', '12:00:00'), leave);
+  assert.deepEqual(Array.from(history.events, event => event.kind), ['start', 'pause', 'added', 'resume']);
+  assert.equal(history.events[1].reason, 'sakit');
+  assert.equal(history.events[1].at, '2026-06-07T16:00:00.000Z');
+  assert.equal(history.events[2].addedMs, 24 * 60 * 60 * 1000);
+  assert.equal(date(engine, history.events[2].previousDeadlineAt), '2026-06-08');
+  assert.equal(date(engine, history.events[2].deadlineAt), '2026-06-09');
+  assert.equal(history.events[3].at, '2026-06-08T16:00:00.000Z');
+  assert.equal(history.events[3].pausedMs, 24 * 60 * 60 * 1000);
+  assert.equal(history.totalAddedMs, 24 * 60 * 60 * 1000);
+});
+
+test('timer history keeps scheduled Sunday pause, completion, and saved revision reset', () => {
+  const { engine } = fixture();
+  const item = task('rincian_barang_tiba', iso('2026-06-06', '10:00:00'), 48);
+  item.Status = 'selesai';
+  item.CompletedAt = iso('2026-06-08', '12:00:00');
+  const history = engine.timeHistoryForTest(item, iso('2026-06-10'));
+  assert.deepEqual(Array.from(history.events, event => event.kind), ['start', 'pause', 'added', 'resume', 'complete']);
+  assert.equal(history.events[1].reason, 'Minggu');
+  assert.equal(history.events[2].addedMs, 24 * 60 * 60 * 1000);
+  assert.equal(history.events[3].pausedMs, 24 * 60 * 60 * 1000);
+  assert.equal(history.totalAddedMs, 24 * 60 * 60 * 1000);
+
+  const revised = task('rincian_barang_tiba', iso('2026-06-06', '10:00:00'), 48);
+  revised.PayloadJson = JSON.stringify({ revision: { count: 2, pending: true, startedAt: iso('2026-06-09') },
+    timerResetHistory: [{ count: 1, at: iso('2026-06-08') }, { count: 2, at: iso('2026-06-09') }] });
+  const resetHistory = engine.timeHistoryForTest(revised, iso('2026-06-09', '12:00:00'));
+  assert.deepEqual(Array.from(resetHistory.events.filter(event => event.kind === 'reset'), event => event.count), [1, 2]);
+});

@@ -129,6 +129,7 @@ test('linked daily audit reopens the source task with a fresh 24-hour revision t
   const revision = JSON.parse(fx.task('SOURCE').PayloadJson).revision;
   assert.equal(revision.count, 1);
   assert.equal(revision.pending, true);
+  assert.deepEqual(JSON.parse(fx.task('SOURCE').PayloadJson).timerResetHistory.map(entry => entry.count), [1]);
   const timer = fx.engine.timerForTest(fx.task('SOURCE'), revision.startedAt);
   assert.ok(Math.abs(timer.remainingMs - 24 * 60 * 60 * 1000) <= 1);
   fx.as('KEN');
@@ -148,6 +149,8 @@ test('linked daily audit reopens the source task with a fresh 24-hour revision t
     const current = fx.task('SOURCE');
     const currentRevision = JSON.parse(current.PayloadJson).revision;
     assert.equal(currentRevision.count, check);
+    assert.deepEqual(JSON.parse(current.PayloadJson).timerResetHistory.map(entry => entry.count),
+      check === 4 ? [1, 2, 3] : Array.from({ length: check }, (_, index) => index + 1));
     if (check === 4) {
       assert.equal(current.Status, 'selesai');
       assert.equal(current.KpiStatus, 'meleset');
