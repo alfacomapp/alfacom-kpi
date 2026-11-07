@@ -137,7 +137,6 @@ test('note checkbox changes require a verified password in the server engine', (
 test('note password verification accepts only the current SLA account', async () => {
   const helperSource = source.slice(source.indexOf('async function verifyNotePassword'),
     source.indexOf('function findKpiUser', source.indexOf('async function verifyNotePassword')));
-  const jwt = 'x.' + Buffer.from(JSON.stringify({ sub: 'auth-current' })).toString('base64url') + '.x';
   const calls = [];
   const verify = new Function('fetch', 'PROJECT_URL', 'PUBLIC_KEY',
     helperSource + '\nreturn verifyNotePassword;')(
@@ -145,12 +144,12 @@ test('note password verification accepts only the current SLA account', async ()
       calls.push({ url, options });
       return { ok: true, json: async () => ({ user: { id: 'auth-current', email: 'admin@alfacom.local' } }) };
     }, 'https://example.supabase.co', 'publishable-test');
-  await verify({ login: 'admin' }, jwt, 'secret-password');
+  await verify({ login: 'admin', authUserId: 'auth-current' }, 'secret-password');
   assert.equal(calls.length, 1);
   assert.deepEqual(JSON.parse(calls[0].options.body),
     { email: 'admin@alfacom.local', password: 'secret-password' });
-  await assert.rejects(verify({ login: 'other' }, jwt, 'secret-password'), /akun yang sedang login/);
-  await assert.rejects(verify({ login: 'admin' }, jwt, ''), /Masukkan password/);
+  await assert.rejects(verify({ login: 'other', authUserId: 'auth-current' }, 'secret-password'), /akun yang sedang login/);
+  await assert.rejects(verify({ login: 'admin', authUserId: 'auth-current' }, ''), /Masukkan password/);
 });
 
 test('admin dashboard detail excludes auditor tasks for the same location', () => {

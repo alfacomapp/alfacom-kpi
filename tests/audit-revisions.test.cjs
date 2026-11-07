@@ -123,27 +123,30 @@ test('linked daily audit reopens the source task with a fresh 24-hour revision t
   const fx = fixture([sourceTask, auditTask]);
   let auditId = 'AUDIT';
   const checked = fx.submit('audit_harian', { relatedTaskId: 'AUDIT', auditStatus: 'kendala',
-    description: 'Bukti kas perlu diperbaiki' }, { auditProof: [proof] });
+    revisionFields: ['physicalCash'], description: 'Bukti kas perlu diperbaiki' }, { auditProof: [proof] });
   assert.equal(checked.ok, true, checked.message);
   assert.equal(fx.task('SOURCE').Status, 'berjalan');
   const revision = JSON.parse(fx.task('SOURCE').PayloadJson).revision;
   assert.equal(revision.count, 1);
   assert.equal(revision.pending, true);
+  assert.deepEqual(revision.requiredFields, ['physicalCash']);
   assert.deepEqual(JSON.parse(fx.task('SOURCE').PayloadJson).timerResetHistory.map(entry => entry.count), [1]);
   const timer = fx.engine.timerForTest(fx.task('SOURCE'), revision.startedAt);
   assert.ok(Math.abs(timer.remainingMs - 24 * 60 * 60 * 1000) <= 1);
   fx.as('KEN');
-  const resubmitted = fx.submit('pendapatan_harian', { relatedTaskId: 'SOURCE', amount: 100000 },
-    { physicalCash: [proof], cashierState: [proof] });
+  const revisionTask = fx.engine.execute('apiGetReportMeta', ['test-jwt']).openTasks.find(row => row.id === 'SOURCE');
+  assert.deepEqual(revisionTask.payload.revision.requiredFields, ['physicalCash']);
+  const resubmitted = fx.submit('pendapatan_harian', { relatedTaskId: 'SOURCE' }, { physicalCash: [proof] });
   assert.equal(resubmitted.ok, true, resubmitted.message);
   assert.equal(fx.task('SOURCE').Status, 'selesai');
   assert.equal(JSON.parse(fx.task('SOURCE').PayloadJson).revision.pending, false);
+  assert.equal(JSON.parse(fx.task('SOURCE').PayloadJson).amount, 100000);
   assert.equal(resubmitted.tasks.at(-1).taskType, 'audit_harian');
   let nextAuditId = resubmitted.tasks.at(-1).id;
   assert.equal(nextAuditId, auditId);
   for (let check = 2; check <= 4; check++) {
     fx.as('AUD');
-    const failed = fx.submit('audit_harian', { relatedTaskId: nextAuditId, auditStatus: 'kendala' },
+    const failed = fx.submit('audit_harian', { relatedTaskId: nextAuditId, auditStatus: 'kendala', revisionFields: ['physicalCash'] },
       { auditProof: [proof] });
     assert.equal(failed.ok, true, failed.message);
     const current = fx.task('SOURCE');
@@ -159,8 +162,7 @@ test('linked daily audit reopens the source task with a fresh 24-hour revision t
     }
     assert.equal(current.Status, 'berjalan');
     fx.as('KEN');
-    const redone = fx.submit('pendapatan_harian', { relatedTaskId: 'SOURCE', amount: 100000 },
-      { physicalCash: [proof], cashierState: [proof] });
+    const redone = fx.submit('pendapatan_harian', { relatedTaskId: 'SOURCE' }, { physicalCash: [proof] });
     assert.equal(redone.ok, true, redone.message);
     nextAuditId = redone.tasks.at(-1).id;
     assert.equal(nextAuditId, auditId);
@@ -180,7 +182,8 @@ test('bank revision replaces only the failed bank and rechecks it while retainin
     PayloadJson: JSON.stringify({ requiredBankKeys: keys, sourceTaskId: 'BANK-SOURCE' })
   });
   const fx = fixture([sourceTask, auditTask]);
-  const auditBanks = keys.map(key => ({ bankName: key, auditStatus: key === 'bri_kendari' ? 'kendala' : 'aman' }));
+  const auditBanks = keys.map(key => ({ bankName: key, auditStatus: key === 'bri_kendari' ? 'kendala' : 'aman',
+    revisionFields: key === 'bri_kendari' ? ['bankAccountProof'] : [] }));
   const auditFiles = Object.fromEntries(keys.map(key => ['auditProof_' + key, [proof]]));
   const checked = fx.submit('audit_pekanan', { relatedTaskId: 'BANK-AUDIT', auditBanks }, auditFiles);
   assert.equal(checked.ok, true, checked.message);
@@ -228,7 +231,8 @@ test('fourth failed bank inspection marks the original user task late without ad
     const audited = round === 1 ? keys : ['bri_kendari'];
     const result = fx.submit('audit_pekanan', {
       relatedTaskId: 'BANK-AUDIT',
-      auditBanks: audited.map(bankName => ({ bankName, auditStatus: bankName === 'bri_kendari' ? 'kendala' : 'aman' }))
+      auditBanks: audited.map(bankName => ({ bankName, auditStatus: bankName === 'bri_kendari' ? 'kendala' : 'aman',
+        revisionFields: bankName === 'bri_kendari' ? ['bankAccountProof'] : [] }))
     }, Object.fromEntries(audited.map(bankName => ['auditProof_' + bankName, [proof]])));
     assert.equal(result.ok, true, result.message);
     assert.equal(fx.ctx.tables.tasks.filter(row => row.record.TaskType === 'audit_pekanan').length, 1);
@@ -280,17 +284,67 @@ test('kasbon revision reuses its original task and receives a real 24-hour deadl
   const sourceId = first.tasks[0].id;
   fx.as('AUD');
   const failed = fx.submit('audit_kasbon', { relatedTaskId: first.tasks[1].id,
-    auditStatus: 'kendala' }, { auditProof: [proof] });
+    auditStatus: 'kendala', revisionFields: ['approvalProof'] }, { auditProof: [proof] });
   assert.equal(failed.ok, true, failed.message);
   const reopened = fx.task(sourceId);
   assert.equal(reopened.Status, 'berjalan');
   assert.equal(fx.engine.enrichedTaskForTest(reopened, new Date().toISOString()).excludedFromKpi, false);
   assert.ok(fx.engine.timerForTest(reopened, new Date().toISOString()).deadlineAt);
   fx.as('KEN');
-  const redone = fx.submit('kasbon_di_atas_limit', { relatedTaskId: sourceId, amount: 800000 },
+  const redone = fx.submit('kasbon_di_atas_limit', { relatedTaskId: sourceId },
     { approvalProof: [proof] });
   assert.equal(redone.ok, true, redone.message);
   assert.equal(redone.tasks[0].id, sourceId);
   assert.equal(redone.tasks[1].taskType, 'audit_kasbon');
   assert.equal(fx.ctx.tables.tasks.filter(row => row.record.TaskType === 'kasbon_di_atas_limit').length, 1);
+});
+
+test('arrival revision requires only the auditor-selected IPOS number and retains other original details', () => {
+  const source = task('ARRIVAL', 'rincian_barang_tiba', people[2], {
+    Status: 'selesai', RelatedReportId: 'ORIGINAL',
+    PayloadJson: JSON.stringify({ arrivedSummary: '5 barang diterima', iposNotaNumber: 'IPOS-1', description: 'Awal' })
+  });
+  const audit = task('ARRIVAL-AUDIT', 'audit_barang_tiba', people[0], {
+    PayloadJson: JSON.stringify({ sourceTaskId: 'ARRIVAL', sourceReportId: 'ORIGINAL' })
+  });
+  const fx = fixture([source, audit]);
+  const failed = fx.submit('audit_barang_tiba', { relatedTaskId: 'ARRIVAL-AUDIT',
+    auditStatus: 'kendala', revisionFields: ['iposNotaNumber'] }, {});
+  assert.equal(failed.ok, true, failed.message);
+  fx.as('RAH');
+  const missing = fx.submit('rincian_barang_tiba', { relatedTaskId: 'ARRIVAL' }, {});
+  assert.equal(missing.ok, false);
+  const fixed = fx.submit('rincian_barang_tiba', { relatedTaskId: 'ARRIVAL', iposNotaNumber: 'IPOS-2' }, {});
+  assert.equal(fixed.ok, true, fixed.message);
+  const payload = JSON.parse(fx.task('ARRIVAL').PayloadJson);
+  assert.equal(payload.iposNotaNumber, 'IPOS-2');
+  assert.equal(payload.arrivedSummary, '5 barang diterima');
+  assert.equal(payload.description, 'Awal');
+});
+
+test('bank revision can request only an end date and preserve the original start date and proof', () => {
+  const keys = ['bri_kendari', 'bri_raha', 'mandiri', 'bank_sultra', 'aladin_syariah'];
+  const bankReports = Object.fromEntries(keys.map(key => [key, { label: key, reportId: 'OLD-' + key,
+    reportStartDate: '2026-10-01', reportEndDate: '2026-10-07' }]));
+  const source = task('BANK-SOURCE', 'laporan_akun_bank', people[1], {
+    Status: 'selesai', PayloadJson: JSON.stringify({ requiredBankKeys: keys, bankReports }),
+    AttachmentUrlsJson: JSON.stringify({ bankAccountProof_bri_kendari: [{ id: 'original-proof' }] })
+  });
+  const audit = task('BANK-AUDIT', 'audit_pekanan', people[0], {
+    Title: 'Audit laporan akun bank pekanan Kendari',
+    PayloadJson: JSON.stringify({ sourceTaskId: 'BANK-SOURCE', requiredBankKeys: keys })
+  });
+  const fx = fixture([source, audit]);
+  const failed = fx.submit('audit_pekanan', { relatedTaskId: 'BANK-AUDIT',
+    auditBanks: [{ bankName: 'bri_kendari', auditStatus: 'kendala', revisionFields: ['reportEndDate'] }] },
+    { auditProof_bri_kendari: [proof] });
+  assert.equal(failed.ok, true, failed.message);
+  fx.as('KEN');
+  const revised = fx.engine.execute('apiSubmitReport', ['test-jwt', { type: 'laporan_akun_bank',
+    fields: { relatedTaskId: 'BANK-SOURCE', bankName: 'bri_kendari', reportEndDate: '2026-10-08' }, files: {} }]);
+  assert.equal(revised.ok, true, revised.message);
+  const updated = JSON.parse(fx.task('BANK-SOURCE').PayloadJson).bankReports.bri_kendari;
+  assert.equal(updated.reportStartDate, '2026-10-01');
+  assert.equal(updated.reportEndDate, '2026-10-08');
+  assert.equal(JSON.parse(fx.task('BANK-SOURCE').AttachmentUrlsJson).bankAccountProof_bri_kendari[0].id, 'original-proof');
 });

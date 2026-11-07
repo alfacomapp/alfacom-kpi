@@ -1488,10 +1488,17 @@
 
     .report-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
-      gap: 16px;
+      grid-template-columns: minmax(0, var(--report-left, 55%)) 8px minmax(0, 1fr);
+      gap: 12px;
       align-items: stretch;
     }
+
+    .report-resizer { cursor: col-resize; touch-action: none; border-radius: 8px; background: var(--line); position: relative; }
+    .report-resizer::after { content: ''; position: absolute; inset: 0 2px; border-radius: 6px; background: var(--green); opacity: .45; }
+    .report-resizer:hover::after, .report-resizer:focus-visible::after { opacity: 1; }
+    .report-resizer:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+    .revision-checklist > div { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; }
+    .revision-choice { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; cursor: pointer; }
 
     .report-grid > .panel {
       min-width: 0;
@@ -1556,6 +1563,7 @@
 
     @media (min-width: 941px) and (max-width: 1260px) {
       .report-grid { grid-template-columns: minmax(0, 1fr); }
+      .report-resizer { display: none; }
     }
 
     #reportFormPanel .panel-head { flex-direction: row; align-items: center; flex-wrap: wrap; }
@@ -2054,6 +2062,7 @@
       .report-grid {
         grid-template-columns: 1fr;
       }
+      .report-resizer { display: none; }
 
       .dashboard-jump {
         display: inline-flex;
@@ -2761,7 +2770,7 @@
       </section>
 
       <section id="laporanPage" class="page hidden">
-        <div class="report-grid">
+        <div id="reportGrid" class="report-grid">
           <div class="panel report-tasks-panel">
             <div class="panel-head">
               <h3>Tugas</h3>
@@ -2785,6 +2794,7 @@
             </div>
             <div id="openTasksList" class="task-list"></div>
           </div>
+          <div id="reportResizer" class="report-resizer" role="separator" aria-label="Geser untuk mengubah lebar Tugas dan Form Laporan" aria-orientation="vertical" aria-valuemin="30" aria-valuemax="70" aria-valuenow="55" tabindex="0"></div>
           <div id="reportFormPanel" class="panel">
             <div class="panel-head">
               <h3>Form Laporan</h3>
@@ -2881,6 +2891,7 @@
       reportFormMonth: new Date().getMonth() + 1,
       reportFormYear: new Date().getFullYear(),
       reportSection: 'tasks',
+      reportResizing: false,
       kpiPanelCollapsed: false,
       hiddenTaskColumns: {},
       openNoteComments: {},
@@ -2913,6 +2924,11 @@
       timerRefreshTimeout: null,
       speech: null,
       authVersion: 0,
+      sessionExpiresAt: 0,
+      sessionTimer: null,
+      sessionTouchTimer: null,
+      sessionTouchAt: 0,
+      sessionTouchPending: false,
       requestSeq: 0
     };
 
@@ -2946,6 +2962,14 @@
       ['validasi_sales', 'Validasi sales kirim ke Abu Caca untuk cek'],
       ['laporan_bank_jago', 'Pastikan laporan Bank Jago sudah terinput pada bulan yang mau dilaporkan laba ruginya']
     ];
+    const AUDIT_SOURCE_TYPES = { audit_harian: 'pendapatan_harian', audit_kasbon: 'kasbon_di_atas_limit',
+      audit_barang_tiba: 'rincian_barang_tiba', audit_pekanan: 'laporan_akun_bank' };
+    const REVISION_FIELD_NAMES = {
+      pendapatan_harian: ['amount', 'physicalCash', 'cashierState', 'notaAttachments', 'bankProof', 'description'],
+      kasbon_di_atas_limit: ['amount', 'approvalProof', 'description'],
+      rincian_barang_tiba: ['arrivedSummary', 'iposNotaNumber', 'arrivalProof', 'description'],
+      laporan_akun_bank: ['reportStartDate', 'reportEndDate', 'bankAccountProof', 'bankStatement', 'description']
+    };
 
     const REPORT_FORMS = {
       kasbon_di_atas_limit: [
@@ -3052,6 +3076,7 @@
       audit_harian: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Tugas terkait', required: true, match: ['audit_harian'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'revisionChecklist', sourceType: 'pendapatan_harian', full: true },
         { kind: 'file', field: 'auditProof', label: 'Bukti foto audit', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
@@ -3069,12 +3094,14 @@
       audit_kasbon: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Kasbon yang diperiksa', required: true, match: ['audit_kasbon'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'revisionChecklist', sourceType: 'kasbon_di_atas_limit', full: true },
         { kind: 'file', field: 'auditProof', label: 'Bukti pemeriksaan kasbon', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
       audit_barang_tiba: [
         { kind: 'taskSelect', field: 'relatedTaskId', label: 'Rincian barang tiba yang diperiksa', required: true, match: ['audit_barang_tiba'] },
         { kind: 'select', field: 'auditStatus', label: 'Status', required: true, options: [['', 'Pilih status'], ['aman', 'Aman'], ['kendala', 'Kendala']] },
+        { kind: 'revisionChecklist', sourceType: 'rincian_barang_tiba', full: true },
         { kind: 'file', field: 'auditProof', label: 'Bukti pemeriksaan barang tiba (opsional)', multiple: true, max: 10, accept: 'image/*,application/pdf' },
         { kind: 'textarea', field: 'description', label: 'Keterangan', full: true }
       ],
@@ -3131,19 +3158,25 @@
       localStorage.removeItem('kpi_token');
       if (await terimaSesiDariSla_()) return;
       if (state.token) {
-        const token = state.token;
+        const oldToken = state.token;
         const authStamp = state.authVersion;
-        api('apiGetSession', token)
-          .then(function(response) {
-            if (token !== state.token || authStamp !== state.authVersion) {
+        const sessionPromise = oldToken.startsWith('kpi_') ? Promise.resolve({ token: oldToken }) : api('apiStartSession', oldToken);
+        sessionPromise.then(function(session) {
+          return api('apiGetSession', session.token).then(function(response) { return { session, response }; });
+        })
+          .then(function(data) {
+            if (oldToken !== state.token || authStamp !== state.authVersion) {
               return;
             }
-            state.user = response.user;
-            state.menus = response.menus || [];
+            state.token = data.session.token;
+            state.sessionExpiresAt = Date.parse(data.response.sessionExpiresAt || data.session.expiresAt);
+            sessionStorage.setItem('kpi_sla_token', state.token);
+            state.user = data.response.user;
+            state.menus = data.response.menus || [];
             showApp();
           })
           .catch(function() {
-            if (token === state.token && authStamp === state.authVersion) {
+            if (oldToken === state.token && authStamp === state.authVersion) {
               sessionStorage.removeItem('kpi_sla_token');
               state.token = '';
               showLogin();
@@ -3155,6 +3188,12 @@
     }
 
     function bindEvents() {
+      ['pointerdown', 'keydown', 'input', 'scroll', 'touchstart'].forEach(function(name) {
+        document.addEventListener(name, markKpiActivity, { passive: true, capture: true });
+      });
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) markKpiActivity();
+      });
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
       byId('noteCamera').addEventListener('change', function(event) {
@@ -3253,12 +3292,39 @@
       byId('jumpToOpenTasks').addEventListener('click', function() {
         setReportSection('tasks');
       });
+      const reportResizer = byId('reportResizer');
+      reportResizer.addEventListener('pointerdown', function(event) {
+        state.reportResizing = true;
+        reportResizer.setPointerCapture(event.pointerId);
+        moveReportSplit(event);
+      });
+      reportResizer.addEventListener('pointermove', moveReportSplit);
+      reportResizer.addEventListener('pointerup', function(event) {
+        if (!state.reportResizing) return;
+        moveReportSplit(event);
+        state.reportResizing = false;
+        reportResizer.releasePointerCapture(event.pointerId);
+        saveReportSplit();
+      });
+      reportResizer.addEventListener('pointercancel', function() { state.reportResizing = false; });
+      reportResizer.addEventListener('keydown', function(event) {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        setReportSplit(Number(reportResizer.getAttribute('aria-valuenow')) + (event.key === 'ArrowLeft' ? -2 : 2));
+        saveReportSplit();
+      });
       byId('reportType').addEventListener('change', function(event) {
         renderReportForm();
       });
       byId('dynamicReportFields').addEventListener('change', function(event) {
         if (event.target && (event.target.dataset.field === 'auditStatus' || event.target.dataset.field === 'relatedTaskId')) {
           toggleRevisionRecipient();
+        }
+        if (event.target && (event.target.dataset.field === 'auditStatus' || event.target.dataset.field === 'relatedTaskId' ||
+            event.target.dataset.field === 'bankName' || event.target.hasAttribute('data-audit-status') ||
+            event.target.hasAttribute('data-audit-bank'))) {
+          updateRevisionFormFields();
+          updateAuditRevisionChecklist();
         }
         if (event.target && event.target.dataset.field === 'relatedTaskId' && byId('reportType').value === 'rincian_barang_tiba') {
           updateShipmentReceipt(true);
@@ -3514,9 +3580,11 @@
         cleanup();
         const stamp = ++state.authVersion;
         try {
-          const response = await api('apiGetSession', event.data.token);
+          const session = await api('apiStartSession', event.data.token);
+          const response = await api('apiGetSession', session.token);
           if (stamp !== state.authVersion) return;
-          state.token = event.data.token;
+          state.token = session.token;
+          state.sessionExpiresAt = Date.parse(response.sessionExpiresAt || session.expiresAt);
           state.user = response.user;
           state.menus = response.menus || [];
           state.page = 'dashboard';
@@ -3542,7 +3610,60 @@
       stopTimers();
     }
 
+    function endKpiSession() {
+      clearTimeout(state.sessionTimer);
+      clearTimeout(state.sessionTouchTimer);
+      state.authVersion += 1;
+      state.token = '';
+      state.user = null;
+      state.sessionExpiresAt = 0;
+      state.sessionTouchPending = false;
+      sessionStorage.removeItem('kpi_sla_token');
+      showLogin('Sesi KPI berakhir setelah 7 jam tanpa aktivitas. Buka kembali dari Lobby SLA.');
+    }
+
+    function startKpiSessionTimer() {
+      clearTimeout(state.sessionTimer);
+      if (!state.token.startsWith('kpi_')) return;
+      if (!Number.isFinite(state.sessionExpiresAt) || state.sessionExpiresAt <= Date.now()) {
+        endKpiSession();
+        return;
+      }
+      state.sessionTouchAt = Date.now();
+      state.sessionTimer = setTimeout(function() {
+        if (state.sessionTouchPending) state.sessionTimer = setTimeout(endKpiSession, 10000);
+        else endKpiSession();
+      }, state.sessionExpiresAt - Date.now());
+    }
+
+    function touchKpiActivity() {
+      if (!state.token.startsWith('kpi_') || !state.user) return;
+      if (state.sessionExpiresAt <= Date.now()) { endKpiSession(); return; }
+      const token = state.token;
+      state.sessionTouchAt = Date.now();
+      state.sessionTouchPending = true;
+      api('apiTouchSession', token).then(function(response) {
+        if (token !== state.token) return;
+        state.sessionTouchPending = false;
+        state.sessionExpiresAt = Math.max(state.sessionExpiresAt, Date.parse(response.expiresAt));
+        startKpiSessionTimer();
+      }).catch(function(error) {
+        if (token !== state.token) return;
+        state.sessionTouchPending = false;
+        if (/Sesi KPI berakhir/.test(error.message || '') || state.sessionExpiresAt <= Date.now()) endKpiSession();
+      });
+    }
+
+    function markKpiActivity() {
+      if (!state.token.startsWith('kpi_') || !state.user) return;
+      if (state.sessionExpiresAt <= Date.now()) { endKpiSession(); return; }
+      clearTimeout(state.sessionTouchTimer);
+      if (Date.now() - state.sessionTouchAt >= 15000) touchKpiActivity();
+      else state.sessionTouchTimer = setTimeout(touchKpiActivity, 2000);
+    }
+
     function showApp() {
+      startKpiSessionTimer();
       let localColumns = {};
       try {
         localColumns = JSON.parse(localStorage.getItem('kpi_hidden_task_columns_' + state.user.Id) || '{}') || {};
@@ -3553,6 +3674,7 @@
       if (accountColumns == null && Object.keys(localColumns).length) saveHiddenTaskColumns();
       byId('loginView').classList.add('hidden');
       byId('appView').classList.remove('hidden');
+      setReportSplit(Number(localStorage.getItem('kpi_report_split_' + state.user.Id)) || 55);
       renderShell();
       navigate(state.menus.indexOf(state.page) !== -1 ? state.page : state.menus[0] || 'dashboard');
     }
@@ -3626,6 +3748,23 @@
       if (target) {
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
+    }
+
+    function setReportSplit(value) {
+      const ratio = Math.max(30, Math.min(70, Number(value) || 55));
+      byId('reportGrid').style.setProperty('--report-left', ratio + '%');
+      byId('reportResizer').setAttribute('aria-valuenow', String(ratio));
+    }
+
+    function moveReportSplit(event) {
+      if (!state.reportResizing) return;
+      const rect = byId('reportGrid').getBoundingClientRect();
+      if (rect.width > 0) setReportSplit((event.clientX - rect.left) / rect.width * 100);
+    }
+
+    function saveReportSplit() {
+      if (state.user) localStorage.setItem('kpi_report_split_' + state.user.Id,
+        byId('reportResizer').getAttribute('aria-valuenow'));
     }
 
     function resetViewState() {
@@ -5731,6 +5870,60 @@
       updateInvestorCheckOptions();
       updateBankCashTotal();
       toggleRevisionRecipient();
+      updateRevisionFormFields();
+      updateAuditRevisionChecklist();
+    }
+
+    function revisionChecklistOptions(sourceType, location) {
+      return (REVISION_FIELD_NAMES[sourceType] || []).filter(function(name) {
+        return name !== 'bankProof' || location === 'raha';
+      }).map(function(name) {
+        const field = (REPORT_FORMS[sourceType] || []).find(function(item) { return item.field === name; });
+        return `<label class="revision-choice"><input type="checkbox" data-revision-choice="${escapeAttr(name)}"> ${escapeHtml(field ? field.label : name)}</label>`;
+      }).join('');
+    }
+
+    function updateAuditRevisionChecklist() {
+      const type = byId('reportType').value;
+      if (type === 'audit_pekanan') {
+        document.querySelectorAll('[data-audit-bank-row]').forEach(function(row) {
+          const box = row.querySelector('[data-revision-checklist]');
+          box.hidden = row.querySelector('[data-audit-status]').value !== 'kendala';
+        });
+        return;
+      }
+      const box = document.querySelector('[data-revision-checklist]');
+      if (!box || !AUDIT_SOURCE_TYPES[type]) return;
+      const selected = document.querySelector('[data-field="relatedTaskId"]');
+      const task = reportTasksForCurrentUser().find(function(item) { return item.id === (selected && selected.value); });
+      const location = task && task.payload && task.payload.location || '';
+      if (type === 'audit_harian' && box.dataset.location !== location) {
+        box.querySelector('[data-revision-options]').innerHTML = revisionChecklistOptions('pendapatan_harian', location);
+        box.dataset.location = location;
+      }
+      box.hidden = document.querySelector('[data-field="auditStatus"]')?.value !== 'kendala';
+    }
+
+    function updateRevisionFormFields() {
+      const type = byId('reportType').value;
+      if (!REVISION_FIELD_NAMES[type]) return;
+      const taskId = document.querySelector('[data-field="relatedTaskId"]')?.value;
+      const task = reportTasksForCurrentUser().find(function(item) { return item.id === taskId; });
+      const revision = task && task.payload && task.payload.revision;
+      const bank = document.querySelector('[data-field="bankName"]')?.value;
+      const selected = revision && revision.pending && (type === 'laporan_akun_bank'
+        ? revision.fieldsByBank && revision.fieldsByBank[bank] : revision.requiredFields);
+      document.querySelectorAll('[data-field], [data-file-field]').forEach(function(input) {
+        const name = input.dataset.field || input.dataset.fileField;
+        if (!REVISION_FIELD_NAMES[type].includes(name)) return;
+        const wrapper = input.closest('.field');
+        if (!wrapper) return;
+        const visible = !Array.isArray(selected) || selected.includes(name);
+        wrapper.hidden = !visible;
+        input.required = visible && (Array.isArray(selected) ? true : Boolean((REPORT_FORMS[type] || []).find(function(item) { return item.field === name && item.required; })));
+        if (!visible) input.value = '';
+      });
+      if (usesPreparedReportUploads() && document.querySelector('[data-file-field]')) refreshBankUploadPreparation();
     }
 
     function toggleRevisionRecipient() {
@@ -5853,6 +6046,7 @@
             ${BANK_ACCOUNT_OPTIONS.map(function(option) { return `<option value="${escapeAttr(option[0])}">${escapeHtml(option[1])}</option>`; }).join('')}
           </select></div>
           <div class="field"><label>Status audit *</label><select data-audit-status required><option value="">Pilih status</option><option value="aman">Aman</option><option value="kendala">Kendala</option></select></div>
+          <div class="field full revision-checklist" data-revision-checklist hidden><strong>Bagian laporan yang perlu direvisi *</strong><small>Centang hanya bagian yang harus diperbaiki oleh Admin Kendari.</small><div data-revision-options>${revisionChecklistOptions('laporan_akun_bank', 'kendari')}</div></div>
           ${renderField({ kind: 'file', field: 'auditProofRow_' + key, label: 'Bukti hasil pemeriksaan', required: true, multiple: true, max: 10, accept: 'image/*,application/pdf' })}
           <div class="field full"><label>Keterangan bank ini</label><textarea data-audit-description></textarea></div>
         </div>
@@ -5867,6 +6061,9 @@
     }
 
     function renderField(field) {
+      if (field.kind === 'revisionChecklist') {
+        return `<div class="field full revision-checklist" data-revision-checklist data-location="" hidden><strong>Bagian laporan yang perlu direvisi *</strong><small>Centang hanya bagian yang perlu diperbaiki. Admin akan melihat bagian tersebut saat memilih nomor tugas revisi.</small><div data-revision-options>${revisionChecklistOptions(field.sourceType, '')}</div></div>`;
+      }
       if (field.kind === 'notice') {
         return '<div class="field full"><p class="report-warning">' + escapeHtml(field.text) + '</p></div>';
       }
@@ -6172,8 +6369,14 @@
       const type = byId('reportType').value;
       const fields = {};
       Array.prototype.forEach.call(document.querySelectorAll('[data-field]'), function(input) {
+        if (input.closest('.field')?.hidden) return;
         fields[input.dataset.field] = input.value;
       });
+      if (AUDIT_SOURCE_TYPES[type] && type !== 'audit_pekanan' && fields.auditStatus === 'kendala') {
+        fields.revisionFields = Array.from(document.querySelectorAll('[data-revision-checklist] [data-revision-choice]:checked'))
+          .map(function(input) { return input.dataset.revisionChoice; });
+        if (!fields.revisionFields.length) throw new Error('Centang bagian laporan yang perlu direvisi.');
+      }
       if (type === 'laporan_keadaan_kas_bank') {
         fields.bankCashEntries = Array.prototype.slice.call(document.querySelectorAll('[data-bank-cash-row]')).map(function(row) {
           return { bankName: row.querySelector('[data-bank-cash-name]').value.trim(), amount: row.querySelector('[data-bank-cash-amount]').value.trim() };
@@ -6191,9 +6394,13 @@
           if (selected.has(bankName)) throw new Error('Bank yang sama hanya boleh dipilih sekali.');
           if (!status) throw new Error('Pilih status audit untuk setiap bank.');
           if (!fileInput.files.length) throw new Error('Bukti hasil pemeriksaan ' + bankName.replace(/_/g, ' ') + ' wajib diupload.');
+          const revisionFields = status === 'kendala' ? Array.from(row.querySelectorAll('[data-revision-choice]:checked'))
+            .map(function(input) { return input.dataset.revisionChoice; }) : [];
+          if (status === 'kendala' && !revisionFields.length) throw new Error('Centang bagian laporan bank yang perlu direvisi.');
           selected.add(bankName);
           auditFileFields[fileInput.dataset.fileField] = 'auditProof_' + bankName;
-          return { bankName: bankName, auditStatus: status, description: row.querySelector('[data-audit-description]').value.trim() };
+          return { bankName: bankName, auditStatus: status, revisionFields: revisionFields,
+            description: row.querySelector('[data-audit-description]').value.trim() };
         });
       }
       if (type === 'laporan_investor') {
@@ -6240,6 +6447,7 @@
       }
       const fileInputs = Array.prototype.slice.call(document.querySelectorAll('[data-file-field]'));
       for (const input of fileInputs) {
+        if (input.closest('.field')?.hidden) continue;
         const field = input.dataset.fileField;
         const config = findFileConfig(byId('reportType').value, field);
         const list = Array.prototype.slice.call(input.files || []);
@@ -6371,6 +6579,7 @@
       const version = bankUploadPreparation.version;
       const entries = [];
       document.querySelectorAll('[data-file-field]').forEach(function(input) {
+        if (input.closest('.field')?.hidden) return;
         Array.from(input.files || []).forEach(function(file) { entries.push({ field: input.dataset.fileField, file: file }); });
       });
       const status = document.querySelector('[data-bank-upload-status]');
@@ -6380,6 +6589,7 @@
       update('Memeriksa ' + entries.length + ' lampiran...');
       const promise = Promise.resolve().then(async function() {
         document.querySelectorAll('[data-file-field]').forEach(function(input) {
+          if (input.closest('.field')?.hidden) return;
           const config = findFileConfig(byId('reportType').value, input.dataset.fileField);
           validateFileList(input.files, config && config.multiple ? Number(config.max || 10) : 1, Infinity, config && config.label || 'Lampiran');
         });

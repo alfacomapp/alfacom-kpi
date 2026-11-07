@@ -62,6 +62,10 @@ test('Raha stock opname requires every photo, name, nominal and IPOS proof; audi
 
 test('auditor daily stock excludes Sunday and Monday technician audit pauses on sick leave', () => {
   const fx = fixture();
+  fx.engine.generateTasksForTest('2026-11-07T12:00:00+08:00');
+  const firstWeek = fx.ctx.tables.tasks.map(item => item.record).find(item => item.TaskType === 'audit_alat_teknisi');
+  assert.ok(firstWeek);
+  assert.equal(fx.engine.dateKeyForTest(firstWeek.StartedAt), '2026-11-02');
   fx.engine.generateTasksForTest('2026-11-10T12:00:00+08:00');
   const scheduled = fx.ctx.tables.tasks.map(item => item.record);
   const daily = scheduled.filter(item => item.TaskType === 'stok_opname_auditor');
@@ -69,7 +73,8 @@ test('auditor daily stock excludes Sunday and Monday technician audit pauses on 
   assert.equal(daily.some(item => fx.engine.dateKeyForTest(item.StartedAt) === '2026-11-02'), false);
   assert.ok(daily.some(item => fx.engine.dateKeyForTest(item.StartedAt) === '2026-11-03'));
   assert.equal(daily.some(item => fx.engine.dateKeyForTest(item.StartedAt) === '2026-11-08'), false);
-  const technician = scheduled.find(item => item.TaskType === 'audit_alat_teknisi');
+  const technician = scheduled.find(item => item.TaskType === 'audit_alat_teknisi' &&
+    fx.engine.dateKeyForTest(item.StartedAt) === '2026-11-09');
   assert.ok(technician);
   assert.equal(fx.engine.dateKeyForTest(technician.StartedAt), '2026-11-09');
   const leave = { 'auditor|2026-11-09': 'sakit' };

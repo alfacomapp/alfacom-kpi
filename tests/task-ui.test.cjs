@@ -254,7 +254,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, revisionChecklistOptions, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 
@@ -549,4 +549,20 @@ test('historical weekly follow-up remains visible in both its start and deadline
   assert.equal(app.taskMatchesFormPeriod(task), true);
   app.state.reportFormMonth = 11;
   assert.equal(app.taskMatchesFormPeriod(task), false);
+});
+
+test('auditor Kendala choices follow source form fields and report panels have a draggable divider', () => {
+  const app = ui();
+  for (const type of ['audit_harian', 'audit_kasbon', 'audit_barang_tiba']) {
+    const checklist = app.REPORT_FORMS[type].find(field => field.kind === 'revisionChecklist');
+    assert.ok(checklist, type);
+    assert.match(app.renderField(checklist), /data-revision-choice=/);
+  }
+  assert.match(app.revisionChecklistOptions('pendapatan_harian', 'kendari'), /Total setoran harian/);
+  assert.doesNotMatch(app.revisionChecklistOptions('pendapatan_harian', 'kendari'), /Bukti storan bank/);
+  assert.match(app.revisionChecklistOptions('pendapatan_harian', 'raha'), /Bukti storan bank/);
+  assert.match(app.renderField(app.REPORT_FORMS.audit_pekanan.find(field => field.kind === 'auditBankReports')),
+    /data-revision-checklist/);
+  assert.match(html, /id="reportResizer"[^>]*role="separator"/);
+  assert.match(html, /reportResizer\.addEventListener\('pointermove'/);
 });

@@ -137,7 +137,8 @@ test('auditor can send 1 to 5 banks in one request, then finish remaining banks'
     const send = keys => engine.execute('apiSubmitReport', ['test-jwt', {
       type: 'audit_pekanan',
       fields: { relatedTaskId: 'AUDIT-BANK-WEEK', auditBanks: keys.map(bankName =>
-        ({ bankName, auditStatus: bankName === 'mandiri' ? 'kendala' : 'aman', description: bankName })) },
+        ({ bankName, auditStatus: bankName === 'mandiri' ? 'kendala' : 'aman',
+          revisionFields: bankName === 'mandiri' ? ['bankAccountProof'] : [], description: bankName })) },
       files: Object.fromEntries(keys.map(bankName => ['auditProof_' + bankName, [proof]]))
     }]);
     const first = send(bankKeys.slice(0, count));

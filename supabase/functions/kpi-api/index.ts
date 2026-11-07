@@ -2483,7 +2483,40 @@ function auditRevisionRecipient_(recipientId) {
   return recipient;
 }
 
+const AUDIT_REVISION_FIELDS = {
+  pendapatan_harian: ['amount', 'physicalCash', 'cashierState', 'notaAttachments', 'bankProof', 'description'],
+  kasbon_di_atas_limit: ['amount', 'approvalProof', 'description'],
+  rincian_barang_tiba: ['arrivedSummary', 'iposNotaNumber', 'arrivalProof', 'description'],
+  laporan_akun_bank: ['reportStartDate', 'reportEndDate', 'bankAccountProof', 'bankStatement', 'description']
+};
+
+function checkedRevisionFields_(values, sourceType) {
+  if (!Array.isArray(values) || !values.length || values.length > AUDIT_REVISION_FIELDS[sourceType].length ||
+      values.some(function(value) { return !AUDIT_REVISION_FIELDS[sourceType].includes(value); }) ||
+      new Set(values).size !== values.length) {
+    throw new Error('Pilih setidaknya satu bagian form yang perlu direvisi.');
+  }
+  return values;
+}
+
+function requiredRevisionFields_(user, type, fields) {
+  if (!AUDIT_REVISION_FIELDS[type] || !fields.relatedTaskId) return null;
+  const task = readObjects_('tasks').find(function(row) { return row.Id === fields.relatedTaskId; });
+  if (!task || task.TaskType !== type || String(task.Status || '') !== 'berjalan' ||
+      !isReportTaskAssignedToUser_(user, enrichTask_(task))) return null;
+  const revision = parseJsonSafe_(task.PayloadJson, {}).revision;
+  if (!revision || !revision.pending) return null;
+  if (type === 'laporan_akun_bank') {
+    const bank = String(fields.bankName || '').trim().toLowerCase();
+    return Array.isArray(revision.fieldsByBank && revision.fieldsByBank[bank])
+      ? new Set(revision.fieldsByBank[bank]) : null;
+  }
+  return Array.isArray(revision.requiredFields) ? new Set(revision.requiredFields) : null;
+}
+
 function validateReportPayload_(user, type, fields, files) {
+  const revisionFields = requiredRevisionFields_(user, type, fields);
+  const needs = function(field) { return !revisionFields || revisionFields.has(field); };
   if (PERIOD_REPORT_TASK_TYPES.has(type)) {
     const relatedTaskId = String(fields.relatedTaskId || '').trim();
     if (relatedTaskId) {
@@ -2506,8 +2539,9 @@ function validateReportPayload_(user, type, fields, files) {
         throw new Error('Nomor tugas revisi kasbon tidak ditemukan atau bukan tugas Anda.');
       }
     }
-    requireNumber_(fields.amount, 'Nominal kasbon wajib diisi.');
-    requireFile_(files, 'approvalProof', 'Bukti persetujuan pengambilan kasbon di atas limit wajib diupload.');
+    if (needs('amount')) requireNumber_(fields.amount, 'Nominal kasbon wajib diisi.');
+    if (needs('approvalProof')) requireFile_(files, 'approvalProof', 'Bukti persetujuan pengambilan kasbon di atas limit wajib diupload.');
+    if (revisionFields?.has('description')) requireText_(fields.description, 'Keterangan revisi wajib diisi.');
     return;
   }
 
@@ -2533,10 +2567,13 @@ function validateReportPayload_(user, type, fields, files) {
   }
 
   if (type === 'pendapatan_harian') {
-    requireNumber_(fields.amount, 'Total setoran harian wajib diisi.');
-    requireFile_(files, 'physicalCash', 'Foto uang fisik wajib diupload.');
-    requireFile_(files, 'cashierState', 'Foto keadaan kas di aplikasi kasir wajib diupload.');
+    if (needs('amount')) requireNumber_(fields.amount, 'Total setoran harian wajib diisi.');
+    if (needs('physicalCash')) requireFile_(files, 'physicalCash', 'Foto uang fisik wajib diupload.');
+    if (needs('cashierState')) requireFile_(files, 'cashierState', 'Foto keadaan kas di aplikasi kasir wajib diupload.');
     limitFiles_(files, 'notaAttachments', 10, 'Foto nota maksimal 10 lampiran.');
+    if (revisionFields?.has('notaAttachments')) requireFile_(files, 'notaAttachments', 'Foto nota revisi wajib diupload.');
+    if (revisionFields?.has('bankProof')) requireFile_(files, 'bankProof', 'Bukti storan bank revisi wajib diupload.');
+    if (revisionFields?.has('description')) requireText_(fields.description, 'Keterangan revisi wajib diisi.');
     return;
   }
 
@@ -2559,17 +2596,23 @@ function validateReportPayload_(user, type, fields, files) {
       const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseDate_(value + 'T00:00:00Z') : null;
       return date && date.toISOString().slice(0, 10) === value;
     };
-    if (!validDate(startDate) || !validDate(endDate)) {
+    if ((needs('reportStartDate') && !validDate(startDate)) || (needs('reportEndDate') && !validDate(endDate))) {
       throw new Error('Isi tanggal mulai dan tanggal akhir rentang laporan bank.');
     }
-    if (startDate > endDate) throw new Error('Tanggal akhir laporan bank harus sama atau setelah tanggal mulai.');
-    fields.reportStartDate = startDate;
-    fields.reportEndDate = endDate;
+    const relatedBankTask = fields.relatedTaskId && readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
+    const priorBank = relatedBankTask && parseJsonSafe_(relatedBankTask.PayloadJson, {}).bankReports?.[String(fields.bankName || '').trim().toLowerCase()];
+    const effectiveStart = startDate || String(priorBank && priorBank.reportStartDate || '');
+    const effectiveEnd = endDate || String(priorBank && priorBank.reportEndDate || '');
+    if (effectiveStart && effectiveEnd && effectiveStart > effectiveEnd) throw new Error('Tanggal akhir laporan bank harus sama atau setelah tanggal mulai.');
+    if (startDate) fields.reportStartDate = startDate;
+    if (endDate) fields.reportEndDate = endDate;
     const bankName = String(fields.bankName || '').trim().toLowerCase();
     if (!Object.prototype.hasOwnProperty.call(BANK_ACCOUNT_BANKS, bankName)) {
       throw new Error('Pilih bank yang dilaporkan: BRI Kendari, BRI Raha, Mandiri, Bank Sultra, atau Bank Aladin Syariah. Muat ulang KPI bila pilihan bank belum diperbarui.');
     }
-    requireFile_(files, 'bankAccountProof', 'Bukti akun bank wajib diupload.');
+    if (needs('bankAccountProof')) requireFile_(files, 'bankAccountProof', 'Bukti akun bank wajib diupload.');
+    if (revisionFields?.has('bankStatement')) requireFile_(files, 'bankStatement', 'Statement bank revisi wajib diupload.');
+    if (revisionFields?.has('description')) requireText_(fields.description, 'Keterangan revisi wajib diisi.');
     if (fields.relatedTaskId) {
       const related = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
       const relatedPayload = parseJsonSafe_(related.PayloadJson, {});
@@ -2686,10 +2729,13 @@ function validateReportPayload_(user, type, fields, files) {
 
   if (type === 'rincian_barang_tiba') {
     requireText_(fields.relatedTaskId, 'Pilih tugas barang tiba yang akan diselesaikan.');
-    requireText_(fields.arrivedSummary, 'Rincian barang tiba wajib diisi.');
-    fields.iposNotaNumber = String(fields.iposNotaNumber || '').trim();
-    requireText_(fields.iposNotaNumber, 'Nomor nota IPOS wajib diisi.');
-    requireFile_(files, 'arrivalProof', 'Bukti barang tiba wajib diupload.');
+    if (needs('arrivedSummary')) requireText_(fields.arrivedSummary, 'Rincian barang tiba wajib diisi.');
+    if (needs('iposNotaNumber')) {
+      fields.iposNotaNumber = String(fields.iposNotaNumber || '').trim();
+      requireText_(fields.iposNotaNumber, 'Nomor nota IPOS wajib diisi.');
+    }
+    if (needs('arrivalProof')) requireFile_(files, 'arrivalProof', 'Bukti barang tiba wajib diupload.');
+    if (revisionFields?.has('description')) requireText_(fields.description, 'Keterangan revisi wajib diisi.');
     return;
   }
 
@@ -2738,6 +2784,8 @@ function validateReportPayload_(user, type, fields, files) {
         requireFile_(files, 'auditProof_' + bankName, 'Bukti pemeriksaan ' + BANK_ACCOUNT_BANKS[bankName] + ' wajib diupload.');
         entry.bankName = bankName;
         entry.description = String(entry.description || '').trim().slice(0, 2000);
+        if (entry.auditStatus === 'kendala') entry.revisionFields = checkedRevisionFields_(entry.revisionFields, 'laporan_akun_bank');
+        else delete entry.revisionFields;
       });
       const related = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
       if (!related || related.TaskType !== 'audit_pekanan' ||
@@ -2756,7 +2804,15 @@ function validateReportPayload_(user, type, fields, files) {
     }
     if (type === 'audit_harian' || type === 'audit_kasbon' || type === 'audit_barang_tiba') {
       requireText_(fields.relatedTaskId, 'Pilih tugas yang akan diperiksa.');
-      openReportTask_(user, fields.relatedTaskId, type);
+      const auditTask = openReportTask_(user, fields.relatedTaskId, type);
+      if (fields.auditStatus === 'kendala') {
+        const sourceType = { audit_harian: 'pendapatan_harian', audit_kasbon: 'kasbon_di_atas_limit',
+          audit_barang_tiba: 'rincian_barang_tiba' }[type];
+        fields.revisionFields = checkedRevisionFields_(fields.revisionFields, sourceType);
+        if (type === 'audit_harian' && fields.revisionFields.includes('bankProof') &&
+            parseJsonSafe_(auditTask.PayloadJson, {}).location !== 'raha')
+          throw new Error('Bukti storan bank hanya bisa direvisi untuk Admin Raha.');
+      } else delete fields.revisionFields;
     }
     if (['audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1) {
       const location = normalizeLocation_(fields.auditLocation);
@@ -2899,7 +2955,9 @@ function processReportTasks_(user, report, fields, savedFiles) {
 
     const amount = Number(fields.amount || 0);
     const bankProofFiles = savedFiles.bankProof || [];
-    if (amount > 1000000 && getUserLocation_(user) === 'raha') {
+    const sourceForBankProof = readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
+    const isAuditRevision = Boolean(sourceForBankProof && parseJsonSafe_(sourceForBankProof.PayloadJson, {}).revision?.count);
+    if (amount > 1000000 && getUserLocation_(user) === 'raha' && !isAuditRevision) {
       if (bankProofFiles.length) {
         results.push(createTask_({
           taskType: 'bukti_storan_bank',
@@ -3181,7 +3239,7 @@ function processReportTasks_(user, report, fields, savedFiles) {
       }));
     }
     if (['audit_harian', 'audit_kasbon', 'audit_barang_tiba'].indexOf(type) !== -1 && fields.auditStatus === 'kendala') {
-      applyAuditKendalaToSource_(results[results.length - 1].id, report, [], fields.description);
+      applyAuditKendalaToSource_(results[results.length - 1].id, report, [], fields.description, fields.revisionFields);
     }
     if (['audit_bank_jago', 'audit_nota_ipos', 'audit_piutang', 'audit_hutang'].indexOf(type) !== -1 &&
         fields.auditStatus === 'kendala') {
@@ -3423,8 +3481,8 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
     bankReports[bankName] = {
       label: bankLabel,
       reportId: report.Id,
-      reportStartDate: fields.reportStartDate,
-      reportEndDate: fields.reportEndDate,
+      reportStartDate: fields.reportStartDate || (bankReports[bankName] && bankReports[bankName].reportStartDate) || '',
+      reportEndDate: fields.reportEndDate || (bankReports[bankName] && bankReports[bankName].reportEndDate) || '',
       reportedAt: toIso_(report.CreatedAt),
       reporter: user.Name
     };
@@ -3471,8 +3529,8 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
     bankReports[bankName] = {
       label: bankLabel,
       reportId: report.Id,
-      reportStartDate: fields.reportStartDate,
-      reportEndDate: fields.reportEndDate,
+      reportStartDate: fields.reportStartDate || (bankReports[bankName] && bankReports[bankName].reportStartDate) || '',
+      reportEndDate: fields.reportEndDate || (bankReports[bankName] && bankReports[bankName].reportEndDate) || '',
       reportedAt: toIso_(report.CreatedAt),
       reporter: user.Name
     };
@@ -3643,7 +3701,8 @@ function recordBankAuditReports_(taskId, user, report, fields, savedFiles) {
   const failedBanks = auditBanks.filter(function(entry) { return entry.auditStatus === 'kendala'; });
   if (failedBanks.length) {
     applyAuditKendalaToSource_(String(taskId), report, failedBanks.map(function(entry) { return entry.bankName; }),
-      failedBanks.map(function(entry) { return BANK_ACCOUNT_BANKS[entry.bankName] + ': ' + (entry.description || 'Kendala'); }).join('; '));
+      failedBanks.map(function(entry) { return BANK_ACCOUNT_BANKS[entry.bankName] + ': ' + (entry.description || 'Kendala'); }).join('; '),
+      Object.fromEntries(failedBanks.map(function(entry) { return [entry.bankName, entry.revisionFields]; })));
   }
   return result;
 }
@@ -3720,7 +3779,7 @@ function auditedSourceTask_(auditTask) {
   }) || null;
 }
 
-function applyAuditKendalaToSource_(auditTaskId, auditReport, bankNames, reason) {
+function applyAuditKendalaToSource_(auditTaskId, auditReport, bankNames, reason, revisionFields) {
   const auditTask = readObjects_('tasks').find(function(task) { return task.Id === auditTaskId; });
   const source = auditedSourceTask_(auditTask);
   if (!source) return null;
@@ -3747,8 +3806,12 @@ function applyAuditKendalaToSource_(auditTaskId, auditReport, bankNames, reason)
         payload.timerResetHistory = (Array.isArray(payload.timerResetHistory) ? payload.timerResetHistory : [])
           .concat([{ at: toIso_(now), count: count }]);
       }
+      const fieldsByBank = Object.assign({}, stillPending && previous.fieldsByBank || {},
+        revisionFields && !Array.isArray(revisionFields) ? revisionFields : {});
       payload.revision = { count: count, pending: true, limitReached: false, startedAt: toIso_(now),
         auditTaskId: auditTaskId, reason: explanation || String(stillPending && previous.reason || ''),
+        requiredFields: Array.isArray(revisionFields) ? revisionFields : stillPending && previous.requiredFields || [],
+        fieldsByBank: fieldsByBank,
         bankNames: mergedBanks, remainingBankNames: Array.from(new Set([].concat(stillPending && previous.remainingBankNames || [], affectedBanks))) };
       row.Status = 'berjalan';
       row.KpiStatus = 'berjalan';
@@ -4485,7 +4548,7 @@ function ensureAuditorInventoryTasks_(now, tasks, users, owner) {
       });
     });
     weeklyDeadlineStartsThisMonth_(now, 1).forEach(function(weekStart) {
-      if (weekStart < launchDate) return;
+      if (weekStart < weekStart_(launchDate)) return;
       ensurePeriodicTask_(tasks, {
         taskType: 'audit_alat_teknisi',
         periodKey: periodKeyForWeekType_(weekStart, 'audit_alat_teknisi', 'all'),
@@ -5489,9 +5552,9 @@ async function verifyIdentity(jwt) {
   const expiresAt = Number(claims.exp) * 1000;
   if (claims.sub !== authUser.id || !Number.isFinite(expiresAt) || expiresAt <= Date.now())
     throw new Error('Sesi SLA berakhir.');
-  return { login, role: access[0], location: access[1], expiresAt };
+  return { login, role: access[0], location: access[1], expiresAt, authUserId: authUser.id };
 }
-async function verifyNotePassword(identity, jwt, password) {
+async function verifyNotePassword(identity, password) {
   const value = String(password || '');
   if (!value || value.length > 256) throw new Error('Masukkan password login akun Anda.');
   const response = await fetch(PROJECT_URL + '/auth/v1/token?grant_type=password', {
@@ -5502,11 +5565,64 @@ async function verifyNotePassword(identity, jwt, password) {
   if (response.status === 429) throw new Error('Terlalu banyak percobaan password. Coba lagi nanti.');
   if (!response.ok) throw new Error('Password login salah. Ceklis note belum diubah.');
   const result = await response.json();
-  const claims = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-  if (!result.user || result.user.id !== claims.sub ||
+  if (!result.user || result.user.id !== identity.authUserId ||
       String(result.user.email || '').toLowerCase() !== identity.login + '@alfacom.local') {
     throw new Error('Password tidak sesuai dengan akun yang sedang login.');
   }
+}
+const KPI_IDLE_MS = 7 * 60 * 60 * 1000;
+async function tokenHash(token) {
+  const bytes = new TextEncoder().encode(token);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+async function createKpiSession(identity) {
+  const token = 'kpi_' + Array.from(crypto.getRandomValues(new Uint8Array(32)),
+    byte => byte.toString(16).padStart(2, '0')).join('');
+  const expiresAt = new Date(Date.now() + KPI_IDLE_MS).toISOString();
+  const response = await fetch(PROJECT_URL + '/rest/v1/kpi_sessions', {
+    method: 'POST', headers: serviceHeaders('application/json'),
+    body: JSON.stringify({ token_hash: await tokenHash(token), auth_user_id: identity.authUserId,
+      login: identity.login, role: identity.role, location: identity.location, expires_at: expiresAt })
+  });
+  if (!response.ok) throw new Error('Sesi KPI gagal dibuat. Coba lagi dari Lobby SLA.');
+  return { token, expiresAt };
+}
+async function verifyKpiSession(token) {
+  if (!/^kpi_[0-9a-f]{64}$/.test(token)) return verifyIdentity(token);
+  const rows = await restRows('kpi_sessions', 'select=auth_user_id,login,role,location,expires_at&token_hash=eq.' + await tokenHash(token));
+  if (rows.length !== 1 || Date.parse(rows[0].expires_at) <= Date.now())
+    throw new Error('Sesi KPI berakhir setelah 7 jam tanpa aktivitas. Buka kembali dari Lobby SLA.');
+  const profiles = await restRows('users', 'select=username_login,role,hak_akses_cabang&username_login=eq.' + encodeURIComponent(rows[0].login));
+  const access = profiles.length === 1 && kpiAccessForNotification(profiles[0]);
+  if (!access || access[0] !== rows[0].role || access[1] !== rows[0].location)
+    throw new Error('Akses KPI akun ini telah berubah. Buka kembali dari Lobby SLA.');
+  return { authUserId: rows[0].auth_user_id, login: rows[0].login,
+    role: rows[0].role, location: rows[0].location, expiresAt: Date.parse(rows[0].expires_at) };
+}
+async function touchKpiSession(token) {
+  if (!/^kpi_[0-9a-f]{64}$/.test(token)) throw new Error('Sesi KPI belum aktif. Buka kembali dari Lobby SLA.');
+  const hash = await tokenHash(token);
+  const expiresAt = new Date(Date.now() + KPI_IDLE_MS).toISOString();
+  const response = await fetch(PROJECT_URL + '/rest/v1/kpi_sessions?token_hash=eq.' + hash +
+    '&expires_at=gt.' + encodeURIComponent(new Date().toISOString()), {
+    method: 'PATCH', headers: { ...serviceHeaders('application/json'), Prefer: 'return=representation' },
+    body: JSON.stringify({ expires_at: expiresAt })
+  });
+  if (!response.ok || (await response.json()).length !== 1)
+    throw new Error('Sesi KPI berakhir setelah 7 jam tanpa aktivitas. Buka kembali dari Lobby SLA.');
+  return expiresAt;
+}
+async function deleteKpiSession(token) {
+  if (!/^kpi_[0-9a-f]{64}$/.test(token)) return;
+  await fetch(PROJECT_URL + '/rest/v1/kpi_sessions?token_hash=eq.' + await tokenHash(token), {
+    method: 'DELETE', headers: serviceHeaders()
+  });
+}
+async function deleteExpiredKpiSessions() {
+  await fetch(PROJECT_URL + '/rest/v1/kpi_sessions?expires_at=lt.' + encodeURIComponent(new Date().toISOString()), {
+    method: 'DELETE', headers: serviceHeaders()
+  }).catch(function() {});
 }
 function findKpiUser(rows, identity) {
   const matches = rows.filter(item => {
@@ -5588,6 +5704,7 @@ function kpiAccessForNotification(profile) {
   const login = String(profile.username_login || '').trim().toLowerCase();
   if (role === 'direktur') return ['owner', 'all'];
   if (role === 'manager') return ['auditor', 'all'];
+  if (role === 'teknisi' && login === 'alif') return ['admin_raha', 'raha'];
   if (role === 'admin_raha' || (role === 'admin' && branch === 'raha')) return ['admin_raha', 'raha'];
   if (role === 'admin' && ['', 'semua', 'kendari'].includes(branch)) return ['admin_kendari', 'kendari'];
   if (role === 'sales' && login === 'juna' && branch === 'kendari') return ['sales_director', 'sales'];
@@ -5710,6 +5827,7 @@ Deno.serve(async request => {
       engine.runDailyMaintenance();
       const changes = engine.changes();
       await applyChanges(changes);
+      await deleteExpiredKpiSessions();
       await retryKpiNoteNotifications();
       return jsonResponse({ ok: true, createdTasks: changes.filter(change =>
         change.table === 'kpi_tasks' && change.operation === 'insert').length }, 200, origin);
@@ -5717,11 +5835,21 @@ Deno.serve(async request => {
 
     const authHeader = request.headers.get('authorization') || '';
     const jwt = /^Bearer (.+)$/i.exec(authHeader)?.[1] || '';
-    const identity = await verifyIdentity(jwt);
     if (args[0] !== jwt) throw new Error('Sesi SLA tidak sesuai.');
+    if (action === 'apiStartSession') {
+      const identity = await verifyIdentity(jwt);
+      return jsonResponse({ ok: true, ...await createKpiSession(identity) }, 200, origin);
+    }
+    const identity = await verifyKpiSession(jwt);
+    if (action === 'apiTouchSession')
+      return jsonResponse({ ok: true, expiresAt: await touchKpiSession(jwt) }, 200, origin);
+    if (action === 'apiLogout') {
+      await deleteKpiSession(jwt);
+      return jsonResponse({ ok: true, message: 'Logout berhasil.' }, 200, origin);
+    }
     const notePatch = action === 'apiUpdateNote' && args[2] && typeof args[2] === 'object' ? args[2] : null;
     const notePasswordVerified = Boolean(notePatch && Object.prototype.hasOwnProperty.call(notePatch, 'done'));
-    if (notePasswordVerified) await verifyNotePassword(identity, jwt, notePatch.password);
+    if (notePasswordVerified) await verifyNotePassword(identity, notePatch.password);
 
     const tableKeys = action === 'apiGetSession' || action === 'apiLogout'
       ? ['users'] : action === 'apiMarkNoteMentionsSeen'
@@ -5754,6 +5882,7 @@ Deno.serve(async request => {
     }
     const result = engine.execute(action, args);
     if (!result || !result.ok) return jsonResponse(result || { ok: false, message: 'Aksi KPI gagal.' }, 200, origin);
+    if (action === 'apiGetSession') result.sessionExpiresAt = new Date(identity.expiresAt).toISOString();
     let uploaded = [];
     try {
       uploaded = await uploadFiles(engine.uploads());
