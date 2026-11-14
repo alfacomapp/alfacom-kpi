@@ -647,6 +647,7 @@ function apiGetDashboard(token, filters) {
       enriched.canAddAttachments = canUserAppendTaskFiles_(user, task, enriched);
       return enriched;
     });
+    const revisionAlerts = revisionAlertsForUser_(user, allTaskRows, now, attendanceMap);
 
     const cards = getVisibleCards_(user, activeUsers).map(function(card) {
       return buildCardMetric_(card, dashboardTasks);
@@ -704,6 +705,7 @@ function apiGetDashboard(token, filters) {
       noteMentions: noteMentions,
       mentionUsers: activeUsers.map(function(entry) { return { id: entry.Id, name: entry.Name || entry.Username || entry.Id }; }),
       noteCreators: noteCreators,
+      revisionAlerts: revisionAlerts,
       assignableUsers: getAssignableNoteUsers_(activeUsers),
       period: period,
       periodOptions: periodOptions,
@@ -1101,6 +1103,56 @@ function truncateText_(value, maxLength) {
   return text.length > limit ? text.slice(0, limit - 1) + '...' : text;
 }
 
+function revisionAlertsForUser_(user, taskRows, now, attendanceMap) {
+  const rowsById = Object.fromEntries(taskRows.map(function(row) { return [String(row.Id || ''), row]; }));
+  return taskRows.reduce(function(alerts, row) {
+    if (String(row.Status || 'berjalan') !== 'berjalan' ||
+        normalizeRole_(row.AssigneeRole) !== normalizeRole_(user.Role)) return alerts;
+    const task = enrichTask_(row, now, attendanceMap);
+    if (isDeprecatedTaskForKpi_(task) || !isReportTaskAssignedToUser_(user, task)) return alerts;
+
+    const payload = task.payload || {};
+    let kind = '';
+    let revisionRound = 0;
+    let eventAt = '';
+    if (task.taskType === 'revisi_audit' && Number(payload.revisionCount) > 0) {
+      kind = 'revision';
+      revisionRound = Number(payload.revisionCount);
+      eventAt = task.startedAt;
+    } else if (payload.revision && payload.revision.pending) {
+      kind = 'revision';
+      revisionRound = Number(payload.revision.count || 0);
+      eventAt = payload.revision.startedAt || task.startedAt;
+    } else if (user.Role === 'auditor' && task.taskType === 'audit_revisi' && Number(payload.revisionCount) > 0) {
+      kind = 'answer';
+      revisionRound = Number(payload.revisionCount);
+      eventAt = task.startedAt;
+    } else if (user.Role === 'auditor' && ['audit_harian', 'audit_kasbon', 'audit_barang_tiba', 'audit_pekanan'].includes(task.taskType)) {
+      const source = rowsById[String(payload.sourceTaskId || '')];
+      const sourceRevision = source && parseJsonSafe_(source.PayloadJson, {}).revision;
+      if (sourceRevision && Number(sourceRevision.count) > 0 && !sourceRevision.pending &&
+          sourceRevision.submittedAt && String(sourceRevision.auditTaskId || '') === task.id) {
+        kind = 'answer';
+        revisionRound = Number(sourceRevision.count);
+        eventAt = sourceRevision.submittedAt;
+      }
+    }
+    if (!kind) return alerts;
+    const date = parseDate_(eventAt || task.startedAt);
+    const period = date ? dashboardPeriodForDate_(date) : null;
+    alerts.push({ id: task.id, kind: kind, title: task.title, taskType: task.taskType,
+      referenceNumber: task.referenceNumber, revisionRound: revisionRound,
+      reportId: kind === 'answer' ? task.relatedReportId : '',
+      eventAt: eventAt || task.startedAt, period: period && { month: period.month, year: period.year },
+      cardKey: task.assigneeRole === 'admin_kendari' ? 'kendari' :
+        task.assigneeRole === 'admin_raha' ? 'raha' : task.assigneeRole });
+    return alerts;
+  }, []).sort(function(a, b) {
+    return (Date.parse(b.eventAt || '') || 0) - (Date.parse(a.eventAt || '') || 0) ||
+      Number(b.referenceNumber || 0) - Number(a.referenceNumber || 0);
+  });
+}
+
 function apiGetReportMeta(token) {
   try {
     const user = requireUser_(token);
@@ -1133,6 +1185,7 @@ function apiGetReportMeta(token) {
       user: user,
       reportTypes: reportTypes,
       openTasks: openTasks,
+      revisionAlerts: revisionAlertsForUser_(user, taskRows, now, attendanceMap),
       revisionRecipients: user.Role === 'auditor' ? getActiveUsers_().filter(function(candidate) {
         return ['admin_kendari', 'admin_raha', 'auditor'].indexOf(normalizeRole_(candidate.Role)) !== -1;
       }).map(function(candidate) {

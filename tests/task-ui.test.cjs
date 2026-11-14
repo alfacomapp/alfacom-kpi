@@ -20,6 +20,45 @@ test('report task cards show nearest active deadline first and overdue tasks las
   assert.deepEqual(tasks.sort(sort).map(task => task.id), ['soon', 'far', 'none', 'late2', 'late']);
 });
 
+test('revision shortcuts cycle through the matching report cards and open their history', () => {
+  const app = ui();
+  const visits = [];
+  const cards = ['A', 'B', 'C'].map(id => {
+    const reportEntry = { dataset: { historyReport: 'REPORT-C' }, classList: { add() {} },
+      scrollIntoView() { visits.push('REPORT-C'); } };
+    const history = { open: false, querySelectorAll() { return id === 'C' ? [reportEntry] : []; } };
+    return { dataset: { taskId: id }, history, classList: { add() {}, remove() {} },
+      querySelector() { return history; }, scrollIntoView() { visits.push(id); } };
+  });
+  app.elements.openTasksList.items = cards;
+  const base = { taskType: 'audit_harian', taskLabel: 'Audit Harian', title: 'Audit Harian',
+    status: 'berjalan', kpiStatus: 'berjalan', kpiLabel: 'Berjalan',
+    startedAt: '2026-10-21T02:00:00Z', timer: { noDeadline: true }, attachments: {}, payload: {} };
+  app.state.page = 'laporan';
+  app.state.reportMonth = 11;
+  app.state.reportYear = 2026;
+  app.state.reportTaskType = 'other';
+  app.state.reportMeta = { reportTypes: [], openTasks: cards.map((card, index) => ({
+    ...base, id: card.dataset.taskId, referenceNumber: index + 1
+  })), revisionAlerts: [
+    { id: 'A', kind: 'revision', referenceNumber: 1, title: 'A', revisionRound: 1, period: { month: 10, year: 2026 } },
+    { id: 'B', kind: 'revision', referenceNumber: 2, title: 'B', revisionRound: 1, period: { month: 10, year: 2026 } },
+    { id: 'C', kind: 'answer', reportId: 'REPORT-C', referenceNumber: 3, title: 'C', revisionRound: 1, period: { month: 10, year: 2026 } }
+  ] };
+  app.renderRevisionNavigation();
+  assert.equal(app.elements.revisionJump.position.textContent, '1/2');
+  assert.equal(app.elements.revisionAnswerJump.position.textContent, '1/1');
+  app.jumpToNextRevision('revision');
+  assert.equal(app.state.reportMonth, 10);
+  assert.equal(app.state.reportTaskType, '');
+  assert.equal(cards[0].history.open, true);
+  app.jumpToNextRevision('revision');
+  assert.equal(app.elements.revisionJump.position.textContent, '2/2');
+  app.jumpToNextRevision('revision');
+  app.jumpToNextRevision('answer');
+  assert.deepEqual(visits, ['A', 'B', 'A', 'REPORT-C']);
+});
+
 test('dashboard timer row opens a safely rendered time history, including completed tasks', () => {
   const app = ui();
   const task = { id: 'T1', status: 'selesai', timer: { deadlineAt: '2026-11-07T15:59:59Z' } };
@@ -225,7 +264,20 @@ function ui() {
   const stageClasses = new Set();
   const mentionClasses = new Set(['hidden']);
   const jumpClasses = new Set(['hidden']);
+  const fakeRevisionButton = () => {
+    const classes = new Set(['hidden']);
+    const position = { textContent: '' };
+    return { position, classList: { toggle(name, enabled) {
+      if (enabled) classes.add(name); else classes.delete(name);
+    }, contains(name) { return classes.has(name); } },
+    querySelector() { return position; }, setAttribute() {} };
+  };
   const elements = {
+    revisionNavigation: { classList: { add() {}, toggle() {} } },
+    revisionJump: fakeRevisionButton(),
+    revisionAnswerJump: fakeRevisionButton(),
+    laporanPage: { classList: { toggle() {} }, querySelector() { return elements.reportTasksPanel; } },
+    reportTasksPanel: { scrollIntoView() {} },
     notePasswordInput: { value: '', focus() {} },
     notePasswordDialog: {
       classList: {
@@ -258,9 +310,12 @@ function ui() {
     reportMonthFilter: { value: '', innerHTML: '' },
     reportYearFilter: { value: '', innerHTML: '' },
     reportTaskTypeFilter: { value: '', innerHTML: '' },
+    reportTaskStatusFilter: { value: '' },
     reportFormMonthFilter: { value: '', innerHTML: '' },
     reportFormYearFilter: { value: '', innerHTML: '' },
-    openTasksList: { innerHTML: '' },
+    openTasksList: { innerHTML: '', items: [], querySelectorAll(selector) {
+      return selector === '[data-task-id]' ? this.items : [];
+    } },
     dynamicReportFields: { innerHTML: '' },
     relatedTaskSelect: { value: '' },
     bankSelect: { value: '', disabled: false, options: [
@@ -303,7 +358,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 

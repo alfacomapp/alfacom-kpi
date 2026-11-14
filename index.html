@@ -545,6 +545,47 @@
       min-width: 0;
     }
 
+    .revision-navigation {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .report-tasks-panel .panel-head,
+    #taskPanel .panel-head,
+    .notes-panel .panel-head { flex-wrap: wrap; }
+
+    .revision-nav-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .revision-nav-button svg {
+      width: 17px;
+      height: 17px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .revision-focus { outline: 3px solid var(--gold); outline-offset: 2px; }
+    #tasksTable tr.revision-focus td { background: #fff7df; }
+
+    @media (max-width: 560px) {
+      .notes-panel .panel-head .revision-navigation { grid-column: 1 / -1; }
+    }
+
     .topbar {
       display: flex;
       justify-content: space-between;
@@ -2687,6 +2728,17 @@
         </div>
       </div>
 
+      <div id="revisionNavigation" class="revision-navigation hidden" aria-label="Pintasan revisi">
+        <button id="revisionJump" class="revision-nav-button hidden" type="button" data-revision-kind="revision" aria-label="Lihat revisi masuk">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2-5.3"></path><path d="M4 4v5h5"></path><path d="M8 12h8m-3-3 3 3-3 3"></path></svg>
+          <span>Revisi <span data-revision-position>1/1</span></span>
+        </button>
+        <button id="revisionAnswerJump" class="revision-nav-button hidden" type="button" data-revision-kind="answer" aria-label="Lihat jawaban revisi">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2-5.3"></path><path d="M20 4v5h-5"></path><path d="m8 12 3 3 5-6"></path></svg>
+          <span>Jawaban revisi <span data-revision-position>1/1</span></span>
+        </button>
+      </div>
+
       <section id="dashboardPage" class="page">
         <div id="notesPanel" class="panel notes-panel">
           <div class="panel-head">
@@ -2933,6 +2985,8 @@
       timerHistoryOpen: {},
       timerHistoryCache: {},
       reportHistoryOpen: {},
+      revisionAlertCursor: { dashboard: { revision: -1, answer: -1 }, laporan: { revision: -1, answer: -1 } },
+      revisionAlertSignature: { dashboard: {}, laporan: {} },
       timerRefreshTimeout: null,
       speech: null,
       authVersion: 0,
@@ -2950,7 +3004,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-11-14-linked-report-history';
+    const CLIENT_CACHE_VERSION = '2026-11-14-revision-shortcuts';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -3205,6 +3259,10 @@
       });
       document.addEventListener('visibilitychange', function() {
         if (!document.hidden) markKpiActivity();
+      });
+      byId('revisionNavigation').addEventListener('click', function(event) {
+        const button = event.target.closest('[data-revision-kind]');
+        if (button) jumpToNextRevision(button.dataset.revisionKind);
       });
       byId('saveNoteButton').addEventListener('click', saveNote);
       byId('voiceButton').addEventListener('click', toggleVoice);
@@ -3769,6 +3827,7 @@
       state.dashboardSection = section === 'kpi' ? 'kpi' : 'notes';
       const dashboard = byId('dashboardPage');
       dashboard.classList.toggle('show-kpi', state.dashboardSection === 'kpi');
+      renderRevisionNavigation();
       const target = state.dashboardSection === 'kpi' ? document.querySelector('.kpi-panel') : byId('notesPanel');
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -3832,6 +3891,8 @@
       state.shipmentItemSeq = 0;
       state.shipmentSupplierSeq = 0;
       state.dashboardSection = 'notes';
+      state.revisionAlertCursor = { dashboard: { revision: -1, answer: -1 }, laporan: { revision: -1, answer: -1 } };
+      state.revisionAlertSignature = { dashboard: {}, laporan: {} };
       state.dashboardMonth = new Date().getMonth() + 1;
       state.dashboardYear = new Date().getFullYear();
       stopTimers();
@@ -3854,6 +3915,7 @@
 
     function clearAppContent() {
       state.reportHistoryOpen = {};
+      byId('revisionNavigation').classList.add('hidden');
       byId('noteCreatorFilter').innerHTML = '<option value="__all">Semua pembuat</option>';
       byId('noteAssigneeSelect').innerHTML = '<option value="">Tanpa tugas KPI</option>';
       byId('notePhotos').value = '';
@@ -3990,6 +4052,7 @@
       byId('pageTitle').textContent = title[0];
       byId('pageSubtitle').textContent = title[1];
       byId('topbar').classList.toggle('hidden', page === 'dashboard' || page === 'laporan');
+      renderRevisionNavigation();
 
       if (page === 'dashboard') {
         loadDashboard();
@@ -4001,6 +4064,106 @@
       if (page === 'profil') {
         fillProfile();
       }
+    }
+
+    function revisionAlertsForCurrentPage(kind) {
+      const data = state.page === 'dashboard' ? state.dashboard : state.page === 'laporan' ? state.reportMeta : null;
+      return (data && data.revisionAlerts || []).filter(function(alert) { return alert.kind === kind; });
+    }
+
+    function renderRevisionNavigation() {
+      const page = state.page;
+      const navigation = byId('revisionNavigation');
+      if (page !== 'dashboard' && page !== 'laporan') {
+        navigation.classList.add('hidden');
+        return;
+      }
+      const host = page === 'laporan' ? document.querySelector('.report-tasks-panel .panel-head') :
+        document.querySelector(state.dashboardSection === 'kpi' ? '#taskPanel .panel-head' : '.notes-panel .panel-head');
+      if (host && navigation.parentElement !== host) host.appendChild(navigation);
+      let visible = false;
+      [['revision', 'revisionJump'], ['answer', 'revisionAnswerJump']].forEach(function(entry) {
+        const kind = entry[0];
+        const button = byId(entry[1]);
+        const alerts = revisionAlertsForCurrentPage(kind);
+        const signature = alerts.map(function(alert) { return alert.id + ':' + alert.revisionRound; }).join('|');
+        if (state.revisionAlertSignature[page][kind] !== signature) {
+          state.revisionAlertSignature[page][kind] = signature;
+          state.revisionAlertCursor[page][kind] = -1;
+        }
+        button.classList.toggle('hidden', !alerts.length);
+        if (!alerts.length) return;
+        visible = true;
+        const index = Math.max(0, state.revisionAlertCursor[page][kind]);
+        button.querySelector('[data-revision-position]').textContent = (index + 1) + '/' + alerts.length;
+        const label = (kind === 'answer' ? 'Jawaban revisi' : 'Revisi masuk') + ' ' + (index + 1) + '/' + alerts.length;
+        button.title = label + ' · No. ' + (alerts[index].referenceNumber || '-') + ' · ' + alerts[index].title;
+        button.setAttribute('aria-label', label + '. Klik untuk melihat ' + alerts[index].title);
+      });
+      navigation.classList.toggle('hidden', !visible);
+    }
+
+    function focusRevisionTask(container, alert) {
+      const target = Array.prototype.find.call(container.querySelectorAll('[data-task-id]'), function(item) {
+        return item.dataset.taskId === alert.id;
+      });
+      if (!target) {
+        toast('Rincian revisi belum ditemukan. Coba muat ulang halaman.');
+        return;
+      }
+      const history = target.querySelector('[data-report-history-task]');
+      if (history) {
+        history.open = true;
+        state.reportHistoryOpen[alert.id] = true;
+      }
+      container.querySelectorAll('.revision-focus').forEach(function(item) { item.classList.remove('revision-focus'); });
+      target.classList.add('revision-focus');
+      const report = history && alert.reportId && Array.prototype.find.call(history.querySelectorAll('[data-history-report]'), function(item) {
+        return item.dataset.historyReport === alert.reportId;
+      });
+      if (report) report.classList.add('revision-focus');
+      (report || target).scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }
+
+    function jumpToNextRevision(kind) {
+      if (kind !== 'revision' && kind !== 'answer') return;
+      const page = state.page;
+      if (page !== 'dashboard' && page !== 'laporan') return;
+      const alerts = revisionAlertsForCurrentPage(kind);
+      if (!alerts.length) return;
+      const cursor = state.revisionAlertCursor[page];
+      cursor[kind] = (cursor[kind] + 1) % alerts.length;
+      const alert = alerts[cursor[kind]];
+      renderRevisionNavigation();
+
+      if (page === 'dashboard') {
+        state.dashboardSection = 'kpi';
+        state.selectedCard = alert.cardKey;
+        if (alert.period) {
+          state.dashboardMonth = Number(alert.period.month);
+          state.dashboardYear = Number(alert.period.year);
+        }
+        state.taskType = '';
+        state.kpiStatus = '';
+        state.auditStatus = '';
+        state.taskSearch = '';
+        loadDashboard().then(function() {
+          if (state.page === 'dashboard') focusRevisionTask(byId('tasksTable'), alert);
+        });
+        return;
+      }
+
+      if (alert.period) {
+        state.reportMonth = Number(alert.period.month);
+        state.reportYear = Number(alert.period.year);
+      }
+      state.reportTaskType = '';
+      state.reportTaskStatus = '';
+      byId('reportTaskStatusFilter').value = '';
+      renderReportPeriodFilter();
+      renderOpenTasks();
+      setReportSection('tasks');
+      focusRevisionTask(byId('openTasksList'), alert);
     }
 
     function refreshCurrentPage() {
@@ -4079,6 +4242,7 @@
       renderKpiCards();
       renderTaskFilter();
       renderTasksTable();
+      renderRevisionNavigation();
       byId('dashboardPage').classList.toggle('show-kpi', state.dashboardSection === 'kpi');
       setKpiPanelCollapsed(state.kpiPanelCollapsed);
       startTimers();
@@ -5428,7 +5592,7 @@
       ` : '';
 
       return `
-        <tr>
+        <tr data-task-id="${escapeAttr(task.id)}">
           <td class="${state.dashboard.canEditTaskStatus ? 'id-cell' : ''} ${taskColumnClass('no')}" data-label="No"><strong>${Number(task.referenceNumber || 0) || Number(index || 0) + 1}</strong></td>
           <td class="${taskColumnClass('tugas')}" data-label="Tugas">
             <div class="task-title-wrap">
@@ -5528,7 +5692,7 @@
           const heading = entry.changeType === 'file_tambahan' ? 'File tambahan' : Number(entry.revisionCount || 0) > 0
             ? 'Revisi ' + Number(entry.revisionCount) + (bankName ? ' · ' + bankName : '')
             : bankName ? 'Laporan ' + bankName : index ? 'Setoran ' + (index + 1) : 'Laporan awal';
-          return `<div class="task-history-entry"><strong>${escapeHtml(heading)}</strong>
+          return `<div class="task-history-entry" data-history-report="${escapeAttr(entry.reportId || '')}"><strong>${escapeHtml(heading)}</strong>
             <div>${escapeHtml(entry.reporter || '-')} · ${escapeHtml(formatDate(entry.submittedAt))}</div>
             ${text ? `<div class="task-detail">${escapeHtml(text)}</div>` : ''}
             ${files.length ? renderAttachmentDisclosureFromFiles(files, { label: 'File setoran ini',
@@ -5778,6 +5942,7 @@
       renderReportPeriodFilter();
       renderFormPeriodFilter();
       renderOpenTasks();
+      renderRevisionNavigation();
       if (!reportTypes.length) {
         byId('dynamicReportFields').innerHTML = '<div class="empty full">Tidak ada modul laporan untuk role ini.</div>';
         return;
@@ -5883,7 +6048,7 @@
         const deadline = renderTaskDeadline(task);
         const taskNumber = Number(task.referenceNumber || 0);
         return `
-          <div class="task-chip">
+          <div class="task-chip" data-task-id="${escapeAttr(task.id)}">
             <strong>No. ${taskNumber || '-'} &middot; ${escapeHtml(task.title || task.taskLabel)}</strong>
             ${task.linkedReferenceNumber ? `<small class="muted task-linked-number">Nomor terhubung pelapor: No. ${task.linkedReferenceNumber}</small>` : ''}
             <span>${escapeHtml(task.taskLabel)}</span>

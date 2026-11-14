@@ -112,6 +112,62 @@ test('standalone Kendala rejects an invalid recipient before saving report or pr
   assert.equal(fx.ctx.uploads.length, 0);
 });
 
+test('revision and answer shortcuts follow assigned active tasks in Dashboard and Reports', () => {
+  const fx = fixture(['ONE', 'TWO'].flatMap((id, index) => [
+    task('SOURCE-' + id, 'pendapatan_harian', people[1], {
+      Status: 'selesai', KpiStatus: 'tepat_waktu', ReferenceNumber: index + 1,
+      PayloadJson: JSON.stringify({ amount: 100000 })
+    }),
+    task('AUDIT-' + id, 'audit_harian', people[0], {
+      ReferenceNumber: index + 101,
+      PayloadJson: JSON.stringify({ sourceTaskId: 'SOURCE-' + id, sourceReportId: 'OLD-' + id })
+    })
+  ]));
+  for (const id of ['ONE', 'TWO']) {
+    const result = fx.submit('audit_harian', { relatedTaskId: 'AUDIT-' + id, auditStatus: 'kendala',
+      revisionFields: ['physicalCash'], description: 'Perbaiki foto kas' }, { auditProof: [proof] });
+    assert.equal(result.ok, true, result.message);
+  }
+
+  fx.as('KEN');
+  const reportAlerts = fx.engine.execute('apiGetReportMeta', ['test-jwt']).revisionAlerts;
+  assert.deepEqual(reportAlerts.map(alert => alert.id).sort(), ['SOURCE-ONE', 'SOURCE-TWO']);
+  assert.equal(reportAlerts.every(alert => alert.kind === 'revision' && alert.revisionRound === 1 && alert.cardKey === 'kendari'), true);
+  const dashboardAlerts = fx.engine.execute('apiGetDashboard', ['test-jwt', {}]).revisionAlerts;
+  assert.deepEqual(dashboardAlerts.map(alert => alert.id).sort(), ['SOURCE-ONE', 'SOURCE-TWO']);
+  fx.as('RAH');
+  assert.deepEqual(fx.engine.execute('apiGetReportMeta', ['test-jwt']).revisionAlerts, []);
+
+  fx.as('KEN');
+  const redone = fx.submit('pendapatan_harian', { relatedTaskId: 'SOURCE-ONE' }, { physicalCash: [proof] });
+  assert.equal(redone.ok, true, redone.message);
+  assert.deepEqual(fx.engine.execute('apiGetReportMeta', ['test-jwt']).revisionAlerts.map(alert => alert.id), ['SOURCE-TWO']);
+  fx.as('AUD');
+  const answerAlerts = fx.engine.execute('apiGetReportMeta', ['test-jwt']).revisionAlerts;
+  assert.deepEqual(answerAlerts.map(alert => alert.id), ['AUDIT-ONE']);
+  assert.equal(answerAlerts[0].kind, 'answer');
+  assert.equal(answerAlerts[0].revisionRound, 1);
+  assert.deepEqual(fx.engine.execute('apiGetDashboard', ['test-jwt', {}]).revisionAlerts.map(alert => alert.id), ['AUDIT-ONE']);
+});
+
+test('standalone audit revision answer appears only after the recipient submits it', () => {
+  const fx = fixture([task('ROOT', 'audit_bank_jago', people[0])]);
+  const checked = fx.submit('audit_bank_jago', { relatedTaskId: 'ROOT', auditStatus: 'kendala',
+    revisionRecipientId: 'KEN', description: 'Perbaiki bukti' }, { auditProof: [proof] });
+  assert.equal(checked.ok, true, checked.message);
+  fx.as('KEN');
+  const revision = fx.engine.execute('apiGetReportMeta', ['test-jwt']).revisionAlerts;
+  assert.equal(revision.length, 1);
+  assert.equal(revision[0].kind, 'revision');
+  const sent = fx.submit('revisi_audit', { relatedTaskId: revision[0].id }, { revisionProof: [proof] });
+  assert.equal(sent.ok, true, sent.message);
+  fx.as('AUD');
+  const answer = fx.engine.execute('apiGetReportMeta', ['test-jwt']).revisionAlerts;
+  assert.equal(answer.length, 1);
+  assert.equal(answer[0].kind, 'answer');
+  assert.equal(answer[0].id, sent.tasks[1].id);
+});
+
 test('linked daily audit reopens the source task with a fresh 24-hour revision timer', () => {
   const sourceTask = task('SOURCE', 'pendapatan_harian', people[1], {
     Status: 'selesai', KpiStatus: 'tepat_waktu', RelatedReportId: 'PREVIOUS',
