@@ -236,6 +236,7 @@
     .field {
       display: grid;
       gap: 7px;
+      position: relative;
     }
 
     .field[hidden] { display: none; }
@@ -1100,6 +1101,8 @@
       justify-items: start;
     }
 
+    .task-file-add { position: relative; }
+
     .task-title-wrap {
       display: block;
       min-width: 0;
@@ -1508,13 +1511,6 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
-    }
-
-    @media (min-width: 941px) {
-      .app, .sidebar, .main { height: 100dvh; }
-      .app { min-height: 0; overflow: hidden; }
-      .main { overflow-y: auto; }
-      .report-grid > .panel { height: max(260px, calc(100dvh - 48px)); min-height: 0; }
     }
 
     .task-list {
@@ -3795,7 +3791,7 @@
       const page = byId('laporanPage');
       page.classList.toggle('show-form', state.reportSection === 'form');
       const target = state.reportSection === 'form' ? byId('reportFormPanel') : page.querySelector('.report-tasks-panel');
-      if (target) {
+      if (target && window.innerWidth <= 940) {
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }

@@ -210,7 +210,8 @@ test('report upload fields and note composer offer clipboard image pasting', () 
     /data-paste-image/);
   assert.match(html, /id="notePasteImage"/);
   assert.match(html, /pasteAdditionalTaskImage/);
-  assert.match(html, /@media \(min-width: 941px\)[\s\S]*?\.app, \.sidebar, \.main \{ height: 100dvh; \}/);
+  assert.match(html, /\.field \{[\s\S]*?position: relative;/);
+  assert.match(html, /\.task-file-add \{ position: relative; \}/);
   const pasted = app.imagesFromPasteEvent({ clipboardData: { items: [
     { kind: 'file', getAsFile: () => ({ type: 'image/png', size: 4 }) },
     { kind: 'file', getAsFile: () => ({ type: 'application/pdf', size: 4 }) }
