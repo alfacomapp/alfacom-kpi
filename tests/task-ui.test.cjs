@@ -116,16 +116,25 @@ test('auditor report task card displays the arrival details supplied by an admin
   app.state.reportMonth = app.state.reportFormMonth = 10;
   app.state.reportYear = app.state.reportFormYear = 2026;
   app.state.reportMeta = { reportTypes: [], openTasks: [{
-    id: 'arrival-audit', referenceNumber: 52, taskType: 'audit_barang_tiba',
+    id: 'arrival-audit', referenceNumber: 52, linkedReferenceNumber: 1, taskType: 'audit_barang_tiba',
     taskLabel: 'Pemeriksaan Rincian Barang Tiba', title: 'Periksa rincian barang tiba Admin Raha',
     assigneeRole: 'auditor', assigneeName: 'Auditor', status: 'berjalan',
     kpiStatus: 'berjalan', kpiLabel: 'Berjalan', startedAt: '2026-10-21T02:00:00Z',
     detailText: 'Rincian barang tiba: 2 dus oli\n1 kotak filter',
-    timer: { noDeadline: true }, attachments: {}, payload: {}
+    timer: { noDeadline: true }, attachments: {}, payload: {},
+    sourceHistory: [{ reportId: 'R1', submittedAt: '2026-10-21T02:00:00Z', reporter: 'Admin Raha',
+      fields: { arrivedSummary: '2 dus oli\n1 kotak filter' }, attachments: {} }]
   }] };
   app.renderReportPage();
+  assert.match(app.elements.openTasksList.innerHTML, /Nomor terhubung pelapor: No\. 1/);
+  assert.match(app.elements.openTasksList.innerHTML, /Riwayat laporan yang diperiksa/);
   assert.match(app.elements.openTasksList.innerHTML, /Rincian barang tiba: 2 dus oli/);
   assert.match(app.elements.openTasksList.innerHTML, /1 kotak filter/);
+  assert.doesNotMatch(app.renderTaskDetail(app.state.reportMeta.openTasks[0], true), /2 dus oli|1 kotak filter/);
+  assert.doesNotMatch(app.elements.openTasksList.innerHTML, /task-chip-attachments/);
+  app.elements.openTasksList.querySelectorAll = () => [{ dataset: { reportHistoryTask: 'arrival-audit' }, open: true }];
+  app.renderReportPage();
+  assert.match(app.elements.openTasksList.innerHTML, /data-report-history-task="arrival-audit" open/);
 });
 
 test('arrival report form requires the IPOS note number immediately after arrival details', () => {
@@ -170,6 +179,44 @@ test('task history shows initial and revised notes with their own files safely',
   assert.doesNotMatch(history, /<awal>/);
   assert.match(history, /awal\.jpg/);
   assert.match(history, /revisi\.jpg/);
+});
+
+test('bank history shows each ordinary report, range and files without calling it a revision', () => {
+  const app = ui();
+  const history = app.renderTaskHistory({ id: 'BANK', taskType: 'audit_pekanan', sourceHistory: [
+    { reportId: 'R1', submittedAt: '2026-10-01T04:00:00Z', reporter: 'Admin Kendari',
+      fields: { bankName: 'bri_kendari', reportStartDate: '2026-09-24', reportEndDate: '2026-09-30' },
+      attachments: { proof: [{ id: 'F1', name: 'bri.jpg' }] } },
+    { reportId: 'R2', submittedAt: '2026-10-02T04:00:00Z', reporter: 'Admin Kendari',
+      fields: { bankName: 'mandiri', reportStartDate: '2026-09-24', reportEndDate: '2026-09-30' }, attachments: {} }
+  ] });
+  assert.match(history, /Laporan BRI Kendari/);
+  assert.match(history, /Laporan Mandiri/);
+  assert.match(history, /Rentang laporan: 24\/09\/2026 - 30\/09\/2026/);
+  assert.match(history, /bri\.jpg/);
+  assert.doesNotMatch(history, /Setoran \/ revisi|Revisi 2/);
+  app.state.reportHistoryOpen.BANK = true;
+  assert.match(app.renderTaskHistory({ id: 'BANK', sourceHistory: [
+    { reportId: 'R3', submittedAt: '2026-10-03T04:00:00Z', reporter: 'Admin Kendari',
+      revisionCount: 1, fields: { bankName: 'mandiri' }, attachments: {} }
+  ] }), /data-report-history-task="BANK" open/);
+});
+
+test('report upload fields and note composer offer clipboard image pasting', () => {
+  const app = ui();
+  assert.match(app.renderField(app.REPORT_FORMS.pendapatan_harian.find(field => field.field === 'physicalCash')),
+    /data-paste-image="physicalCash"/);
+  assert.doesNotMatch(app.renderField(app.REPORT_FORMS.laporan_akun_bank.find(field => field.field === 'bankStatement')),
+    /data-paste-image/);
+  assert.match(html, /id="notePasteImage"/);
+  assert.match(html, /pasteAdditionalTaskImage/);
+  assert.match(html, /@media \(min-width: 941px\)[\s\S]*?\.app, \.sidebar, \.main \{ height: 100dvh; \}/);
+  const pasted = app.imagesFromPasteEvent({ clipboardData: { items: [
+    { kind: 'file', getAsFile: () => ({ type: 'image/png', size: 4 }) },
+    { kind: 'file', getAsFile: () => ({ type: 'application/pdf', size: 4 }) }
+  ] } });
+  assert.equal(pasted.length, 1);
+  assert.match(pasted[0].name, /^tempel-\d+-1\.png$/);
 });
 
 function ui() {
@@ -238,6 +285,7 @@ function ui() {
     return null;
   } }];
   const context = {
+    File: class { constructor(parts, name, options) { this.name = name; this.type = options.type; this.size = parts[0].size || 0; } },
     document: { addEventListener() {}, getElementById(id) { return elements[id]; },
       querySelector(selector) {
         if (selector === '[data-field="relatedTaskId"]') return elements.relatedTaskSelect;
@@ -254,7 +302,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, revisionChecklistOptions, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 

@@ -115,12 +115,14 @@ test('standalone Kendala rejects an invalid recipient before saving report or pr
 test('linked daily audit reopens the source task with a fresh 24-hour revision timer', () => {
   const sourceTask = task('SOURCE', 'pendapatan_harian', people[1], {
     Status: 'selesai', KpiStatus: 'tepat_waktu', RelatedReportId: 'PREVIOUS',
+    ReferenceNumber: 1,
     PayloadJson: JSON.stringify({ amount: 100000 })
   });
   const auditTask = task('AUDIT', 'audit_harian', people[0], {
     PayloadJson: JSON.stringify({ sourceTaskId: 'SOURCE', sourceReportId: 'PREVIOUS' })
   });
   const fx = fixture([sourceTask, auditTask]);
+  assert.equal(fx.engine.execute('apiGetReportMeta', ['test-jwt']).openTasks.find(row => row.id === 'AUDIT').linkedReferenceNumber, 1);
   let auditId = 'AUDIT';
   const checked = fx.submit('audit_harian', { relatedTaskId: 'AUDIT', auditStatus: 'kendala',
     revisionFields: ['physicalCash'], description: 'Bukti kas perlu diperbaiki' }, { auditProof: [proof] });
@@ -141,6 +143,7 @@ test('linked daily audit reopens the source task with a fresh 24-hour revision t
   assert.equal(fx.task('SOURCE').Status, 'selesai');
   assert.equal(JSON.parse(fx.task('SOURCE').PayloadJson).revision.pending, false);
   assert.equal(JSON.parse(fx.task('SOURCE').PayloadJson).amount, 100000);
+  assert.equal(fx.ctx.tables.reports.find(row => row.record.TaskType === 'pendapatan_harian').record.RevisionRound, 1);
   assert.equal(resubmitted.tasks.at(-1).taskType, 'audit_harian');
   let nextAuditId = resubmitted.tasks.at(-1).id;
   assert.equal(nextAuditId, auditId);
@@ -196,6 +199,7 @@ test('bank revision replaces only the failed bank and rechecks it while retainin
   const redone = fx.submit('laporan_akun_bank', { relatedTaskId: 'BANK-SOURCE', bankName: 'bri_kendari' },
     { bankAccountProof: [proof] });
   assert.equal(redone.ok, true, redone.message);
+  assert.equal(fx.ctx.tables.reports.find(row => row.record.TaskType === 'laporan_akun_bank').record.RevisionRound, 1);
   assert.equal(fx.task('BANK-SOURCE').Status, 'selesai');
   const newAuditId = redone.tasks.at(-1).id;
   assert.equal(newAuditId, 'BANK-AUDIT');
@@ -347,4 +351,21 @@ test('bank revision can request only an end date and preserve the original start
   assert.equal(updated.reportStartDate, '2026-10-01');
   assert.equal(updated.reportEndDate, '2026-10-08');
   assert.equal(JSON.parse(fx.task('BANK-SOURCE').AttachmentUrlsJson).bankAccountProof_bri_kendari[0].id, 'original-proof');
+});
+
+test('separate ordinary bank submissions stay ordinary reports in the shared task history', () => {
+  const keys = ['bri_kendari', 'bri_raha', 'mandiri', 'bank_sultra', 'aladin_syariah'];
+  const fx = fixture([task('BANK', 'laporan_akun_bank', people[1], {
+    PayloadJson: JSON.stringify({ requiredBankKeys: keys, bankReports: {} })
+  })]);
+  fx.as('KEN');
+  for (const bankName of ['bri_kendari', 'mandiri']) {
+    const saved = fx.submit('laporan_akun_bank', { relatedTaskId: 'BANK', bankName }, { bankAccountProof: [proof] });
+    assert.equal(saved.ok, true, saved.message);
+  }
+  const taskCard = fx.engine.execute('apiGetReportMeta', ['test-jwt']).openTasks.find(item => item.id === 'BANK');
+  assert.equal(taskCard.submissionHistory.length, 2);
+  assert.deepEqual(taskCard.submissionHistory.map(entry => entry.revisionCount), [0, 0]);
+  assert.equal(taskCard.submissionHistory[1].fields.bankName, 'mandiri');
+  assert.deepEqual(taskCard.submissionHistory[1].reportedRange, { start: '2026-10-01', end: '2026-10-07' });
 });

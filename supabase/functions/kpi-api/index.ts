@@ -618,7 +618,9 @@ function apiGetDashboard(token, filters) {
     const noteMentions = getNoteMentionsForUser_(allNotes, user.Id, seenMentionIds);
     const noteCreators = getNoteCreators_(activeUsers);
     const now = new Date();
-    const visibleDashboardTasks = readObjects_('tasks').filter(function(task) {
+    const allTaskRows = readObjects_('tasks');
+    const taskRowsById = Object.fromEntries(allTaskRows.map(function(task) { return [task.Id, task]; }));
+    const visibleDashboardTasks = allTaskRows.filter(function(task) {
       return canUserSeeDashboardTask_(task);
     });
     const periodOptions = dashboardPeriodOptions_(visibleDashboardTasks, period);
@@ -629,6 +631,10 @@ function apiGetDashboard(token, filters) {
     const reportIndex = indexAuditSourceReports_(readObjects_('reports'));
     const dashboardTasks = periodTasks.map(function(task) {
       const enriched = cashBankTaskForViewer_(enrichTask_(task, now, attendanceMap), user);
+      const sourceId = String(enriched.payload && enriched.payload.sourceTaskId || '');
+      const sourceTask = taskRowsById[sourceId];
+      if (sourceTask && enriched.assigneeRole === 'auditor')
+        enriched.linkedReferenceNumber = Number(sourceTask.ReferenceNumber || sourceTask.__Sequence || 0);
       enriched.submissionHistory = submissionHistoryForTask_(task, reportIndex);
       if (task.TaskType === 'laporan_keadaan_kas_bank' && user.Role !== 'admin_kendari') {
         enriched.submissionHistory = enriched.submissionHistory.map(function(entry) {
@@ -1152,11 +1158,13 @@ function indexAuditSourceReports_(reports) {
 function submissionHistoryForTask_(task, reportIndex) {
   const payload = parseJsonSafe_(task.PayloadJson, {});
   const entries = Array.isArray(payload.submissionHistory) ? payload.submissionHistory.slice() : [];
+  const resets = Array.isArray(payload.timerResetHistory) ? payload.timerResetHistory : [];
   const known = new Set(entries.map(function(entry) { return String(entry.reportId || ''); }));
   const addReport = function(report) {
     if (!report || report.TaskType !== task.TaskType || known.has(String(report.Id || ''))) return;
     known.add(String(report.Id || ''));
     entries.push({ reportId: report.Id, submittedAt: toIso_(report.CreatedAt),
+      revisionCount: Number(report.RevisionRound || 0),
       reporter: String(report.ReporterName || ''), fields: parseJsonSafe_(report.PayloadJson, {}),
       attachments: attachmentMetadataGroups_(parseJsonSafe_(report.AttachmentUrlsJson, {})) });
   };
@@ -1168,10 +1176,33 @@ function submissionHistoryForTask_(task, reportIndex) {
       addReport(reportIndex.byId[payload.bankReports[key] && payload.bankReports[key].reportId]);
     });
   }
-  return entries.sort(function(a, b) {
+  entries.forEach(function(entry) {
+    if (entry.changeType === 'file_tambahan' || Number(entry.revisionCount || 0) > 0) return;
+    const submittedAt = Date.parse(entry.submittedAt || '');
+    const bank = String(entry.fields && entry.fields.bankName || '').toLowerCase();
+    const applicable = resets.filter(function(reset) {
+      const affected = Array.isArray(reset.bankNames) ? reset.bankNames : payload.revision && payload.revision.bankNames || [];
+      return submittedAt >= Date.parse(reset.at || '') && (!bank || affected.includes(bank));
+    });
+    if (applicable.length) entry.revisionCount = Number(applicable[applicable.length - 1].count || 0);
+  });
+  const sorted = entries.sort(function(a, b) {
     return Date.parse(a.submittedAt || '') - Date.parse(b.submittedAt || '') ||
       String(a.reportId || '').localeCompare(String(b.reportId || ''));
   });
+  const ranges = {};
+  sorted.forEach(function(entry) {
+    const fields = entry.fields || {};
+    const bank = String(fields.bankName || '').toLowerCase();
+    if (!bank || (!fields.reportStartDate && !fields.reportEndDate)) return;
+    const previous = ranges[bank] || {};
+    entry.reportedRange = {
+      start: fields.reportStartDate || previous.start || '',
+      end: fields.reportEndDate || previous.end || ''
+    };
+    ranges[bank] = entry.reportedRange;
+  });
+  return sorted;
 }
 
 function mergedAttachmentGroups_(previous, added) {
@@ -1207,6 +1238,7 @@ function attachSourceFilesForAuditor_(task, sourceIndex) {
   const sourceTaskId = String(task.payload && task.payload.sourceTaskId || '');
   const sourceTask = sourceIndex.tasksById && sourceIndex.tasksById[sourceTaskId];
   if (sourceTask) {
+    task.linkedReferenceNumber = Number(sourceTask.ReferenceNumber || sourceTask.__Sequence || 0);
     const history = submissionHistoryForTask_(sourceTask, sourceIndex);
     task.sourceHistory = history;
     const sourceDescriptions = reportDescriptionLines_({
@@ -1305,6 +1337,12 @@ function apiSubmitReport(token, request) {
     const now = new Date();
     const amount = Number(fields.amount || fields.totalNominal || 0);
 
+    const relatedTask = fields.relatedTaskId && readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
+    const activeRevision = relatedTask && activeRevision_(parseJsonSafe_(relatedTask.PayloadJson, {}));
+    const revisionBank = String(fields.bankName || '').trim().toLowerCase();
+    const revisionRound = relatedTask && relatedTask.TaskType === type && activeRevision && activeRevision.pending &&
+      (type !== 'laporan_akun_bank' || (activeRevision.remainingBankNames || []).includes(revisionBank))
+      ? Number(activeRevision.count || 0) : 0;
     const report = {
       Id: reportId,
       TaskType: type,
@@ -1315,6 +1353,7 @@ function apiSubmitReport(token, request) {
       Location: getUserLocation_(user),
       ReportDate: fields.reportDate ? parseDate_(fields.reportDate) : now,
       Amount: amount || '',
+      RevisionRound: revisionRound,
       PayloadJson: JSON.stringify(fields),
       AttachmentUrlsJson: JSON.stringify(savedFiles),
       Status: 'terkirim',
@@ -3804,7 +3843,7 @@ function applyAuditKendalaToSource_(auditTaskId, auditReport, bankNames, reason,
     } else {
       if (!stillPending) {
         payload.timerResetHistory = (Array.isArray(payload.timerResetHistory) ? payload.timerResetHistory : [])
-          .concat([{ at: toIso_(now), count: count }]);
+          .concat([{ at: toIso_(now), count: count, bankNames: affectedBanks }]);
       }
       const fieldsByBank = Object.assign({}, stillPending && previous.fieldsByBank || {},
         revisionFields && !Array.isArray(revisionFields) ? revisionFields : {});

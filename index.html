@@ -611,7 +611,7 @@
 
     .note-composer textarea {
       min-height: 122px;
-      padding: 12px 174px 54px 12px;
+      padding: 12px 12px 54px;
     }
 
     .note-composer-actions {
@@ -1133,6 +1133,7 @@
     .task-title-content {
       min-width: 0;
     }
+    .task-linked-number { display: block; margin-top: 3px; }
 
     .task-deadline {
       display: block;
@@ -1509,6 +1510,13 @@
       overflow: hidden;
     }
 
+    @media (min-width: 941px) {
+      .app, .sidebar, .main { height: 100dvh; }
+      .app { min-height: 0; overflow: hidden; }
+      .main { overflow-y: auto; }
+      .report-grid > .panel { height: max(260px, calc(100dvh - 48px)); min-height: 0; }
+    }
+
     .task-list {
       display: grid;
       gap: 8px;
@@ -1560,6 +1568,10 @@
     #reportYearFilter { flex: 0 1 68px; }
     #reportTaskStatusFilter { flex: 1 1 108px; }
     #reportTaskTypeFilter { flex: 1 1 160px; max-width: 100%; }
+    @media (min-width: 941px) {
+      #reportMonthFilter { flex: 0 0 78px; }
+      #reportYearFilter { flex: 0 0 84px; }
+    }
 
     @media (min-width: 941px) and (max-width: 1260px) {
       .report-grid { grid-template-columns: minmax(0, 1fr); }
@@ -2544,7 +2556,7 @@
 
       .note-composer textarea {
         min-height: 112px;
-        padding-right: 166px;
+        padding-right: 12px;
       }
 
       .composer-icon {
@@ -2700,6 +2712,9 @@
                   <input id="notePhotos" class="visually-hidden-file" type="file" accept="image/*" multiple>
                   <input id="noteCamera" class="visually-hidden-file" type="file" accept="image/*" capture="environment">
                   <div class="note-composer-actions">
+                    <button id="notePasteImage" class="composer-icon" type="button" title="Tempel gambar dari clipboard" aria-label="Tempel gambar dari clipboard">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="16" rx="2"></rect><path d="M9 5V3h6v2M8 14l3 3 5-6"></path></svg>
+                    </button>
                     <label class="composer-icon" for="noteCamera" title="Buka kamera" aria-label="Buka kamera">
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-3h6l2 3h3v13H4V7z"></path><circle cx="12" cy="13" r="4"></circle></svg>
                     </label>
@@ -2921,6 +2936,7 @@
       timerInterval: null,
       timerHistoryOpen: {},
       timerHistoryCache: {},
+      reportHistoryOpen: {},
       timerRefreshTimeout: null,
       speech: null,
       authVersion: 0,
@@ -2938,7 +2954,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-11-07-task-time-history';
+    const CLIENT_CACHE_VERSION = '2026-11-14-linked-report-history';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -3203,6 +3219,30 @@
       byId('notePhotos').addEventListener('change', function(event) {
         validateFileSelection(event.target, 20, 20);
       });
+      byId('noteInput').addEventListener('paste', function(event) {
+        const files = imagesFromPasteEvent(event);
+        if (!files.length) return;
+        event.preventDefault();
+        mergeFileSelection(byId('notePhotos'), files, 20, 20);
+        toast(files.length + ' gambar ditempel pada note.');
+      });
+      byId('notePasteImage').addEventListener('click', async function() {
+        try {
+          const files = await readClipboardImages();
+          mergeFileSelection(byId('notePhotos'), files, 20, 20);
+          toast(files.length + ' gambar ditempel pada note.');
+        } catch (error) { showError(error); }
+      });
+      document.addEventListener('paste', function(event) {
+        const addFiles = event.target && event.target.closest && event.target.closest('.task-file-add');
+        if (!addFiles) return;
+        const files = imagesFromPasteEvent(event);
+        if (!files.length) return;
+        event.preventDefault();
+        const input = addFiles.querySelector('input[type="file"]');
+        setInputFiles(input, files);
+        uploadAdditionalTaskFiles(input);
+      });
       byId('sidebarToggle').addEventListener('click', function() {
         setSidebarCollapsed(!state.sidebarCollapsed);
       });
@@ -3366,6 +3406,8 @@
         if (event.target.closest('[data-bank-cash-row]')) updateBankCashTotal();
       });
       byId('dynamicReportFields').addEventListener('click', function(event) {
+        const pasteButton = event.target.closest('[data-paste-image]');
+        if (pasteButton) { pasteReportImage(pasteButton); return; }
         const addButton = event.target.closest('[data-add-shipment-item]');
         const removeButton = event.target.closest('[data-remove-shipment-item]');
         const addSupplierButton = event.target.closest('[data-add-shipment-supplier]');
@@ -3426,6 +3468,14 @@
         } else if (removeButton) {
           removeShipmentItem(removeButton);
         }
+      });
+      byId('dynamicReportFields').addEventListener('paste', function(event) {
+        const field = event.target.closest && event.target.closest('.field');
+        const input = field && field.querySelector('[data-file-field]');
+        const files = imagesFromPasteEvent(event);
+        if (!input || !files.length || !field.querySelector('[data-paste-image]')) return;
+        event.preventDefault();
+        addPastedReportImages(input, files);
       });
       byId('reportForm').addEventListener('submit', submitReport);
       byId('reportForm').addEventListener('reset', function() {
@@ -3807,6 +3857,7 @@
     }
 
     function clearAppContent() {
+      state.reportHistoryOpen = {};
       byId('noteCreatorFilter').innerHTML = '<option value="__all">Semua pembuat</option>';
       byId('noteAssigneeSelect').innerHTML = '<option value="">Tanpa tugas KPI</option>';
       byId('notePhotos').value = '';
@@ -4900,6 +4951,7 @@
         ${attachments}
         <div class="task-file-add">
           <button class="btn btn-mini btn-ghost" type="button" onclick="selectAdditionalTaskFiles(this)">+ Tambah file</button>
+          <button class="btn btn-mini btn-ghost" type="button" onclick="pasteAdditionalTaskImage(this)">Tempel gambar</button>
           <input class="visually-hidden-file" type="file" multiple accept="image/*,application/pdf,.pdf" data-task-id="${escapeAttr(task.id)}" aria-label="File tambahan tugas" onchange="uploadAdditionalTaskFiles(this)">
         </div>
       </div>`;
@@ -4910,12 +4962,24 @@
       if (input) input.click();
     }
 
+    async function pasteAdditionalTaskImage(button) {
+      const input = button && button.parentElement && button.parentElement.querySelector('input[type="file"]');
+      if (!input) return;
+      button.disabled = true;
+      try {
+        const files = await readClipboardImages();
+        setInputFiles(input, files);
+        await uploadAdditionalTaskFiles(input);
+      } catch (error) { showError(error); }
+      finally { button.disabled = false; }
+    }
+
     async function uploadAdditionalTaskFiles(input) {
       const selected = Array.prototype.slice.call(input && input.files || []);
       if (!selected.length) return;
-      const button = input.parentElement.querySelector('button');
-      button.disabled = true;
-      button.textContent = 'Mengunggah...';
+      const buttons = Array.from(input.parentElement.querySelectorAll('button'));
+      buttons.forEach(function(button) { button.disabled = true; });
+      buttons[0].textContent = 'Mengunggah...';
       try {
         const prepared = await KpiBankUpload.prepare(selected.map(function(file) {
           return { field: 'additionalFiles', file: file };
@@ -4928,8 +4992,8 @@
         showError(error);
       } finally {
         input.value = '';
-        button.disabled = false;
-        button.textContent = '+ Tambah file';
+        buttons.forEach(function(button) { button.disabled = false; });
+        buttons[0].textContent = '+ Tambah file';
       }
     }
 
@@ -5375,6 +5439,7 @@
               <div class="task-title-content">
                 <strong>${escapeHtml(displayTaskDate(task))}</strong><br>
                 <span class="muted">${escapeHtml(task.title || task.taskLabel)}</span>${salesFileTotal}
+                ${task.linkedReferenceNumber ? `<small class="muted task-linked-number">Nomor terhubung pelapor: No. ${task.linkedReferenceNumber}</small>` : ''}
                 ${deadline}
                 ${detail}
                 ${renderTaskHistory(task)}
@@ -5393,11 +5458,20 @@
       `;
     }
 
-    function renderTaskDetail(task) {
+    function renderTaskDetail(task, inReportCard) {
+      let skipReportedBlock = false;
       const text = String(task && task.detailText || '')
         .split('\n')
         .filter(function(line) {
-          return !/^deadline\s*:/i.test(String(line || '').trim());
+          const value = String(line || '').trim();
+          if (/^deadline\s*:/i.test(value)) return false;
+          if (!inReportCard) return true;
+          if (/^(keterangan(?:\s+pelapor|\s+pengiriman)?|rentang laporan\b|rincian tiba\b|rincian barang tiba\b|nomor nota ipos\b)\s*:/i.test(value)) {
+            skipReportedBlock = true;
+            return false;
+          }
+          if (/^(rute|rincian kiriman|bank diperiksa|bank dilaporkan|revisi|kendala|batas|tugas investor|status audit)\s*:/i.test(value)) skipReportedBlock = false;
+          return !skipReportedBlock;
         })
         .join('\n')
         .trim();
@@ -5412,7 +5486,12 @@
     function taskHistoryText(entry) {
       const fields = entry && entry.fields || {};
       const lines = [];
-      if (fields.bankName) lines.push('Bank: ' + fields.bankName.replace(/_/g, ' '));
+      if (fields.bankName) lines.push('Bank: ' + displayBankName(fields.bankName));
+      const range = entry && entry.reportedRange || { start: fields.reportStartDate, end: fields.reportEndDate };
+      if (range.start || range.end) {
+        const shown = function(value) { return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? value.split('-').reverse().join('/') : String(value || '-'); };
+        lines.push('Rentang laporan: ' + shown(range.start) + ' - ' + shown(range.end));
+      }
       if (fields.amount) lines.push('Nominal: ' + formatRupiah(fields.amount));
       if (fields.totalNominal) lines.push('Jumlah nominal barang: ' + formatRupiah(fields.totalNominal));
       if (fields.arrivedSummary) lines.push('Rincian barang tiba: ' + fields.arrivedSummary);
@@ -5434,17 +5513,26 @@
       return lines.join('\n');
     }
 
+    function displayBankName(value) {
+      const option = BANK_ACCOUNT_OPTIONS.find(function(entry) { return entry[0] === value; });
+      return option ? option[1] : String(value || '').replace(/_/g, ' ');
+    }
+
     function renderTaskHistory(task) {
       const own = task && task.submissionHistory || [];
       const source = task && task.sourceHistory || [];
       const entries = source.length ? source : own;
       if (!entries.length) return '';
       const title = source.length ? 'Riwayat laporan yang diperiksa' : 'Riwayat setoran dan perubahan';
-      return `<details class="task-history"><summary>${escapeHtml(title)} (${entries.length})</summary>
+      return `<details class="task-history" data-report-history-task="${escapeAttr(task.id || '')}" ${state.reportHistoryOpen[task.id] ? 'open' : ''}><summary>${escapeHtml(title)} (${entries.length})</summary>
         ${entries.map(function(entry, index) {
           const text = taskHistoryText(entry);
           const files = flattenAttachmentFiles(entry.attachments || {});
-          return `<div class="task-history-entry"><strong>${entry.changeType === 'file_tambahan' ? 'File tambahan' : (index ? 'Setoran / revisi ' + (index + 1) : 'Laporan awal')}</strong>
+          const bankName = entry.fields && entry.fields.bankName ? displayBankName(entry.fields.bankName) : '';
+          const heading = entry.changeType === 'file_tambahan' ? 'File tambahan' : Number(entry.revisionCount || 0) > 0
+            ? 'Revisi ' + Number(entry.revisionCount) + (bankName ? ' · ' + bankName : '')
+            : bankName ? 'Laporan ' + bankName : index ? 'Setoran ' + (index + 1) : 'Laporan awal';
+          return `<div class="task-history-entry"><strong>${escapeHtml(heading)}</strong>
             <div>${escapeHtml(entry.reporter || '-')} · ${escapeHtml(formatDate(entry.submittedAt))}</div>
             ${text ? `<div class="task-detail">${escapeHtml(text)}</div>` : ''}
             ${files.length ? renderAttachmentDisclosureFromFiles(files, { label: 'File setoran ini',
@@ -5768,6 +5856,10 @@
     }
 
     function renderOpenTasks() {
+      const existingCards = byId('openTasksList');
+      (existingCards.querySelectorAll ? existingCards.querySelectorAll('[data-report-history-task]') : []).forEach(function(details) {
+        state.reportHistoryOpen[details.dataset.reportHistoryTask] = details.open;
+      });
       const taskTypes = {};
       reportTasksForCurrentUser().filter(taskMatchesReportPeriod).forEach(function(task) {
         if (task.taskType) taskTypes[task.taskType] = task.taskLabel || task.title || task.taskType;
@@ -5791,18 +5883,17 @@
       }
 
       wrap.innerHTML = tasks.map(function(task) {
-        const detail = renderTaskDetail(task);
+        const detail = renderTaskDetail(task, true);
         const deadline = renderTaskDeadline(task);
-        const attachments = renderTaskAttachmentCell(task);
         const taskNumber = Number(task.referenceNumber || 0);
         return `
           <div class="task-chip">
             <strong>No. ${taskNumber || '-'} &middot; ${escapeHtml(task.title || task.taskLabel)}</strong>
+            ${task.linkedReferenceNumber ? `<small class="muted task-linked-number">Nomor terhubung pelapor: No. ${task.linkedReferenceNumber}</small>` : ''}
             <span>${escapeHtml(task.taskLabel)}</span>
             ${deadline}
             ${detail}
             ${renderTaskHistory(task)}
-            <div class="task-chip-attachments"><span class="muted">Lampiran</span>${attachments}</div>
             <div class="inline-actions">
               <span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.displayKpiLabel || task.kpiLabel)}</span>
               ${renderTimerCell(task)}
@@ -6198,6 +6289,7 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"></path></svg>
                 Buka file
               </label>
+              ${pdfOnly ? '' : `<button class="btn btn-ghost file-source-button" type="button" data-paste-image="${escapeAttr(field.field)}">Tempel gambar</button>`}
             </div>
             <div class="selected-file-count" data-file-count="${escapeAttr(field.field)}">Belum ada file dipilih.</div>
             <div class="file-hint">Maksimal ${maxFiles} file dengan total ukuran maksimal ${maxTotalMb} MB per bagian. File besar dikompresi otomatis sebelum dikirim.</div>
@@ -6690,6 +6782,57 @@
         input.value = '';
         showError(error);
       }
+    }
+
+    const PASTED_IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+
+    function makePastedImage(file, index) {
+      const mime = String(file && file.type || '').toLowerCase();
+      if (!PASTED_IMAGE_TYPES[mime]) return null;
+      return new File([file], 'tempel-' + Date.now() + '-' + (index + 1) + '.' + PASTED_IMAGE_TYPES[mime],
+        { type: mime, lastModified: Date.now() });
+    }
+
+    function imagesFromPasteEvent(event) {
+      const items = Array.from(event.clipboardData && event.clipboardData.items || []);
+      return items.map(function(item, index) {
+        return item.kind === 'file' ? makePastedImage(item.getAsFile(), index) : null;
+      }).filter(Boolean);
+    }
+
+    async function readClipboardImages() {
+      if (!navigator.clipboard || !navigator.clipboard.read)
+        throw new Error('Browser belum mendukung tombol ini. Fokuskan tombol Tempel gambar lalu tekan Ctrl+V.');
+      let items;
+      try { items = await navigator.clipboard.read(); }
+      catch (_) { throw new Error('Clipboard belum dapat dibaca. Fokuskan tombol Tempel gambar lalu tekan Ctrl+V.'); }
+      const files = [];
+      for (const item of items) {
+        const type = item.types.find(function(mime) { return Boolean(PASTED_IMAGE_TYPES[mime]); });
+        if (type) files.push(makePastedImage(await item.getType(type), files.length));
+      }
+      if (!files.length) throw new Error('Clipboard tidak berisi gambar JPG, PNG, atau WebP.');
+      return files;
+    }
+
+    function setInputFiles(input, files) {
+      const transfer = new DataTransfer();
+      files.forEach(function(file) { transfer.items.add(file); });
+      input.files = transfer.files;
+    }
+
+    function addPastedReportImages(input, files) {
+      const config = findFileConfig(byId('reportType').value, input.dataset.fileField);
+      const maxFiles = config && config.multiple ? Number(config.max || 10) : 1;
+      const maxTotalMb = usesPreparedReportUploads() ? Infinity : Number(config && config.maxTotalMb || 8);
+      mergeFileSelection(input, files, maxFiles, maxTotalMb, reportFileSelections.get(input) || undefined);
+      if (usesPreparedReportUploads()) refreshBankUploadPreparation();
+    }
+
+    async function pasteReportImage(button) {
+      const input = button.closest('.field').querySelector('[data-file-field]');
+      try { addPastedReportImages(input, await readClipboardImages()); }
+      catch (error) { showError(error); }
     }
 
     function mergeFileSelection(targetInput, incomingFiles, maxFiles, maxTotalMb, previousFiles) {
