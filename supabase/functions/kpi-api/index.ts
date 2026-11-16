@@ -623,14 +623,18 @@ function apiGetDashboard(token, filters) {
     const visibleDashboardTasks = allTaskRows.filter(function(task) {
       return canUserSeeDashboardTask_(task);
     });
-    const periodOptions = dashboardPeriodOptions_(visibleDashboardTasks, period);
+    const periodOptions = dashboardPeriodOptions_(visibleDashboardTasks, period, taskRowsById);
     const periodTasks = visibleDashboardTasks.filter(function(task) {
-      return isTaskInDashboardPeriod_(task, period);
+      return isTaskInDashboardPeriod_(task, period, taskRowsById);
     });
     const attendanceMap = periodTasks.length ? getAttendanceMap_() : {};
     const reportIndex = indexAuditSourceReports_(readObjects_('reports'));
     const dashboardTasks = periodTasks.map(function(task) {
       const enriched = cashBankTaskForViewer_(enrichTask_(task, now, attendanceMap), user);
+      const revisionAnswer = sourceRevisionAnswerForAudit_(task, taskRowsById);
+      if (revisionAnswer) enriched.payload.revisionAnswerAt = revisionAnswer.submittedAt;
+      if (enriched.taskType === 'audit_pekanan')
+        enriched.payload.auditBankReports = auditBankReportsForCurrentRevision_(task, taskRowsById);
       const sourceId = String(enriched.payload && enriched.payload.sourceTaskId || '');
       const sourceTask = taskRowsById[sourceId];
       if (sourceTask && enriched.assigneeRole === 'auditor')
@@ -1103,6 +1107,35 @@ function truncateText_(value, maxLength) {
   return text.length > limit ? text.slice(0, limit - 1) + '...' : text;
 }
 
+function sourceRevisionAnswerForAudit_(task, rowsById) {
+  const type = String(task.TaskType || task.taskType || '');
+  if (!['audit_harian', 'audit_kasbon', 'audit_barang_tiba', 'audit_pekanan'].includes(type) ||
+      String(task.Status || task.status || 'berjalan') !== 'berjalan') return null;
+  const payload = task.payload || parseJsonSafe_(task.PayloadJson, {});
+  const source = rowsById && rowsById[String(payload.sourceTaskId || '')];
+  const revision = source && parseJsonSafe_(source.PayloadJson, {}).revision;
+  if (!revision || Number(revision.count) < 1 || revision.pending || !parseDate_(revision.submittedAt) ||
+      String(revision.auditTaskId || '') !== String(task.Id || task.id || '')) return null;
+  const bankNames = Array.isArray(revision.bankNames) ? revision.bankNames : [];
+  const audited = payload.auditBankReports || {};
+  const pendingBanks = type === 'audit_pekanan' ? bankNames.filter(function(name) {
+    const checkedAt = audited[name] && parseDate_(audited[name].auditedAt);
+    return !checkedAt || checkedAt < parseDate_(revision.submittedAt);
+  }) : [];
+  if (type === 'audit_pekanan' && !pendingBanks.length) return null;
+  return { count: Number(revision.count), submittedAt: revision.submittedAt,
+    pendingBanks: pendingBanks };
+}
+
+function auditBankReportsForCurrentRevision_(task, rowsById) {
+  const payload = task.payload || parseJsonSafe_(task.PayloadJson, {});
+  const audited = Object.assign({}, payload.auditBankReports || {});
+  const answer = sourceRevisionAnswerForAudit_(task, rowsById);
+  if (answer && String(task.TaskType || task.taskType || '') === 'audit_pekanan')
+    answer.pendingBanks.forEach(function(name) { delete audited[name]; });
+  return audited;
+}
+
 function revisionAlertsForUser_(user, taskRows, now, attendanceMap) {
   const rowsById = Object.fromEntries(taskRows.map(function(row) { return [String(row.Id || ''), row]; }));
   return taskRows.reduce(function(alerts, row) {
@@ -1127,14 +1160,12 @@ function revisionAlertsForUser_(user, taskRows, now, attendanceMap) {
       kind = 'answer';
       revisionRound = Number(payload.revisionCount);
       eventAt = task.startedAt;
-    } else if (user.Role === 'auditor' && ['audit_harian', 'audit_kasbon', 'audit_barang_tiba', 'audit_pekanan'].includes(task.taskType)) {
-      const source = rowsById[String(payload.sourceTaskId || '')];
-      const sourceRevision = source && parseJsonSafe_(source.PayloadJson, {}).revision;
-      if (sourceRevision && Number(sourceRevision.count) > 0 && !sourceRevision.pending &&
-          sourceRevision.submittedAt && String(sourceRevision.auditTaskId || '') === task.id) {
+    } else if (user.Role === 'auditor') {
+      const answer = sourceRevisionAnswerForAudit_(row, rowsById);
+      if (answer) {
         kind = 'answer';
-        revisionRound = Number(sourceRevision.count);
-        eventAt = sourceRevision.submittedAt;
+        revisionRound = answer.count;
+        eventAt = answer.submittedAt;
       }
     }
     if (!kind) return alerts;
@@ -1169,6 +1200,10 @@ function apiGetReportMeta(token) {
     const openTasks = taskRows
       .map(function(task) {
         const enriched = enrichTask_(task, now, attendanceMap);
+        const revisionAnswer = sourceRevisionAnswerForAudit_(task, reportIndex.tasksById);
+        if (revisionAnswer) enriched.payload.revisionAnswerAt = revisionAnswer.submittedAt;
+        if (enriched.taskType === 'audit_pekanan')
+          enriched.payload.auditBankReports = auditBankReportsForCurrentRevision_(task, reportIndex.tasksById);
         enriched.submissionHistory = submissionHistoryForTask_(task, reportIndex);
         return user.Role === 'auditor' ? attachSourceFilesForAuditor_(enriched, reportIndex) : enriched;
       })
@@ -2151,7 +2186,7 @@ function normalizeDashboardPeriod_(filters) {
   };
 }
 
-function dashboardPeriodOptions_(tasks, selectedPeriod) {
+function dashboardPeriodOptions_(tasks, selectedPeriod, taskRowsById) {
   const seen = {};
   const options = [];
 
@@ -2169,6 +2204,8 @@ function dashboardPeriodOptions_(tasks, selectedPeriod) {
     const payload = task.payload || parseJsonSafe_(task.PayloadJson, {});
     const revisionDate = payload.revision && payload.revision.pending && parseDate_(payload.revision.startedAt);
     if (revisionDate) addPeriod(dashboardPeriodForDate_(revisionDate));
+    const revisionAnswer = sourceRevisionAnswerForAudit_(task, taskRowsById);
+    if (revisionAnswer) addPeriod(dashboardPeriodForDate_(parseDate_(revisionAnswer.submittedAt)));
     if (String(task.taskType || task.TaskType || '') === 'follow_up_nota_tagihan') {
       addPeriod(followUpDeadlinePeriod_(task));
     }
@@ -2179,15 +2216,18 @@ function dashboardPeriodOptions_(tasks, selectedPeriod) {
   });
 }
 
-function isTaskInDashboardPeriod_(task, period) {
+function isTaskInDashboardPeriod_(task, period, taskRowsById) {
   const taskPeriod = taskDashboardPeriod_(task);
   const payload = task.payload || parseJsonSafe_(task.PayloadJson, {});
   const revisionDate = payload.revision && payload.revision.pending && parseDate_(payload.revision.startedAt);
   const revisionPeriod = revisionDate ? dashboardPeriodForDate_(revisionDate) : null;
+  const revisionAnswer = sourceRevisionAnswerForAudit_(task, taskRowsById);
+  const answerPeriod = revisionAnswer ? dashboardPeriodForDate_(parseDate_(revisionAnswer.submittedAt)) : null;
   const deadlinePeriod = String(task.taskType || task.TaskType || '') === 'follow_up_nota_tagihan'
     ? followUpDeadlinePeriod_(task) : null;
   return Boolean(period && ((taskPeriod && taskPeriod.key === period.key) ||
     (revisionPeriod && revisionPeriod.key === period.key) ||
+    (answerPeriod && answerPeriod.key === period.key) ||
     (deadlinePeriod && deadlinePeriod.key === period.key)));
 }
 
@@ -2886,7 +2926,8 @@ function validateReportPayload_(user, type, fields, files) {
           !isReportTaskAssignedToUser_(user, enrichTask_(related))) {
         throw new Error('Tugas audit laporan akun bank pekanan tidak ditemukan atau sudah selesai.');
       }
-      const audited = parseJsonSafe_(related.PayloadJson, {}).auditBankReports || {};
+      const taskRowsById = Object.fromEntries(readObjects_('tasks').map(function(row) { return [row.Id, row]; }));
+      const audited = auditBankReportsForCurrentRevision_(related, taskRowsById);
       auditBanks.forEach(function(entry) {
         if (audited[entry.bankName])
           throw new Error('Pemeriksaan ' + BANK_ACCOUNT_BANKS[entry.bankName] + ' untuk tugas ini sudah dikirim.');
@@ -3665,7 +3706,7 @@ function recordBankAccountReport_(periodKey, user, report, fields, savedFiles) {
       completed: completed,
       banksReported: completedCount,
       banksRequired: requiredBanks.length,
-      revisionBanks: revision && revision.bankNames || [],
+      revisionBanks: revision ? Array.from(new Set([].concat(revision.bankNames || [], revisionBank ? [bankName] : []))) : [],
       priorAuditTaskId: revision && revision.auditTaskId || ''
     };
     return row;
@@ -3749,7 +3790,8 @@ function recordBankAuditReports_(taskId, user, report, fields, savedFiles) {
       throw new Error('Tugas audit laporan akun bank pekanan tidak ditemukan atau sudah selesai.');
     }
     const previousPayload = parseJsonSafe_(row.PayloadJson, {});
-    const auditBankReports = Object.assign({}, previousPayload.auditBankReports || {});
+    const taskRowsById = Object.fromEntries(readObjects_('tasks').map(function(task) { return [task.Id, task]; }));
+    const auditBankReports = auditBankReportsForCurrentRevision_(row, taskRowsById);
     const attachments = parseJsonSafe_(row.AttachmentUrlsJson, {});
     auditBanks.forEach(function(entry) {
       const bankName = entry.bankName;

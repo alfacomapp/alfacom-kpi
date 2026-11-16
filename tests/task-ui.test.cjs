@@ -106,6 +106,33 @@ test('report task dropdown filters cards by type and keeps paused tasks out of B
   assert.doesNotMatch(app.elements.openTasksList.innerHTML, /Audit Pekanan|Audit Pause/);
 });
 
+test('task number search finds displayed task references in Dashboard and Reports', () => {
+  const app = ui();
+  app.state.dashboard = { cardTasks: [
+    { id: 'A', referenceNumber: 659, title: 'Stok Opname' },
+    { id: 'B', referenceNumber: 587, title: 'Audit Pekanan' }
+  ] };
+  app.state.taskSearch = '659';
+  assert.deepEqual(Array.from(app.currentDetailTasks(), task => task.id), ['A']);
+
+  const base = { taskType: 'audit_pekanan', taskLabel: 'Audit Pekanan', title: 'Audit Pekanan',
+    status: 'berjalan', kpiStatus: 'berjalan', kpiLabel: 'Berjalan', displayKpiStatus: 'berjalan',
+    startedAt: '2026-11-15T02:00:00Z', timer: { noDeadline: true }, attachments: {}, payload: {} };
+  app.state.page = 'laporan';
+  app.state.reportMonth = 11;
+  app.state.reportYear = 2026;
+  app.state.reportTaskNumber = '659';
+  app.state.reportMeta = { reportTypes: [], openTasks: [
+    { ...base, id: 'A', referenceNumber: 659 },
+    { ...base, id: 'B', referenceNumber: 587 }
+  ] };
+  app.renderReportPage();
+  assert.match(app.elements.openTasksList.innerHTML, /No\. 659/);
+  assert.doesNotMatch(app.elements.openTasksList.innerHTML, /No\. 587/);
+  assert.match(html, /class="revision-navigation hidden"/);
+  assert.match(html, /\.revision-navigation \{[\s\S]*?position: fixed;/);
+});
+
 test('report cards and forms use the task period across month boundaries', () => {
   const app = ui();
   const cash = { id: 'cash', taskType: 'laporan_keadaan_kas_bank',
@@ -311,6 +338,7 @@ function ui() {
     reportYearFilter: { value: '', innerHTML: '' },
     reportTaskTypeFilter: { value: '', innerHTML: '' },
     reportTaskStatusFilter: { value: '' },
+    reportTaskNumberFilter: { value: '' },
     reportFormMonthFilter: { value: '', innerHTML: '' },
     reportFormYearFilter: { value: '', innerHTML: '' },
     openTasksList: { innerHTML: '', items: [], querySelectorAll(selector) {
@@ -358,7 +386,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 

@@ -546,15 +546,17 @@
     }
 
     .revision-navigation {
+      position: fixed;
+      z-index: 40;
+      right: 18px;
+      bottom: 18px;
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
+      align-items: flex-end;
       gap: 8px;
-      flex: 0 0 auto;
+      max-width: calc(100vw - 36px);
+      pointer-events: none;
     }
-
-    .report-tasks-panel .panel-head,
-    #taskPanel .panel-head,
-    .notes-panel .panel-head { flex-wrap: wrap; }
 
     .revision-nav-button {
       display: inline-flex;
@@ -562,12 +564,17 @@
       gap: 7px;
       padding: 7px 10px;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 999px;
       background: #fff;
       color: var(--blue);
       font-size: 12px;
       font-weight: 700;
+      box-shadow: 0 8px 24px rgba(22, 32, 28, .16);
+      pointer-events: auto;
     }
+
+    #revisionJump { background: #fff8e8; }
+    #revisionAnswerJump { background: #ecf8f0; }
 
     .revision-nav-button svg {
       width: 17px;
@@ -581,10 +588,6 @@
 
     .revision-focus { outline: 3px solid var(--gold); outline-offset: 2px; }
     #tasksTable tr.revision-focus td { background: #fff7df; }
-
-    @media (max-width: 560px) {
-      .notes-panel .panel-head .revision-navigation { grid-column: 1 / -1; }
-    }
 
     .topbar {
       display: flex;
@@ -825,8 +828,14 @@
     .note-mention-picker button.active { background: #eef7f0; }
 
     .notes-panel .panel-head .filters #noteCreatorFilter {
-      flex: 1 1 auto;
-      width: 0;
+      flex: 0 1 auto;
+      width: max-content;
+      min-width: 150px;
+      max-width: min(100%, 340px);
+    }
+
+    .notes-panel .panel-head .filters {
+      flex: 0 1 auto;
       min-width: 0;
     }
 
@@ -1605,6 +1614,7 @@
     #reportYearFilter { flex: 0 1 68px; }
     #reportTaskStatusFilter { flex: 1 1 108px; }
     #reportTaskTypeFilter { flex: 1 1 160px; max-width: 100%; }
+    #reportTaskNumberFilter { flex: 0 1 120px; min-width: 95px; width: 120px; padding: 7px 8px; font-size: 11px; }
     @media (min-width: 941px) {
       #reportMonthFilter { flex: 0 0 78px; }
       #reportYearFilter { flex: 0 0 84px; }
@@ -2377,6 +2387,8 @@
         font-size: 10px;
       }
 
+      #reportTaskNumberFilter { flex: 1 1 42%; width: auto; min-width: 0; font-size: 10px; }
+
       .notes-panel .panel-head,
       .kpi-panel .panel-head {
         display: grid;
@@ -2825,7 +2837,7 @@
                 <option value="aman">Aman</option>
                 <option value="kendala">Kendala</option>
               </select>
-              <input id="taskSearchFilter" type="search" placeholder="Cari tugas..." aria-label="Cari rincian tugas">
+              <input id="taskSearchFilter" type="search" placeholder="Cari nomor / tugas..." aria-label="Cari nomor atau nama tugas">
             </div>
           </div>
           <div id="tasksTable"></div>
@@ -2850,6 +2862,7 @@
                 <select id="reportTaskTypeFilter" aria-label="Filter jenis tugas">
                   <option value="">Semua tugas</option>
                 </select>
+                <input id="reportTaskNumberFilter" type="search" inputmode="numeric" placeholder="Cari No. tugas..." aria-label="Cari nomor tugas di laporan">
                 <button id="jumpToReportForm" class="btn btn-ghost report-jump" type="button" title="Ke Form Laporan" aria-label="Ke Form Laporan">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
                 </button>
@@ -2949,6 +2962,7 @@
       taskSearch: '',
       reportTaskStatus: '',
       reportTaskType: '',
+      reportTaskNumber: '',
       reportMonth: new Date().getMonth() + 1,
       reportYear: new Date().getFullYear(),
       reportFormMonth: new Date().getMonth() + 1,
@@ -3004,7 +3018,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-11-14-revision-shortcuts';
+    const CLIENT_CACHE_VERSION = '2026-11-16-floating-revision-search';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -3362,6 +3376,10 @@
       });
       byId('reportTaskTypeFilter').addEventListener('change', function(event) {
         state.reportTaskType = event.target.value;
+        renderOpenTasks();
+      });
+      byId('reportTaskNumberFilter').addEventListener('input', function(event) {
+        state.reportTaskNumber = event.target.value.trim();
         renderOpenTasks();
       });
       byId('reportMonthFilter').addEventListener('change', function(event) {
@@ -3883,6 +3901,7 @@
       state.auditStatus = '';
       state.taskSearch = '';
       state.reportTaskStatus = '';
+      state.reportTaskNumber = '';
       state.reportMonth = new Date().getMonth() + 1;
       state.reportYear = new Date().getFullYear();
       state.reportSection = 'tasks';
@@ -3934,6 +3953,7 @@
       byId('reportTaskStatusFilter').value = '';
       state.reportTaskType = '';
       byId('reportTaskTypeFilter').innerHTML = '<option value="">Semua tugas</option>';
+      byId('reportTaskNumberFilter').value = '';
       byId('reportMonthFilter').innerHTML = '';
       byId('reportYearFilter').innerHTML = '';
       byId('laporanPage').classList.remove('show-form');
@@ -4078,9 +4098,6 @@
         navigation.classList.add('hidden');
         return;
       }
-      const host = page === 'laporan' ? document.querySelector('.report-tasks-panel .panel-head') :
-        document.querySelector(state.dashboardSection === 'kpi' ? '#taskPanel .panel-head' : '.notes-panel .panel-head');
-      if (host && navigation.parentElement !== host) host.appendChild(navigation);
       let visible = false;
       [['revision', 'revisionJump'], ['answer', 'revisionAnswerJump']].forEach(function(entry) {
         const kind = entry[0];
@@ -4159,7 +4176,9 @@
       }
       state.reportTaskType = '';
       state.reportTaskStatus = '';
+      state.reportTaskNumber = '';
       byId('reportTaskStatusFilter').value = '';
+      byId('reportTaskNumberFilter').value = '';
       renderReportPeriodFilter();
       renderOpenTasks();
       setReportSection('tasks');
@@ -5010,6 +5029,8 @@
         tasks = tasks.filter(function(task) {
           const haystack = normalizeSearchText([
             task.id,
+            task.referenceNumber,
+            task.linkedReferenceNumber,
             task.title,
             task.taskLabel,
             task.detailText,
@@ -6033,6 +6054,9 @@
       typeSelect.value = state.reportTaskType;
       const tasks = reportTasksForCurrentUser().filter(function(task) {
         return taskMatchesReportPeriod(task) && (!state.reportTaskType || task.taskType === state.reportTaskType) &&
+          (!state.reportTaskNumber || [task.referenceNumber, task.linkedReferenceNumber].some(function(number) {
+            return String(number || '').includes(state.reportTaskNumber);
+          })) &&
           (!state.reportTaskStatus || (state.reportTaskStatus === 'pause' || state.reportTaskStatus === 'berjalan'
             ? task.displayKpiStatus === state.reportTaskStatus : task.kpiStatus === state.reportTaskStatus));
       }).sort(sortReportTaskCards);
@@ -6077,6 +6101,7 @@
       const payload = task && task.payload || {};
       const sources = [task && (task.startedAt || task.createdAt || task.completedAt)];
       if (payload.revision && payload.revision.pending) sources.push(payload.revision.startedAt);
+      if (payload.revisionAnswerAt) sources.push(payload.revisionAnswerAt);
       if (task && task.taskType === 'follow_up_nota_tagihan') sources.push(payload.deadlineAt);
       return sources.map(function(source) { return new Date(source || ''); }).filter(function(date) {
         return !isNaN(date.getTime());

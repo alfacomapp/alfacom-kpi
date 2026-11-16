@@ -273,6 +273,68 @@ test('bank revision replaces only the failed bank and rechecks it while retainin
   assert.equal(JSON.parse(fx.task(newAuditId).PayloadJson).auditStatus, 'aman');
 });
 
+test('a legacy weekly bank answer is reachable in its new month and its bank can be audited again', () => {
+  const keys = ['bri_kendari', 'bri_raha', 'mandiri', 'bank_sultra', 'aladin_syariah'];
+  const oldAudit = Object.fromEntries(keys.map(bankName => [bankName, {
+    auditStatus: bankName === 'bri_kendari' ? 'kendala' : 'aman',
+    auditedAt: '2026-10-07T02:00:00Z', reportId: 'OLD-AUDIT'
+  }]));
+  const fx = fixture([
+    task('BANK-SOURCE', 'laporan_akun_bank', people[1], {
+      Status: 'selesai', StartedAt: '2026-10-01T02:00:00Z',
+      PayloadJson: JSON.stringify({ requiredBankKeys: keys,
+        bankReports: Object.fromEntries(keys.map(bankName => [bankName, { reportId: 'OLD-' + bankName }])),
+        revision: { count: 1, pending: false, startedAt: '2026-10-07T03:00:00Z',
+          submittedAt: '2026-11-15T02:00:00Z', auditTaskId: 'BANK-AUDIT', bankNames: ['bri_kendari'] } })
+    }),
+    task('BANK-AUDIT', 'audit_pekanan', people[0], {
+      Title: 'Audit laporan akun bank pekanan Kendari', StartedAt: '2026-10-01T02:00:00Z',
+      PayloadJson: JSON.stringify({ sourceTaskId: 'BANK-SOURCE', requiredBankKeys: keys,
+        auditBankReports: oldAudit })
+    })
+  ]);
+  const meta = fx.engine.execute('apiGetReportMeta', ['test-jwt']);
+  const card = meta.openTasks.find(item => item.id === 'BANK-AUDIT');
+  assert.ok(card);
+  assert.equal(card.payload.auditBankReports.bri_kendari, undefined);
+  assert.equal(card.payload.revisionAnswerAt, '2026-11-15T02:00:00Z');
+  assert.deepEqual(meta.revisionAlerts.map(item => item.id), ['BANK-AUDIT']);
+  const dashboard = fx.engine.execute('apiGetDashboard', ['test-jwt', { month: 11, year: 2026 }]);
+  assert.equal(dashboard.cardTasks.some(item => item.id === 'BANK-AUDIT'), true);
+  assert.deepEqual(dashboard.revisionAlerts.map(item => item.id), ['BANK-AUDIT']);
+
+  const checked = fx.submit('audit_pekanan', { relatedTaskId: 'BANK-AUDIT',
+    auditBanks: [{ bankName: 'bri_kendari', auditStatus: 'aman' }] },
+    { auditProof_bri_kendari: [proof] });
+  assert.equal(checked.ok, true, checked.message);
+  assert.equal(fx.task('BANK-AUDIT').Status, 'selesai');
+  assert.equal(JSON.parse(fx.task('BANK-AUDIT').PayloadJson).auditBankReports.bri_kendari.auditStatus, 'aman');
+  assert.deepEqual(fx.engine.execute('apiGetReportMeta', ['test-jwt']).revisionAlerts, []);
+});
+
+test('weekly revision answer icon clears after its bank is rechecked while other banks stay open', () => {
+  const keys = ['bri_kendari', 'bri_raha', 'mandiri', 'bank_sultra', 'aladin_syariah'];
+  const fx = fixture([
+    task('BANK-SOURCE', 'laporan_akun_bank', people[1], {
+      Status: 'selesai', PayloadJson: JSON.stringify({ revision: { count: 1, pending: false,
+        startedAt: '2026-11-14T02:00:00Z', submittedAt: '2026-11-15T02:00:00Z',
+        auditTaskId: 'BANK-AUDIT', bankNames: ['bri_kendari'] } })
+    }),
+    task('BANK-AUDIT', 'audit_pekanan', people[0], {
+      Title: 'Audit laporan akun bank pekanan Kendari',
+      PayloadJson: JSON.stringify({ sourceTaskId: 'BANK-SOURCE', requiredBankKeys: keys,
+        auditBankReports: { bri_kendari: { auditStatus: 'kendala', auditedAt: '2026-11-14T02:00:00Z' } } })
+    })
+  ]);
+  assert.equal(fx.engine.execute('apiGetReportMeta', ['test-jwt']).revisionAlerts.length, 1);
+  const checked = fx.submit('audit_pekanan', { relatedTaskId: 'BANK-AUDIT',
+    auditBanks: [{ bankName: 'bri_kendari', auditStatus: 'aman' }] },
+    { auditProof_bri_kendari: [proof] });
+  assert.equal(checked.ok, true, checked.message);
+  assert.equal(fx.task('BANK-AUDIT').Status, 'berjalan');
+  assert.deepEqual(fx.engine.execute('apiGetReportMeta', ['test-jwt']).revisionAlerts, []);
+});
+
 test('fourth failed bank inspection marks the original user task late without adding audit choices', () => {
   const keys = ['bri_kendari', 'bri_raha', 'mandiri', 'bank_sultra', 'aladin_syariah'];
   const bankReports = Object.fromEntries(keys.map(key => [key, { label: key, reportId: 'OLD-' + key }]));
