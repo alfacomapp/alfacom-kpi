@@ -740,6 +740,54 @@ function apiGetTaskTimeHistory(token, taskId) {
   }
 }
 
+function apiFindTaskByNumber(token, referenceNumber, view) {
+  try {
+    const user = requireUser_(token);
+    const number = Number(referenceNumber);
+    if (!Number.isSafeInteger(number) || number < 1 || !['dashboard', 'laporan'].includes(view))
+      throw new Error('Nomor tugas tidak valid.');
+    const taskRows = readObjects_('tasks');
+    const task = taskRows.find(function(row) {
+      return Number(row.ReferenceNumber || row.__Sequence || 0) === number;
+    });
+    if (!task || !canUserSeeDashboardTask_(task)) throw new Error('Nomor tugas tidak ditemukan.');
+    const now = new Date();
+    const attendanceMap = getAttendanceMap_();
+    let enriched = enrichTask_(task, now, attendanceMap);
+    if (!canUserSeeTask_(user, enriched) ||
+        (view === 'laporan' && !isReportTaskAssignedToUser_(user, enriched)))
+      throw new Error('Nomor tugas tidak ditemukan.');
+    const period = taskDashboardPeriod_(enriched);
+    const cards = getVisibleCards_(user, getActiveUsers_());
+    const card = cards.find(function(item) { return tasksForCard_([enriched], item).length; });
+    if (!period || !card) throw new Error('Nomor tugas tidak ditemukan.');
+    const rowsById = Object.fromEntries(taskRows.map(function(row) { return [row.Id, row]; }));
+    const reportIndex = indexAuditSourceReports_(readObjects_('reports'));
+    reportIndex.tasksById = rowsById;
+    const revisionAnswer = sourceRevisionAnswerForAudit_(task, rowsById);
+    if (revisionAnswer) enriched.payload.revisionAnswerAt = revisionAnswer.submittedAt;
+    if (enriched.taskType === 'audit_pekanan')
+      enriched.payload.auditBankReports = auditBankReportsForCurrentRevision_(task, rowsById);
+    enriched.submissionHistory = submissionHistoryForTask_(task, reportIndex);
+    if (user.Role === 'auditor') enriched = attachSourceFilesForAuditor_(enriched, reportIndex);
+    if (view === 'dashboard') {
+      enriched = cashBankTaskForViewer_(enriched, user);
+      if (task.TaskType === 'laporan_keadaan_kas_bank' && user.Role !== 'admin_kendari') {
+        enriched.submissionHistory = enriched.submissionHistory.map(function(entry) {
+          const fields = Object.assign({}, entry.fields || {});
+          delete fields.bankCashEntries;
+          delete fields.bankCashTotal;
+          return Object.assign({}, entry, { fields: fields });
+        });
+      }
+      enriched.canAddAttachments = canUserAppendTaskFiles_(user, task, enriched);
+    }
+    return ok_({ task: enriched, period: period, cardKey: card.key });
+  } catch (error) {
+    return fail_(error);
+  }
+}
+
 function apiMarkNoteMentionsSeen(token) {
   try {
     const user = requireUser_(token);
@@ -5536,7 +5584,7 @@ function fail_(error) {
   }
 
   const actions = {
-    apiLogout, apiLogActivity, apiGetSession, apiGetDashboard, apiGetTaskTimeHistory,
+    apiLogout, apiLogActivity, apiGetSession, apiGetDashboard, apiGetTaskTimeHistory, apiFindTaskByNumber,
     apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiReactNote, apiMarkNoteMentionsSeen, apiUpdateTaskStatus,
     apiGetReportMeta, apiSubmitReport, apiAddTaskAttachments, apiUpdateProfile, apiUpdateTaskColumnPreferences
   };

@@ -1556,8 +1556,9 @@
 
     .report-grid > .panel {
       min-width: 0;
-      height: min(760px, calc(100vh - 140px));
-      min-height: 560px;
+      height: calc(100vh - 48px);
+      height: calc(100dvh - 48px);
+      min-height: 0;
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -2837,7 +2838,7 @@
                 <option value="aman">Aman</option>
                 <option value="kendala">Kendala</option>
               </select>
-              <input id="taskSearchFilter" type="search" placeholder="Cari nomor / tugas..." aria-label="Cari nomor atau nama tugas">
+              <input id="taskSearchFilter" type="search" placeholder="Cari No. semua bulan / tugas..." aria-label="Cari nomor tugas semua bulan atau nama tugas">
             </div>
           </div>
           <div id="tasksTable"></div>
@@ -2862,7 +2863,7 @@
                 <select id="reportTaskTypeFilter" aria-label="Filter jenis tugas">
                   <option value="">Semua tugas</option>
                 </select>
-                <input id="reportTaskNumberFilter" type="search" inputmode="numeric" placeholder="Cari No. tugas..." aria-label="Cari nomor tugas di laporan">
+                <input id="reportTaskNumberFilter" type="search" inputmode="numeric" placeholder="Cari No. semua bulan..." aria-label="Cari nomor tugas semua bulan di laporan">
                 <button id="jumpToReportForm" class="btn btn-ghost report-jump" type="button" title="Ke Form Laporan" aria-label="Ke Form Laporan">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
                 </button>
@@ -2960,9 +2961,17 @@
       kpiStatus: '',
       auditStatus: '',
       taskSearch: '',
+      dashboardTaskSearchResult: null,
+      dashboardTaskSearchStatus: '',
+      dashboardTaskSearchSeq: 0,
+      dashboardTaskSearchTimer: null,
       reportTaskStatus: '',
       reportTaskType: '',
       reportTaskNumber: '',
+      reportTaskSearchResult: null,
+      reportTaskSearchStatus: '',
+      reportTaskSearchSeq: 0,
+      reportTaskSearchTimer: null,
       reportMonth: new Date().getMonth() + 1,
       reportYear: new Date().getFullYear(),
       reportFormMonth: new Date().getMonth() + 1,
@@ -3018,7 +3027,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-11-16-floating-revision-search';
+    const CLIENT_CACHE_VERSION = '2026-11-16-global-number-search';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -3368,7 +3377,7 @@
       });
       byId('taskSearchFilter').addEventListener('input', function(event) {
         state.taskSearch = event.target.value;
-        renderTasksTable();
+        queueTaskNumberSearch('dashboard');
       });
       byId('reportTaskStatusFilter').addEventListener('change', function(event) {
         state.reportTaskStatus = event.target.value;
@@ -3380,13 +3389,15 @@
       });
       byId('reportTaskNumberFilter').addEventListener('input', function(event) {
         state.reportTaskNumber = event.target.value.trim();
-        renderOpenTasks();
+        queueTaskNumberSearch('laporan');
       });
       byId('reportMonthFilter').addEventListener('change', function(event) {
+        clearTaskNumberSearch('laporan');
         state.reportMonth = Number(event.target.value) || new Date().getMonth() + 1;
         renderOpenTasks();
       });
       byId('reportYearFilter').addEventListener('change', function(event) {
+        clearTaskNumberSearch('laporan');
         state.reportYear = Number(event.target.value) || new Date().getFullYear();
         renderOpenTasks();
       });
@@ -3891,6 +3902,8 @@
     }
 
     function resetViewState() {
+      clearTaskNumberSearch('dashboard');
+      clearTaskNumberSearch('laporan');
       state.dashboard = null;
       state.reportMeta = null;
       state.selectedCard = '';
@@ -3919,6 +3932,7 @@
     }
 
     function resetDashboardDetailFilters() {
+      clearTaskNumberSearch('dashboard');
       state.taskType = '';
       state.kpiStatus = '';
       state.auditStatus = '';
@@ -3968,6 +3982,71 @@
 
     function isCurrentRequest(token, requestId) {
       return Boolean(state.token) && token === state.token && requestId === state.requestSeq;
+    }
+
+    function clearTaskNumberSearch(view) {
+      const dashboard = view === 'dashboard';
+      const prefix = dashboard ? 'dashboardTaskSearch' : 'reportTaskSearch';
+      window.clearTimeout(state[prefix + 'Timer']);
+      state[prefix + 'Seq']++;
+      state[prefix + 'Result'] = null;
+      state[prefix + 'Status'] = '';
+      if (dashboard) state.taskSearch = '';
+      else state.reportTaskNumber = '';
+      const input = byId(dashboard ? 'taskSearchFilter' : 'reportTaskNumberFilter');
+      if (input) input.value = '';
+    }
+
+    function queueTaskNumberSearch(view) {
+      const dashboard = view === 'dashboard';
+      const prefix = dashboard ? 'dashboardTaskSearch' : 'reportTaskSearch';
+      const value = String(dashboard ? state.taskSearch : state.reportTaskNumber).trim();
+      const sequence = ++state[prefix + 'Seq'];
+      window.clearTimeout(state[prefix + 'Timer']);
+      state[prefix + 'Result'] = null;
+      state[prefix + 'Status'] = /^\d+$/.test(value) ? 'mencari' : '';
+      const render = dashboard ? renderTasksTable : renderOpenTasks;
+      render();
+      if (!/^\d+$/.test(value)) return;
+      state[prefix + 'Timer'] = window.setTimeout(function() {
+        const token = state.token;
+        api('apiFindTaskByNumber', token, value, view).then(function(response) {
+          if (sequence !== state[prefix + 'Seq'] || token !== state.token) return;
+          state[prefix + 'Result'] = response.task;
+          state[prefix + 'Status'] = 'ditemukan';
+          if (dashboard) {
+            state.dashboardSection = 'kpi';
+            state.dashboardMonth = Number(response.period.month);
+            state.dashboardYear = Number(response.period.year);
+            state.selectedCard = response.cardKey;
+            loadDashboard().then(function() {
+              if (sequence === state.dashboardTaskSearchSeq && state.page === 'dashboard')
+                focusSearchedTask(byId('tasksTable'), response.task.id);
+            });
+          } else {
+            state.reportMonth = Number(response.period.month);
+            state.reportYear = Number(response.period.year);
+            renderReportPeriodFilter();
+            renderOpenTasks();
+            setReportSection('tasks');
+            focusSearchedTask(byId('openTasksList'), response.task.id);
+          }
+        }).catch(function() {
+          if (sequence !== state[prefix + 'Seq'] || token !== state.token) return;
+          state[prefix + 'Status'] = 'tidak_ditemukan';
+          render();
+        });
+      }, 350);
+    }
+
+    function focusSearchedTask(container, taskId) {
+      const target = Array.prototype.find.call(container.querySelectorAll('[data-task-id]'), function(item) {
+        return item.dataset.taskId === taskId;
+      });
+      if (!target) return;
+      container.querySelectorAll('.revision-focus').forEach(function(item) { item.classList.remove('revision-focus'); });
+      target.classList.add('revision-focus');
+      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     }
 
     function clientCacheKey(scope) {
@@ -4163,7 +4242,7 @@
         state.taskType = '';
         state.kpiStatus = '';
         state.auditStatus = '';
-        state.taskSearch = '';
+        clearTaskNumberSearch('dashboard');
         loadDashboard().then(function() {
           if (state.page === 'dashboard') focusRevisionTask(byId('tasksTable'), alert);
         });
@@ -4176,7 +4255,7 @@
       }
       state.reportTaskType = '';
       state.reportTaskStatus = '';
-      state.reportTaskNumber = '';
+      clearTaskNumberSearch('laporan');
       byId('reportTaskStatusFilter').value = '';
       byId('reportTaskNumberFilter').value = '';
       renderReportPeriodFilter();
@@ -4226,6 +4305,12 @@
             return;
           }
           state.dashboard = response;
+          if (state.dashboardTaskSearchStatus === 'ditemukan' && state.dashboardTaskSearchResult) {
+            const current = (response.cardTasks || []).find(function(task) {
+              return task.id === state.dashboardTaskSearchResult.id;
+            });
+            if (current) state.dashboardTaskSearchResult = current;
+          }
           if (response.period) {
             state.dashboardMonth = Number(response.period.month || state.dashboardMonth);
             state.dashboardYear = Number(response.period.year || state.dashboardYear);
@@ -4886,6 +4971,7 @@
     }
 
     function selectCard(key) {
+      clearTaskNumberSearch('dashboard');
       state.selectedCard = key;
       state.taskType = '';
       state.kpiStatus = '';
@@ -4938,7 +5024,10 @@
       const tasks = currentDetailTasks();
       const wrap = byId('tasksTable');
       if (!tasks.length) {
-        wrap.innerHTML = '<div class="empty">Belum ada tugas pada filter ini.</div>';
+        const message = state.dashboardTaskSearchStatus === 'mencari' ? 'Mencari nomor tugas di seluruh bulan...' :
+          state.dashboardTaskSearchStatus === 'tidak_ditemukan' ? 'Nomor tugas tidak ditemukan.' :
+            'Belum ada tugas pada filter ini.';
+        wrap.innerHTML = '<div class="empty">' + message + '</div>';
         return;
       }
 
@@ -5003,6 +5092,12 @@
     }
 
     function currentDetailTasks() {
+      if (/^\d+$/.test(String(state.taskSearch || '').trim())) {
+        if (state.dashboardTaskSearchStatus === 'ditemukan' && state.dashboardTaskSearchResult)
+          return [state.dashboardTaskSearchResult];
+        if (state.dashboardTaskSearchStatus === 'mencari' || state.dashboardTaskSearchStatus === 'tidak_ditemukan')
+          return [];
+      }
       let tasks = (state.dashboard.cardTasks && state.dashboard.cardTasks.length ? state.dashboard.cardTasks : state.dashboard.tasks || []).slice();
       if (state.taskType) {
         tasks = tasks.filter(function(task) {
@@ -5980,6 +6075,11 @@
           years[reportPeriodForDate(date).year] = true;
         });
       });
+      if (state.reportTaskSearchResult) {
+        taskDatesForReportPeriod(state.reportTaskSearchResult).forEach(function(date) {
+          years[reportPeriodForDate(date).year] = true;
+        });
+      }
       years[state.reportYear || new Date().getFullYear()] = true;
       years[new Date().getFullYear()] = true;
 
@@ -6046,13 +6146,15 @@
       reportTasksForCurrentUser().filter(taskMatchesReportPeriod).forEach(function(task) {
         if (task.taskType) taskTypes[task.taskType] = task.taskLabel || task.title || task.taskType;
       });
-      if (state.reportTaskType && !taskTypes[state.reportTaskType]) state.reportTaskType = '';
+      if (!state.reportTaskNumber && state.reportTaskType && !taskTypes[state.reportTaskType]) state.reportTaskType = '';
       const typeSelect = byId('reportTaskTypeFilter');
       typeSelect.innerHTML = '<option value="">Semua tugas</option>' + Object.keys(taskTypes)
         .sort(function(a, b) { return taskTypes[a].localeCompare(taskTypes[b], 'id'); })
         .map(function(type) { return '<option value="' + escapeAttr(type) + '">' + escapeHtml(taskTypes[type]) + '</option>'; }).join('');
       typeSelect.value = state.reportTaskType;
-      const tasks = reportTasksForCurrentUser().filter(function(task) {
+      const tasks = state.reportTaskSearchStatus === 'ditemukan' && state.reportTaskSearchResult
+        ? [state.reportTaskSearchResult] : state.reportTaskSearchStatus === 'mencari' ||
+          state.reportTaskSearchStatus === 'tidak_ditemukan' ? [] : reportTasksForCurrentUser().filter(function(task) {
         return taskMatchesReportPeriod(task) && (!state.reportTaskType || task.taskType === state.reportTaskType) &&
           (!state.reportTaskNumber || [task.referenceNumber, task.linkedReferenceNumber].some(function(number) {
             return String(number || '').includes(state.reportTaskNumber);
@@ -6062,7 +6164,10 @@
       }).sort(sortReportTaskCards);
       const wrap = byId('openTasksList');
       if (!tasks.length) {
-        wrap.innerHTML = '<div class="empty">Tidak ada tugas untuk filter ini.</div>';
+        const message = state.reportTaskSearchStatus === 'mencari' ? 'Mencari nomor tugas di seluruh bulan...' :
+          state.reportTaskSearchStatus === 'tidak_ditemukan' ? 'Nomor tugas tidak ditemukan.' :
+            'Tidak ada tugas untuk filter ini.';
+        wrap.innerHTML = '<div class="empty">' + message + '</div>';
         startTimers();
         return;
       }

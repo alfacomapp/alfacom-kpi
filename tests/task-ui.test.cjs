@@ -133,6 +133,35 @@ test('task number search finds displayed task references in Dashboard and Report
   assert.match(html, /\.revision-navigation \{[\s\S]*?position: fixed;/);
 });
 
+test('global number result ignores month, task type and status filters in both panels', () => {
+  const app = ui();
+  const found = { id: 'SEPTEMBER', referenceNumber: 91, taskType: 'pendapatan_harian',
+    taskLabel: 'Pendapatan Harian', title: 'Tugas September', status: 'selesai',
+    kpiStatus: 'tepat_waktu', kpiLabel: 'Tepat Waktu', displayKpiStatus: 'tepat_waktu',
+    startedAt: '2026-09-14T02:00:00Z', timer: { noDeadline: true }, attachments: {}, payload: {} };
+  app.state.dashboard = { cardTasks: [], tasks: [] };
+  app.state.taskSearch = '91';
+  app.state.taskType = 'audit_pekanan';
+  app.state.kpiStatus = 'meleset';
+  app.state.dashboardTaskSearchResult = found;
+  app.state.dashboardTaskSearchStatus = 'ditemukan';
+  assert.deepEqual(Array.from(app.currentDetailTasks(), task => task.id), ['SEPTEMBER']);
+
+  app.state.page = 'laporan';
+  app.state.reportMonth = 11;
+  app.state.reportYear = 2026;
+  app.state.reportTaskNumber = '91';
+  app.state.reportTaskType = 'audit_pekanan';
+  app.state.reportTaskStatus = 'meleset';
+  app.state.reportTaskSearchResult = found;
+  app.state.reportTaskSearchStatus = 'ditemukan';
+  app.state.reportMeta = { reportTypes: [], openTasks: [] };
+  app.renderReportPage();
+  assert.match(app.elements.openTasksList.innerHTML, /No\. 91/);
+  assert.match(app.elements.reportYearFilter.innerHTML, /2026/);
+  assert.match(html, /height: calc\(100dvh - 48px\)/);
+});
+
 test('report cards and forms use the task period across month boundaries', () => {
   const app = ui();
   const cash = { id: 'cash', taskType: 'laporan_keadaan_kas_bank',

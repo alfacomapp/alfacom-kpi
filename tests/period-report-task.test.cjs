@@ -80,3 +80,21 @@ test('Admin Kendari cash-bank form accepts a report date without a task-number s
   assert.equal(result.ok, true, result.message);
   assert.equal(JSON.parse(ctx.tables.reports[0].record.PayloadJson).reportDate, '2026-10-07');
 });
+
+test('global task number lookup finds old and completed tasks while enforcing report ownership', () => {
+  const old = task('OLD', 'pendapatan_harian', '2026-09-14T02:00:00.000Z',
+    { ReferenceNumber: 91, Status: 'selesai', CompletedAt: '2026-09-14T04:00:00.000Z' });
+  const other = task('OTHER', 'pendapatan_harian', '2026-11-14T02:00:00.000Z',
+    { ReferenceNumber: 92, AssigneeName: 'Admin Lain' });
+  const { engine } = fixture([old, other]);
+  const reportResult = engine.execute('apiFindTaskByNumber', ['test-jwt', 91, 'laporan']);
+  assert.equal(reportResult.ok, true, reportResult.message);
+  assert.equal(reportResult.task.id, 'OLD');
+  assert.equal(reportResult.task.status, 'selesai');
+  assert.equal(reportResult.period.month, 9);
+  assert.equal(reportResult.period.year, 2026);
+  assert.equal(reportResult.cardKey, 'kendari');
+  assert.equal(engine.execute('apiFindTaskByNumber', ['test-jwt', 91, 'dashboard']).task.id, 'OLD');
+  assert.equal(engine.execute('apiFindTaskByNumber', ['test-jwt', 92, 'laporan']).ok, false);
+  assert.equal(engine.execute('apiFindTaskByNumber', ['test-jwt', 999, 'dashboard']).ok, false);
+});
