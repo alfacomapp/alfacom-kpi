@@ -13,6 +13,7 @@ function fixture(profile = alif, options = {}) {
     if (options.ambiguous) rows.push({ ...raha, Id: 'DUPLICATE-RAHA' });
     const tables = { kpi_users: rows.map((record, i) => ({ id: record.Id, record, revision: 1, seq: i + 1 })), kpi_tasks: [], kpi_reports: [], kpi_notes: [], kpi_activity_logs: [] };
     const calls = [], writes = [];
+    let taskReadFailures = 0, periodConflictInjected = false;
     const fetchMock = async (url, request = {}) => {
         const parsed = new URL(url); calls.push({ path: parsed.pathname, method: request.method || 'GET', query: parsed.search });
         if (parsed.pathname === '/auth/v1/user') return Response.json(options.invalidAuth ? {} : { id: 'auth-fixture', email: (options.authLogin || profile.username_login) + '@alfacom.local' }, { status: options.invalidAuth ? 401 : 200 });
@@ -22,15 +23,24 @@ function fixture(profile = alif, options = {}) {
             const changes = JSON.parse(request.body).changes;
             writes.push(...changes);
             for (const change of changes) {
-                if (change.operation === 'insert') tables[change.table].push({ id: change.id, record: change.record, revision: 1, seq: 10 });
+                if (change.operation !== 'insert') continue;
+                if (options.periodConflictOnce && !periodConflictInjected && change.table === 'kpi_tasks' &&
+                    change.record.AssigneeRole === 'admin_raha') {
+                    tables.kpi_tasks.push({ id: 'REAL-PERIOD-TASK', record: { ...change.record, Id: 'REAL-PERIOD-TASK' }, revision: 1, seq: 10 });
+                    periodConflictInjected = true;
+                    continue;
+                }
+                tables[change.table].push({ id: change.id, record: change.record, revision: 1, seq: 10 });
             }
             return Response.json({ applied: changes.length });
         }
         const table = parsed.pathname.split('/').pop();
+        if (table === 'kpi_tasks' && options.taskRead503Once && taskReadFailures++ === 0)
+            return Response.json({ message: 'temporarily unavailable' }, { status: 503 });
         if (Object.hasOwn(tables, table)) return Response.json(tables[table]);
         throw Error('Unexpected request: ' + parsed.pathname);
     };
-    const sandbox = { crypto: webcrypto, URL, URLSearchParams, Response, Request, Headers, AbortSignal, structuredClone, atob, btoa, TextEncoder, TextDecoder, console: { error() {}, log() {} }, fetch: fetchMock, Deno: { env: { get: key => ({ SUPABASE_URL: 'https://fixture.supabase.co', SUPABASE_SECRET_KEYS: '{"default":"sb_secret_fixture"}', SUPABASE_PUBLISHABLE_KEYS: '{"default":"sb_publishable_fixture"}' })[key] }, serve: handler => { sandbox.handler = handler; } } };
+    const sandbox = { crypto: webcrypto, URL, URLSearchParams, Response, Request, Headers, AbortSignal, structuredClone, atob, btoa, TextEncoder, TextDecoder, setTimeout: callback => callback(), console: { error() {}, log() {} }, fetch: fetchMock, Deno: { env: { get: key => ({ SUPABASE_URL: 'https://fixture.supabase.co', SUPABASE_SECRET_KEYS: '{"default":"sb_secret_fixture"}', SUPABASE_PUBLISHABLE_KEYS: '{"default":"sb_publishable_fixture"}' })[key] }, serve: handler => { sandbox.handler = handler; } } };
     vm.createContext(sandbox); vm.runInContext(source, sandbox);
     return { sandbox, tables, calls, writes, async invoke(action, payload, override = {}) {
         const response = await sandbox.handler(new Request('https://fixture.supabase.co/functions/v1/kpi-api', { method: 'POST', headers: { Origin: 'https://alfacomapp.github.io', Authorization: 'Bearer ' + jwt }, body: JSON.stringify({ action, args: [jwt, payload], ...override }) }));
@@ -44,7 +54,8 @@ test('Alif and Admin Raha resolve to the same existing KPI user, menus and repor
         assert.equal(session.status, 200); assert.equal(session.body.ok, true);
         assert.equal(session.body.user.Id, 'USER-RAHA'); assert.equal(session.body.user.Role, 'admin_raha'); assert.equal(session.body.user.Location, 'raha');
         assert.equal(meta.body.ok, true);
-        assert.equal(f.writes.length, 0);
+        assert.ok(f.writes.length > 0);
+        assert.ok(f.writes.every(change => change.table === 'kpi_tasks' && change.operation === 'insert'));
         assert.ok(meta.body.reportTypes.some(type => type.value === 'follow_up_nota_tagihan'));
         assert.equal(f.tables.kpi_users.length, 2);
         assert.ok(f.calls.some(call => call.path === '/auth/v1/user'));
@@ -52,6 +63,21 @@ test('Alif and Admin Raha resolve to the same existing KPI user, menus and repor
         results.push({ user: session.body.user, menus: session.body.menus, reportTypes: meta.body.reportTypes });
     }
     assert.deepEqual(results[0], results[1]);
+});
+test('a transient KPI task read error retries and still restores scheduled tasks', async () => {
+    const f = fixture(alif, { taskRead503Once: true });
+    const result = await f.invoke('apiGetReportMeta');
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ok, true);
+    assert.equal(f.calls.filter(call => call.path === '/rest/v1/kpi_tasks').length, 3);
+    assert.ok(f.writes.some(change => change.table === 'kpi_tasks' && change.operation === 'insert'));
+});
+test('simultaneous task creation returns the database task number instead of a temporary one', async () => {
+    const f = fixture(alif, { periodConflictOnce: true });
+    const result = await f.invoke('apiGetReportMeta');
+    assert.equal(result.body.ok, true);
+    assert.ok(result.body.openTasks.some(task => task.id === 'REAL-PERIOD-TASK'));
+    assert.equal(f.tables.kpi_tasks.filter(row => row.id === 'REAL-PERIOD-TASK').length, 1);
 });
 test('both identities can submit a normal note as User Raha without adding KPI users or modifying SLA data', async () => {
     for (const profile of [alif, admin]) {

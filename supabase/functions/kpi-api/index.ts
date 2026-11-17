@@ -597,6 +597,9 @@ function apiGetSession(token) {
 function apiGetDashboard(token, filters) {
   try {
     const user = requireUser_(token);
+    // Recover scheduled tasks when the daily maintenance request was missed.
+    // Period keys keep existing reports and auditor status decisions intact.
+    if (ctx.recoverScheduledTasks) ensureKpiTasksAndStatus_(false);
     if (user.Role === 'auditor') {
       ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
       ensureAuditorInventoryTasks_(new Date(), readObjects_('tasks'), readObjects_('users'), { Id: 'system', Name: 'System' });
@@ -1235,6 +1238,7 @@ function revisionAlertsForUser_(user, taskRows, now, attendanceMap) {
 function apiGetReportMeta(token) {
   try {
     const user = requireUser_(token);
+    if (ctx.recoverScheduledTasks) ensureKpiTasksAndStatus_(false);
     if (user.Role === 'auditor') {
       ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
       ensureAuditorInventoryTasks_(new Date(), readObjects_('tasks'), readObjects_('users'), { Id: 'system', Name: 'System' });
@@ -5753,7 +5757,16 @@ async function restRows(table, query) {
     const separator = query ? '&' : '';
     const url = PROJECT_URL + '/rest/v1/' + table + '?' + query + separator +
       'limit=1000&offset=' + offset;
-    const response = await fetch(url, { headers: serviceHeaders() });
+    let response;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        response = await fetch(url, { headers: serviceHeaders() });
+      } catch (error) {
+        if (attempt === 2) throw error;
+      }
+      if (response && (response.ok || ![502, 503, 504].includes(response.status))) break;
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 600 * (attempt + 1)));
+    }
     if (!response.ok) throw new Error('Supabase read failed: ' + table + ' ' + response.status);
     const page = await response.json();
     if (!Array.isArray(page)) throw new Error('Supabase read returned invalid data.');
@@ -6114,6 +6127,7 @@ Deno.serve(async request => {
       ]);
     }
     const ctx = { jwt, expiresAt: identity.expiresAt, userRecord, notePasswordVerified, tables,
+      recoverScheduledTasks: action === 'apiGetDashboard' || action === 'apiGetReportMeta',
       original: structuredClone(tables), absensi, leaveRequests, uploads: [], maxSeq: 0, version: 0 };
     const engine = createKpiEngine(ctx);
     if (action === 'apiGetUploadedFile') {
@@ -6127,9 +6141,37 @@ Deno.serve(async request => {
     let uploaded = [];
     try {
       uploaded = await uploadFiles(engine.uploads());
-      await applyChanges(engine.changes());
+      const changes = engine.changes();
+      await applyChanges(changes);
+      if (ctx.recoverScheduledTasks && changes.some(change =>
+        change.table === 'kpi_tasks' && change.operation === 'insert')) {
+        // The database may have kept an already-inserted period from another viewer.
+        // Reload so task links always contain the committed ID.
+        const latest = await Promise.all(tableKeys.map(async key => [key,
+          await restRows(KPI_TABLES[key], 'select=id,record,revision,seq&order=seq.asc')]));
+        const latestTables = Object.fromEntries(latest);
+        const readCtx = { ...ctx, recoverScheduledTasks: false, tables: latestTables,
+          original: structuredClone(latestTables), uploads: [], maxSeq: 0, version: 0 };
+        const readResult = createKpiEngine(readCtx).execute(action, args);
+        return jsonResponse(readResult || { ok: false, message: 'Aksi KPI gagal.' }, 200, origin);
+      }
     } catch (error) {
       await removeUploadedFiles(uploaded);
+      if (ctx.recoverScheduledTasks && /Data KPI berubah bersamaan/.test(String(error && error.message || ''))) {
+        // Another viewer may have created the same period while this request was loading.
+        // Read the committed rows and answer with their real task IDs.
+        const latest = await Promise.all(tableKeys.map(async key => [key,
+          await restRows(KPI_TABLES[key], 'select=id,record,revision,seq&order=seq.asc')]));
+        const latestTables = Object.fromEntries(latest);
+        const retryCtx = { ...ctx, tables: latestTables, original: structuredClone(latestTables),
+          uploads: [], maxSeq: 0, version: 0 };
+        const retryEngine = createKpiEngine(retryCtx);
+        const retryResult = retryEngine.execute(action, args);
+        if (!retryResult || !retryResult.ok)
+          return jsonResponse(retryResult || { ok: false, message: 'Aksi KPI gagal.' }, 200, origin);
+        await applyChanges(retryEngine.changes());
+        return jsonResponse(retryResult, 200, origin);
+      }
       throw error;
     }
     if (action === 'apiCreateNote' && result.assigned && result.noteId) {

@@ -668,6 +668,69 @@ test('SLA sick attendance pauses the matching KPI roles for four named employees
   }
 });
 
+test('missed daily tasks recover for every role without changing auditor-approved Sales results', () => {
+  const auditor = user('aud-recovery', 'Auditor', 'auditor', 'all');
+  const sales = user('sales-recovery', 'Sales Director', 'sales_director', 'sales');
+  const kendari = user('kendari-recovery', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const raha = user('raha-recovery', 'Admin Raha', 'admin_raha', 'raha');
+  const users = [auditor, sales, kendari, raha];
+  const oldTasks = [11, 12, 13].map(day => ({
+    Id: 'old-sales-' + day,
+    TaskType: 'sales_upload_harian_1_10',
+    Title: 'Upload Harian Sales Director 1-10 File 2026-11-' + day,
+    AssigneeRole: 'sales_director', AssigneeLocation: 'sales', AssigneeName: sales.Name,
+    Status: 'selesai', KpiStatus: 'meleset', TimeLimitHours: 24,
+    StartedAt: '2026-11-' + day + 'T00:00:00Z',
+    CompletedAt: '2026-11-' + day + 'T16:30:00Z',
+    CreatedAt: '2026-11-' + day + 'T00:00:00Z',
+    PeriodKey: 'sales_upload_harian_1_10:sales:2026-11-' + day,
+    PayloadJson: '{}', AttachmentUrlsJson: '{}'
+  }));
+  const reviewed = engineFor(auditor, users, [], oldTasks);
+  oldTasks.forEach(task => {
+    assert.equal(reviewed.engine.execute('apiUpdateTaskStatus',
+      ['test-jwt', task.Id, 'tepat_waktu', 'Ditoleransi auditor']).ok, true);
+  });
+  assert.equal(reviewed.ctx.tables.tasks.length, 3);
+
+  const { engine, ctx } = engineFor(sales, users, [],
+    reviewed.ctx.tables.tasks.map(item => item.record));
+  ctx.recoverScheduledTasks = true;
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const yesterday = new Date(Date.parse(today + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
+  const expectedDates = [yesterday, today].filter(day => new Date(day + 'T00:00:00Z').getUTCDay() !== 0);
+  const dashboard = engine.execute('apiGetDashboard', ['test-jwt', {
+    cardKey: 'sales_director', month: Number(today.slice(5, 7)), year: Number(today.slice(0, 4))
+  }]);
+  assert.equal(dashboard.ok, true);
+  for (const day of expectedDates) {
+    for (const [type, location] of [
+      ['sales_upload_harian_10', 'sales'], ['sales_upload_harian_1_10', 'sales'],
+      ['pendapatan_harian', 'kendari'], ['laporan_keadaan_kas_bank', 'kendari'],
+      ['pendapatan_harian', 'raha'], ['stok_opname_auditor', 'all']
+    ]) {
+      const matches = ctx.tables.tasks.filter(item => item.record.PeriodKey === type + ':' + location + ':' + day);
+      assert.equal(matches.length, 1, type + ' ' + location + ' ' + day);
+      assert.equal(matches[0].record.Status, 'berjalan');
+    }
+  }
+  const report = engine.execute('apiGetReportMeta', ['test-jwt']);
+  assert.equal(report.ok, true);
+  for (const day of expectedDates) {
+    assert.equal(report.openTasks.filter(task => task.periodKey.endsWith(':sales:' + day) &&
+      task.assigneeRole === 'sales_director').length, 2);
+  }
+  for (const old of oldTasks) {
+    const current = ctx.tables.tasks.find(item => item.id === old.Id).record;
+    assert.equal(current.Status, 'selesai');
+    assert.equal(current.KpiStatus, 'tepat_waktu');
+    assert.equal(current.Notes, 'Ditoleransi auditor');
+  }
+  const count = ctx.tables.tasks.length;
+  assert.equal(engine.execute('apiGetReportMeta', ['test-jwt']).ok, true);
+  assert.equal(ctx.tables.tasks.length, count);
+});
+
 test('Sales Director shows cumulative on-time 1-10 file attachments through each date of the chosen month', () => {
   const sales = user('sales-files', 'Sales Director', 'sales_director', 'sales');
   const file = (id) => ({ id, name: id + '.jpg', mimeType: 'image/jpeg', size: 1 });
