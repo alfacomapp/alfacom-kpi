@@ -98,3 +98,19 @@ test('global task number lookup finds old and completed tasks while enforcing re
   assert.equal(engine.execute('apiFindTaskByNumber', ['test-jwt', 92, 'laporan']).ok, false);
   assert.equal(engine.execute('apiFindTaskByNumber', ['test-jwt', 999, 'dashboard']).ok, false);
 });
+
+test('shipment stores item quantity, unit price and a server-calculated total', () => {
+  const { engine, ctx } = fixture([]);
+  const send = item => submit(engine, 'input_pengiriman', { destination: 'raha', reportDate: '2026-10-07',
+    shipmentItems: [{ supplierName: 'Toko A', itemName: 'Adaptor', ...item }] }, {});
+  const saved = send({ itemQuantity: 3, itemPrice: 27000, totalPrice: 1 });
+  assert.equal(saved.ok, true, saved.message);
+  const report = ctx.tables.reports[0].record;
+  const item = JSON.parse(report.PayloadJson).shipmentItems[0];
+  assert.equal(item.itemQuantity, 3);
+  assert.equal(item.itemPrice, 27000);
+  assert.equal(item.totalPrice, 81000);
+  assert.match(JSON.parse(report.PayloadJson).itemSummary, /Jumlah: 3.*Harga satuan: Rp 27\.000.*Total harga: Rp 81\.000/);
+  assert.equal(send({ itemQuantity: 1.5, itemPrice: 27000 }).ok, false);
+  assert.equal(send({ itemQuantity: 2, itemPrice: 9007199254740991 }).ok, false);
+});

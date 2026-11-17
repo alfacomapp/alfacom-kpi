@@ -718,7 +718,7 @@ function apiGetDashboard(token, filters) {
       taskTypes: taskTypes,
       cardTasks: selectedCardTasks.slice().sort(sortTasks_).slice(0, 800),
       tasks: detailTasks.slice(0, 400),
-      canEditTaskStatus: user.Role === 'owner'
+      canEditTaskStatus: user.Role === 'owner' || user.Role === 'auditor'
     });
   } catch (error) {
     return fail_(error);
@@ -1268,6 +1268,8 @@ function apiGetReportMeta(token) {
       user: user,
       reportTypes: reportTypes,
       openTasks: openTasks,
+      bankReportedRanges: user.Role === 'admin_kendari'
+        ? bankReportedRanges_(taskRows, reportIndex.reports) : [],
       revisionAlerts: revisionAlertsForUser_(user, taskRows, now, attendanceMap),
       revisionRecipients: user.Role === 'auditor' ? getActiveUsers_().filter(function(candidate) {
         return ['admin_kendari', 'admin_raha', 'auditor'].indexOf(normalizeRole_(candidate.Role)) !== -1;
@@ -1279,6 +1281,44 @@ function apiGetReportMeta(token) {
   } catch (error) {
     return fail_(error);
   }
+}
+
+function bankReportedRanges_(tasks, reports) {
+  const taskIdByReport = {};
+  const taskRanges = [];
+  (tasks || []).filter(function(task) { return task.TaskType === 'laporan_akun_bank'; }).forEach(function(task) {
+    const payload = parseJsonSafe_(task.PayloadJson, {});
+    Object.keys(payload.bankReports || {}).forEach(function(bank) {
+      const bankReport = payload.bankReports[bank] || {};
+      const reportId = String(bankReport.reportId || '');
+      if (reportId) taskIdByReport[reportId] = task.Id;
+      taskRanges.push({ bankName: bank, start: String(bankReport.reportStartDate || ''),
+        end: String(bankReport.reportEndDate || ''), taskId: task.Id, reportId: reportId });
+    });
+    (Array.isArray(payload.submissionHistory) ? payload.submissionHistory : []).forEach(function(entry) {
+      if (entry.reportId) taskIdByReport[String(entry.reportId)] = task.Id;
+    });
+  });
+  const reportRanges = (reports || []).filter(function(report) {
+    return report.TaskType === 'laporan_akun_bank';
+  }).map(function(report) {
+    const fields = parseJsonSafe_(report.PayloadJson, {});
+    return { bankName: String(fields.bankName || '').trim().toLowerCase(),
+      start: String(fields.reportStartDate || '').trim(), end: String(fields.reportEndDate || '').trim(),
+      taskId: String(fields.relatedTaskId || taskIdByReport[report.Id] || ''),
+      reportId: String(report.Id || '') };
+  });
+  const seen = new Set();
+  return reportRanges.concat(taskRanges).filter(function(range) {
+    return Object.prototype.hasOwnProperty.call(BANK_ACCOUNT_BANKS, range.bankName) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(range.start) && /^\d{4}-\d{2}-\d{2}$/.test(range.end) &&
+      range.start <= range.end;
+  }).filter(function(range) {
+    const key = [range.bankName, range.start, range.end, range.taskId].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function indexAuditSourceReports_(reports) {
@@ -1601,8 +1641,8 @@ function apiGetUploadedFile(token, fileId) {
 function apiUpdateTaskStatus(token, taskId, kpiStatus, note) {
   try {
     const user = requireUser_(token);
-    if (user.Role !== 'owner') {
-      throw new Error('Hanya owner yang dapat mengubah status KPI.');
+    if (user.Role !== 'owner' && user.Role !== 'auditor') {
+      throw new Error('Hanya owner dan auditor yang dapat mengubah status KPI.');
     }
 
     const normalizedStatus = normalizeKpiStatus_(kpiStatus);
@@ -1615,7 +1655,7 @@ function apiUpdateTaskStatus(token, taskId, kpiStatus, note) {
       row.KpiStatus = normalizedStatus;
       row.Status = normalizedStatus === 'berjalan' ? 'berjalan' : 'selesai';
       row.UpdatedAt = now;
-      row.Notes = String(note || row.Notes || ('Status diubah owner menjadi ' + (KPI_LABELS[normalizedStatus] || normalizedStatus)));
+      row.Notes = String(note || row.Notes || ('Status diubah ' + user.Name + ' menjadi ' + (KPI_LABELS[normalizedStatus] || normalizedStatus)));
 
       if (normalizedStatus === 'berjalan') {
         row.CompletedAt = '';
@@ -2779,7 +2819,11 @@ function validateReportPayload_(user, type, fields, files) {
     if ((needs('reportStartDate') && !validDate(startDate)) || (needs('reportEndDate') && !validDate(endDate))) {
       throw new Error('Isi tanggal mulai dan tanggal akhir rentang laporan bank.');
     }
-    const relatedBankTask = fields.relatedTaskId && readObjects_('tasks').find(function(task) { return task.Id === fields.relatedTaskId; });
+    const bankTaskRows = readObjects_('tasks');
+    const relatedBankTask = bankTaskRows.find(function(task) {
+      return fields.relatedTaskId ? task.Id === fields.relatedTaskId :
+        task.TaskType === 'laporan_akun_bank' && task.PeriodKey === periodKeyForWeek_(parseDate_(fields.reportDate || new Date()));
+    });
     const priorBank = relatedBankTask && parseJsonSafe_(relatedBankTask.PayloadJson, {}).bankReports?.[String(fields.bankName || '').trim().toLowerCase()];
     const effectiveStart = startDate || String(priorBank && priorBank.reportStartDate || '');
     const effectiveEnd = endDate || String(priorBank && priorBank.reportEndDate || '');
@@ -2790,6 +2834,12 @@ function validateReportPayload_(user, type, fields, files) {
     if (!Object.prototype.hasOwnProperty.call(BANK_ACCOUNT_BANKS, bankName)) {
       throw new Error('Pilih bank yang dilaporkan: BRI Kendari, BRI Raha, Mandiri, Bank Sultra, atau Bank Aladin Syariah. Muat ulang KPI bila pilihan bank belum diperbarui.');
     }
+    const overlap = bankReportedRanges_(bankTaskRows, readObjects_('reports')).find(function(range) {
+      return range.bankName === bankName && !(relatedBankTask && range.taskId === relatedBankTask.Id) &&
+        effectiveStart <= range.end && effectiveEnd >= range.start;
+    });
+    if (overlap) throw new Error('Rentang tanggal ' + BANK_ACCOUNT_BANKS[bankName] +
+      ' sudah pernah dilaporkan (' + overlap.start + ' sampai ' + overlap.end + '). Pilih tanggal yang belum dilaporkan.');
     if (needs('bankAccountProof')) requireFile_(files, 'bankAccountProof', 'Bukti akun bank wajib diupload.');
     if (revisionFields?.has('bankStatement')) requireFile_(files, 'bankStatement', 'Statement bank revisi wajib diupload.');
     if (revisionFields?.has('description')) requireText_(fields.description, 'Keterangan revisi wajib diisi.');
@@ -2899,8 +2949,11 @@ function validateReportPayload_(user, type, fields, files) {
     shipmentItems.forEach(function(item, index) {
       requireText_(item.supplierName, 'Nama supplier item ' + (index + 1) + ' wajib diisi.');
       requireText_(item.itemName, 'Nama barang item ' + (index + 1) + ' wajib diisi.');
-      requireNumber_(item.itemPrice, 'Harga barang item ' + (index + 1) + ' wajib diisi.');
-      if (!isFinite(item.itemPrice)) throw new Error('Harga barang item ' + (index + 1) + ' tidak valid.');
+      if (!Number.isSafeInteger(item.itemQuantity) || item.itemQuantity < 1)
+        throw new Error('Jumlah item ' + (index + 1) + ' harus bilangan bulat lebih dari 0.');
+      if (!Number.isSafeInteger(item.itemPrice) || item.itemPrice < 1 ||
+          !Number.isSafeInteger(item.totalPrice))
+        throw new Error('Harga satuan atau total harga item ' + (index + 1) + ' tidak valid.');
     });
     fields.shipmentItems = shipmentItems;
     fields.itemSummary = formatShipmentItemSummary_(shipmentItems);
@@ -5025,9 +5078,11 @@ function parseShipmentItems_(value) {
     const parsed = {
       supplierName: String(source.supplierName || '').trim(),
       itemName: String(source.itemName || '').trim(),
+      itemQuantity: Number(source.itemQuantity == null ? 1 : source.itemQuantity),
       itemPrice: Number(source.itemPrice || 0),
       description: String(source.description || '').trim()
     };
+    parsed.totalPrice = parsed.itemQuantity * parsed.itemPrice;
     // Keep the flat item contract for older clients and records; stable keys
     // connect new supplier groups and their attachments even after a row is removed.
     if (/^\d+$/.test(String(source.supplierKey || ''))) parsed.supplierKey = String(source.supplierKey);
@@ -5035,7 +5090,7 @@ function parseShipmentItems_(value) {
     if (/^shipmentItemFiles_\d+$/.test(String(source.itemFileField || ''))) parsed.itemFileField = String(source.itemFileField);
     return parsed;
   }).filter(function(item) {
-    return item.supplierName || item.itemName || item.itemPrice || item.description;
+    return item.supplierName || item.itemName || item.itemQuantity || item.itemPrice || item.description;
   });
 }
 
@@ -5054,7 +5109,11 @@ function formatShipmentItemSummary_(items) {
     const parts = [(index + 1) + '. Supplier: ' + group.name];
     if (group.description) parts.push('   Keterangan: ' + group.description);
     group.items.forEach(function(item, itemIndex) {
-      let line = '   ' + (itemIndex + 1) + ') Barang: ' + item.itemName + ' | Harga: Rp ' + Number(item.itemPrice).toLocaleString('id-ID');
+      const quantity = Number(item.itemQuantity == null ? 1 : item.itemQuantity);
+      const unitPrice = Number(item.itemPrice || 0);
+      let line = '   ' + (itemIndex + 1) + ') Barang: ' + item.itemName +
+        ' | Jumlah: ' + quantity + ' | Harga satuan: Rp ' + unitPrice.toLocaleString('id-ID') +
+        ' | Total harga: Rp ' + (quantity * unitPrice).toLocaleString('id-ID');
       if (!item.supplierKey && item.description) line += ' | Keterangan: ' + item.description;
       parts.push(line);
     });

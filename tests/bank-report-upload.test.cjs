@@ -35,6 +35,22 @@ test('weekly bank report requires a valid reported date range', () => {
     assert.equal(e.uploads().length, 0);
   }
 });
+
+test('reported dates stay reserved per bank across weeks without blocking other banks', () => {
+  const e = engine();
+  const send = (bankName, reportDate, start, end) => e.execute('apiSubmitReport', ['test.jwt.token', {
+    type: 'laporan_akun_bank', fields: { bankName, reportDate, reportStartDate: start, reportEndDate: end },
+    files: { bankAccountProof: [image()] }
+  }]);
+  assert.equal(send('bri_kendari', '2026-10-07', '2026-10-01', '2026-10-07').ok, true);
+  const conflict = send('bri_kendari', '2026-10-14', '2026-10-07', '2026-10-14');
+  assert.equal(conflict.ok, false);
+  assert.match(conflict.message, /sudah pernah dilaporkan/);
+  assert.equal(send('mandiri', '2026-10-14', '2026-10-07', '2026-10-14').ok, true);
+  assert.equal(send('bri_kendari', '2026-10-14', '2026-10-08', '2026-10-14').ok, true);
+  const ranges = e.execute('apiGetReportMeta', ['test.jwt.token']).bankReportedRanges;
+  assert.equal(ranges.filter(range => range.bankName === 'bri_kendari').length, 2);
+});
 test('50 combined attachments accepted and statement is retained in report and weekly bank task', () => {
   const e = engine(); const result = submit(e,{bankAccountProof:Array.from({length:49},image),bankStatement:[pdf()]});
   assert.equal(result.ok,true,result.message); assert.equal(e.uploads().length,50);

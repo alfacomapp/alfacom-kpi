@@ -133,6 +133,32 @@ test('task number search finds displayed task references in Dashboard and Report
   assert.match(html, /\.revision-navigation \{[\s\S]*?position: fixed;/);
 });
 
+test('shipment form shows quantity, unit price and total while dashboard dates show Indonesian weekdays', () => {
+  const app = ui();
+  const shipment = app.renderField({ kind: 'shipmentItems', field: 'shipmentItems', label: 'Detail barang', full: true });
+  assert.match(shipment, /Jumlah item \*/);
+  assert.match(shipment, /Harga satuan barang \(Rp\) \*/);
+  assert.match(shipment, /Total harga \(Rp\)/);
+  const total = { value: '' };
+  const rowFields = { itemQuantity: { value: '3' }, itemPrice: { value: '27000' } };
+  app.updateShipmentItemTotal({ querySelector(selector) {
+    if (selector === '[data-shipment-total]') return total;
+    const name = /data-shipment-field="([^"]+)"/.exec(selector)?.[1];
+    return rowFields[name] || null;
+  } });
+  assert.equal(total.value, 'Rp 81.000');
+  app.state.dashboard = { canEditTaskStatus: false };
+  const task = { id: 'MONDAY', title: 'Stok Opname 2026-11-16', referenceNumber: 1,
+    taskType: 'stok_opname_raha', status: 'berjalan', kpiStatus: 'berjalan',
+    kpiLabel: 'Berjalan', displayKpiStatus: 'berjalan', displayKpiLabel: 'Berjalan',
+    createdAt: '2026-11-15T16:00:00Z', startedAt: '2026-11-15T16:00:00Z',
+    timer: { deadlineAt: '2026-11-16T15:59:00Z' }, payload: {}, attachments: {} };
+  const row = app.renderTaskRow(task, 0);
+  assert.match(row, /Senin, 16 Nov 2026/);
+  assert.match(row, /Deadline: Senin/);
+  assert.match(row, /data-label="Dibuat">Senin/);
+});
+
 test('global number result ignores month, task type and status filters in both panels', () => {
   const app = ui();
   const found = { id: 'SEPTEMBER', referenceNumber: 91, taskType: 'pendapatan_harian',
@@ -415,7 +441,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, updateShipmentItemTotal, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers };', context);
   return { ...context.__ui, elements };
 }
 
@@ -691,7 +717,7 @@ test('timer display uses calendar time and completed task file row offers an add
     deadlineAt: '2026-10-19T03:25:00.000Z', serverNow: '2026-10-17T03:25:00.000Z'
   } };
   assert.match(app.renderTimerCell(task), /data-remaining="172800000"/);
-  assert.match(app.taskDeadlineText(task), /^Deadline: 19 Okt 2026/);
+  assert.match(app.taskDeadlineText(task), /^Deadline: Senin, 19 Okt 2026/);
   const completed = { id: 'TASK-1', status: 'selesai', canAddAttachments: true, attachments: {} };
   assert.match(app.renderTaskFileCell(completed), /Tambah file/);
   assert.match(app.renderTaskFileCell(completed), /data-task-id="TASK-1"/);

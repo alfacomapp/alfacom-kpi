@@ -3027,7 +3027,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-11-16-global-number-search';
+    const CLIENT_CACHE_VERSION = '2026-11-17-shipment-bank-auditor';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -3449,6 +3449,7 @@
           updateRevisionFormFields();
           updateAuditRevisionChecklist();
         }
+        if (byId('reportType').value === 'laporan_akun_bank') updateBankReportedRanges();
         if (event.target && event.target.dataset.field === 'relatedTaskId' && byId('reportType').value === 'rincian_barang_tiba') {
           updateShipmentReceipt(true);
         }
@@ -3487,6 +3488,9 @@
       });
       byId('dynamicReportFields').addEventListener('input', function(event) {
         if (event.target.closest('[data-bank-cash-row]')) updateBankCashTotal();
+        if (event.target.closest('[data-shipment-item]')) updateShipmentItemTotal(event.target.closest('[data-shipment-item]'));
+        if (byId('reportType').value === 'laporan_akun_bank' &&
+            ['reportStartDate', 'reportEndDate'].includes(event.target.dataset.field)) updateBankReportedRanges();
       });
       byId('dynamicReportFields').addEventListener('click', function(event) {
         const pasteButton = event.target.closest('[data-paste-image]');
@@ -3571,6 +3575,7 @@
           if (usesPreparedReportUploads()) refreshBankUploadPreparation();
           toggleRevisionRecipient();
           updateBankCashTotal();
+          updateBankReportedRanges();
         }, 0);
       });
       byId('resetReportButton').addEventListener('click', function() {
@@ -5713,7 +5718,7 @@
           <td class="${taskColumnClass('tugas')}" data-label="Tugas">
             <div class="task-title-wrap">
               <div class="task-title-content">
-                <strong>${escapeHtml(displayTaskDate(task))}</strong><br>
+                <strong>${escapeHtml(formatTaskHeadingDate(task))}</strong><br>
                 <span class="muted">${escapeHtml(task.title || task.taskLabel)}</span>${salesFileTotal}
                 ${task.linkedReferenceNumber ? `<small class="muted task-linked-number">Nomor terhubung pelapor: No. ${task.linkedReferenceNumber}</small>` : ''}
                 ${deadline}
@@ -5725,8 +5730,8 @@
           <td class="${taskColumnClass('penanggung')}" data-label="Penanggung Jawab">${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
           <td class="${taskColumnClass('status')}" data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.kpiStatus === 'meleset' && task.status === 'selesai' ? 'Meleset (done)' : (task.displayKpiLabel || task.kpiLabel))}</span></td>
           <td class="${taskColumnClass('timer')}" data-label="Timer">${renderTimerCell(task, true)}</td>
-          <td class="${taskColumnClass('dibuat')}" data-label="Dibuat">${formatDate(task.createdAt || task.startedAt)}</td>
-          <td class="${taskColumnClass('selesai')}" data-label="Selesai">${task.completedAt ? formatDate(task.completedAt) : '-'}</td>
+          <td class="${taskColumnClass('dibuat')}" data-label="Dibuat">${formatDateWithDay(task.createdAt || task.startedAt)}</td>
+          <td class="${taskColumnClass('selesai')}" data-label="Selesai">${task.completedAt ? formatDateWithDay(task.completedAt) : '-'}</td>
           <td class="${taskColumnClass('file')}" data-label="File">${renderTaskFileCell(task)}</td>
           <td class="${taskColumnClass('catatan')}" data-label="Catatan">${escapeHtml(task.notes || '-')}</td>
           ${ownerAction}
@@ -5832,7 +5837,7 @@
       if (timer.noDeadline) {
         return 'Deadline: Tidak ada';
       }
-      return timer.deadlineAt ? 'Deadline: ' + formatDate(timer.deadlineAt) : 'Deadline: Belum ditentukan';
+      return timer.deadlineAt ? 'Deadline: ' + formatDateWithDay(timer.deadlineAt) : 'Deadline: Belum ditentukan';
     }
 
     function displayTaskDate(task) {
@@ -5851,7 +5856,21 @@
         return '-';
       }
 
-      return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+        year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Makassar'
+      }).formatToParts(date).filter(function(part) { return part.type !== 'literal'; }).map(function(part) {
+        return [part.type, part.value];
+      }));
+      return parts.year + '-' + parts.month + '-' + parts.day;
+    }
+
+    function formatTaskHeadingDate(task) {
+      const value = displayTaskDate(task);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const date = new Date(value + 'T00:00:00Z');
+      return new Intl.DateTimeFormat('id-ID', {
+        weekday: 'long', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC'
+      }).format(date);
     }
 
     function pad2(value) {
@@ -6253,6 +6272,7 @@
       updateBankCashTotal();
       toggleRevisionRecipient();
       updateRevisionFormFields();
+      updateBankReportedRanges();
       updateAuditRevisionChecklist();
     }
 
@@ -6350,6 +6370,33 @@
       });
       const addButton = document.querySelector('[data-add-audit-bank]');
       if (addButton) addButton.disabled = !task || rows.length >= 5 - Object.keys(audited).length;
+    }
+
+    function updateBankReportedRanges() {
+      if (byId('reportType').value !== 'laporan_akun_bank') return;
+      const hint = document.querySelector('[data-bank-locked-dates]');
+      const bank = document.querySelector('[data-field="bankName"]')?.value || '';
+      const taskId = document.querySelector('[data-field="relatedTaskId"]')?.value || '';
+      const start = document.querySelector('[data-field="reportStartDate"]');
+      const end = document.querySelector('[data-field="reportEndDate"]');
+      const ranges = (state.reportMeta && state.reportMeta.bankReportedRanges || []).filter(function(range) {
+        return range.bankName === bank && (!taskId || range.taskId !== taskId);
+      }).sort(function(a, b) { return b.end.localeCompare(a.end); });
+      if (hint) {
+        const visible = ranges.slice(0, 5).map(function(range) {
+          return range.start.split('-').reverse().join('/') + '–' + range.end.split('-').reverse().join('/');
+        });
+        hint.textContent = bank ? ranges.length
+          ? 'Tanggal yang sudah dilaporkan untuk bank ini dibekukan: ' + visible.join(', ') +
+            (ranges.length > 5 ? ' (+' + (ranges.length - 5) + ' rentang lain)' : '') + '.'
+          : 'Belum ada rentang tanggal yang dilaporkan untuk bank ini.' : 'Pilih bank untuk melihat tanggal yang sudah dilaporkan.';
+      }
+      if (!start || !end || !start.setCustomValidity || !end.setCustomValidity) return;
+      const overlap = start.value && end.value && ranges.find(function(range) {
+        return start.value <= range.end && end.value >= range.start;
+      });
+      start.setCustomValidity('');
+      end.setCustomValidity(overlap ? 'Rentang tanggal ini sudah dilaporkan untuk bank yang dipilih.' : '');
     }
 
     function updateInvestorCheckOptions() {
@@ -6483,6 +6530,7 @@
                 return `<option value="${escapeAttr(option[0])}">${escapeHtml(option[1])}</option>`;
               }).join('')}
             </select>
+            ${field.field === 'bankName' && byId('reportType').value === 'laporan_akun_bank' ? '<small data-bank-locked-dates aria-live="polite"></small>' : ''}
             ${help}
           </div>
         `;
@@ -6667,13 +6715,32 @@
               <input id="shipment-item-name-${escapeAttr(key)}" data-shipment-field="itemName" required>
             </div>
             <div class="field">
-              <label for="shipment-item-price-${escapeAttr(key)}">Harga barang *</label>
+              <label for="shipment-item-quantity-${escapeAttr(key)}">Jumlah item *</label>
+              <input id="shipment-item-quantity-${escapeAttr(key)}" data-shipment-field="itemQuantity" type="number" min="1" step="1" required>
+            </div>
+            <div class="field">
+              <label for="shipment-item-price-${escapeAttr(key)}">Harga satuan barang (Rp) *</label>
               <input id="shipment-item-price-${escapeAttr(key)}" data-shipment-field="itemPrice" type="number" min="1" step="1" required>
+            </div>
+            <div class="field">
+              <label for="shipment-item-total-${escapeAttr(key)}">Total harga (Rp)</label>
+              <input id="shipment-item-total-${escapeAttr(key)}" data-shipment-total value="Rp 0" readonly>
             </div>
             ${renderField({ kind: 'file', field: 'shipmentItemFiles_' + key, label: 'Lampiran barang', accept: 'image/*,application/pdf' })}
           </div>
         </div>
       `;
+    }
+
+    function updateShipmentItemTotal(row) {
+      if (!row) return;
+      const quantity = Number(row.querySelector('[data-shipment-field="itemQuantity"]')?.value || 0);
+      const unitPrice = Number(row.querySelector('[data-shipment-field="itemPrice"]')?.value || 0);
+      const total = quantity * unitPrice;
+      const output = row.querySelector('[data-shipment-total]');
+      if (output) output.value = Number.isSafeInteger(quantity) && quantity > 0 &&
+        Number.isSafeInteger(unitPrice) && unitPrice > 0 && Number.isSafeInteger(total)
+        ? 'Rp ' + total.toLocaleString('id-ID') : 'Rp 0';
     }
 
     function addShipmentSupplier() {
@@ -6879,6 +6946,7 @@
           supplierKey: supplier.dataset.shipmentSupplier,
           supplierName: supplier.querySelector('[data-supplier-field="supplierName"]').value.trim(),
           itemName: valueFor('itemName'),
+          itemQuantity: valueFor('itemQuantity'),
           itemPrice: valueFor('itemPrice'),
           description: supplier.querySelector('[data-supplier-field="description"]').value.trim(),
           supplierFileField: 'shipmentSupplierFiles_' + supplier.dataset.shipmentSupplier,
@@ -6901,6 +6969,13 @@
       return groups;
     }
 
+    function shipmentItemPriceSummary(item) {
+      const quantity = Number(item.itemQuantity == null ? 1 : item.itemQuantity);
+      const unitPrice = Number(item.itemPrice || 0);
+      return 'Jumlah: ' + quantity + ' | Harga satuan: Rp ' + unitPrice.toLocaleString('id-ID') +
+        ' | Total harga: Rp ' + (quantity * unitPrice).toLocaleString('id-ID');
+    }
+
     function shipmentArrivalSummary(payload) {
       const groups = shipmentSupplierGroups(payload.shipmentItems);
       if (!groups.length) return String(payload.itemSummary || '');
@@ -6908,7 +6983,7 @@
         const lines = [(index + 1) + '. Supplier: ' + group.name];
         if (group.description) lines.push('   Keterangan: ' + group.description);
         group.items.forEach(function(item, itemIndex) {
-          let line = '   ' + (itemIndex + 1) + ') Barang: ' + item.itemName + ' | Harga: Rp ' + Number(item.itemPrice || 0).toLocaleString('id-ID');
+          let line = '   ' + (itemIndex + 1) + ') Barang: ' + item.itemName + ' | ' + shipmentItemPriceSummary(item);
           if (!item.supplierKey && item.description) line += ' | Keterangan: ' + item.description;
           lines.push(line);
         });
@@ -6941,7 +7016,7 @@
             ${group.description ? `<div class="shipment-receipt-description">Keterangan: ${escapeHtml(group.description)}</div>` : ''}
             ${group.fileField && (attachments[group.fileField] || []).length ? `<div>Lampiran supplier: ${filesFor(group.fileField)}</div>` : ''}
             <ol class="shipment-receipt-list">${group.items.map(function(item) {
-              return `<li><strong>${escapeHtml(item.itemName)}</strong> — Rp ${escapeHtml(Number(item.itemPrice || 0).toLocaleString('id-ID'))}
+              return `<li><strong>${escapeHtml(item.itemName)}</strong> — ${escapeHtml(shipmentItemPriceSummary(item))}
                 ${!item.supplierKey && item.description ? `<div class="shipment-receipt-description">${escapeHtml(item.description)}</div>` : ''}
                 ${item.itemFileField && (attachments[item.itemFileField] || []).length ? `<div>Lampiran barang: ${filesFor(item.itemFileField)}</div>` : ''}</li>`;
             }).join('')}</ol>
@@ -7279,6 +7354,17 @@
         dateStyle: 'medium',
         timeStyle: 'short',
         timeZone: 'Asia/Makassar'
+      }).format(date);
+    }
+
+
+    function formatDateWithDay(value) {
+      if (!value) return '-';
+      const date = new Date(value);
+      if (isNaN(date.getTime())) return '-';
+      return new Intl.DateTimeFormat('id-ID', {
+        weekday: 'long', day: 'numeric', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Makassar'
       }).format(date);
     }
 

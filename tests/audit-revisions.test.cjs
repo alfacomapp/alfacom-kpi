@@ -47,6 +47,19 @@ test('report task ordering keeps overdue items below active deadlines', () => {
     ['near', 'distant', 'no-deadline', 'overdue']);
 });
 
+test('auditor can change task KPI status while an admin cannot', () => {
+  const fx = fixture([task('KEN-TASK', 'pendapatan_harian', people[1])]);
+  const dashboard = fx.engine.execute('apiGetDashboard', ['test-jwt', { cardKey: 'kendari' }]);
+  assert.equal(dashboard.canEditTaskStatus, true);
+  const changed = fx.engine.execute('apiUpdateTaskStatus', ['test-jwt', 'KEN-TASK', 'tepat_waktu', '']);
+  assert.equal(changed.ok, true, changed.message);
+  assert.equal(fx.task('KEN-TASK').KpiStatus, 'tepat_waktu');
+  assert.match(fx.task('KEN-TASK').Notes, /Auditor/);
+  fx.as('KEN');
+  assert.equal(fx.engine.execute('apiGetDashboard', ['test-jwt', { cardKey: 'kendari' }]).canEditTaskStatus, false);
+  assert.equal(fx.engine.execute('apiUpdateTaskStatus', ['test-jwt', 'KEN-TASK', 'meleset', '']).ok, false);
+});
+
 test('auditor picks Kendari, Raha, and self across three revision rounds; fourth Kendala is meleset', () => {
   const fx = fixture([task('ROOT', 'audit_bank_jago', people[0])]);
   assert.equal(fx.engine.execute('apiGetReportMeta', ['test-jwt']).reportTypes.some(type =>
