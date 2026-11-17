@@ -1692,6 +1692,22 @@
     .bank-cash-row .field { min-width: 0; }
     .bank-cash-row .btn { margin-bottom: 1px; }
     .bank-cash-total { font-weight: 800; color: var(--green-dark); }
+    .bank-date-control { display: flex; gap: 8px; min-width: 0; }
+    .bank-date-control input { min-width: 0; flex: 1 1 auto; cursor: pointer; }
+    .bank-date-control button { flex: 0 0 auto; }
+    .bank-calendar { width: min(100%, 350px); padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 8px 20px rgba(22, 32, 28, .08); }
+    .bank-calendar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .bank-calendar-head strong { text-align: center; font-size: 13px; }
+    .bank-calendar-weekdays, .bank-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; }
+    .bank-calendar-weekdays { margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .bank-calendar-day { min-width: 0; min-height: 36px; padding: 4px 0; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); cursor: pointer; }
+    .bank-calendar-day:hover:not(:disabled), .bank-calendar-day:focus-visible { border-color: var(--green); background: #eaf5ee; }
+    .bank-calendar-day.selected { border-color: var(--green); background: var(--green); color: #fff; font-weight: 800; }
+    .bank-calendar-day.reported, .bank-calendar-day.reported:disabled { border-color: #4f5a54; background: #59645e; color: #fff; cursor: not-allowed; opacity: 1; }
+    .bank-calendar-day:disabled:not(.reported) { background: #f0f2f1; color: #9ba59e; cursor: not-allowed; }
+    .bank-calendar-legend { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 11px; color: var(--muted); }
+    .bank-calendar-legend i { width: 13px; height: 13px; border-radius: 3px; background: #59645e; }
+    .bank-calendar-error { color: var(--red); }
     @media (max-width: 600px) {
       .bank-cash-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
       .bank-cash-row .btn { grid-column: 1 / -1; justify-self: start; }
@@ -2972,6 +2988,9 @@
       reportTaskSearchStatus: '',
       reportTaskSearchSeq: 0,
       reportTaskSearchTimer: null,
+      bankCalendarField: '',
+      bankCalendarYear: 0,
+      bankCalendarMonth: 0,
       reportMonth: new Date().getMonth() + 1,
       reportYear: new Date().getFullYear(),
       reportFormMonth: new Date().getMonth() + 1,
@@ -3027,7 +3046,7 @@
       profil: ['Profil', 'Data akun dan password']
     };
 
-    const CLIENT_CACHE_VERSION = '2026-11-17-shipment-bank-auditor';
+    const CLIENT_CACHE_VERSION = '2026-11-17-bank-calendar-lock';
     const ACTIVITY_LOG_ACTIONS = {
       note_edit: true,
       note_delete: true
@@ -3493,6 +3512,12 @@
             ['reportStartDate', 'reportEndDate'].includes(event.target.dataset.field)) updateBankReportedRanges();
       });
       byId('dynamicReportFields').addEventListener('click', function(event) {
+        const calendarOpen = event.target.closest('[data-bank-calendar-open], [data-bank-calendar-input]');
+        if (calendarOpen) { toggleBankCalendar(calendarOpen.dataset.bankCalendarOpen || calendarOpen.dataset.bankCalendarInput); return; }
+        const calendarStep = event.target.closest('[data-bank-calendar-step]');
+        if (calendarStep) { shiftBankCalendar(Number(calendarStep.dataset.bankCalendarStep)); return; }
+        const calendarDay = event.target.closest('[data-bank-calendar-day]');
+        if (calendarDay) { chooseBankCalendarDay(calendarDay.dataset.bankCalendarDay); return; }
         const pasteButton = event.target.closest('[data-paste-image]');
         if (pasteButton) { pasteReportImage(pasteButton); return; }
         const addButton = event.target.closest('[data-add-shipment-item]');
@@ -3575,6 +3600,7 @@
           if (usesPreparedReportUploads()) refreshBankUploadPreparation();
           toggleRevisionRecipient();
           updateBankCashTotal();
+          state.bankCalendarField = '';
           updateBankReportedRanges();
         }, 0);
       });
@@ -6251,6 +6277,7 @@
 
     function renderReportForm() {
       clearBankUploadPreparation();
+      state.bankCalendarField = '';
       const type = byId('reportType').value;
       const config = (REPORT_FORMS[type] || []).filter(fieldVisibleForUser);
       state.shipmentItemSeq = 0;
@@ -6372,6 +6399,33 @@
       if (addButton) addButton.disabled = !task || rows.length >= 5 - Object.keys(audited).length;
     }
 
+    function bankCalendarRanges() {
+      const bank = document.querySelector('[data-field="bankName"]')?.value || '';
+      const taskId = document.querySelector('[data-field="relatedTaskId"]')?.value || '';
+      return (state.reportMeta && state.reportMeta.bankReportedRanges || []).filter(function(range) {
+        return range.bankName === bank && (!taskId || range.taskId !== taskId);
+      }).sort(function(a, b) { return b.end.localeCompare(a.end); });
+    }
+
+    function bankCalendarDayState(day, field, ranges, startValue) {
+      if (ranges.some(function(range) { return range.start <= day && day <= range.end; })) return 'reported';
+      if (field === 'reportEndDate' && startValue) {
+        if (day < startValue) return 'before-start';
+        if (ranges.some(function(range) { return range.start <= day && range.end >= startValue; }))
+          return 'crosses-reported';
+      }
+      return '';
+    }
+
+    function bankCalendarEffectiveRange(fields) {
+      const task = reportTasksForCurrentUser().find(function(item) {
+        return item.id === fields.relatedTaskId;
+      });
+      const prior = task && task.payload && task.payload.bankReports && task.payload.bankReports[fields.bankName] || {};
+      return { start: fields.reportStartDate || prior.reportStartDate || '',
+        end: fields.reportEndDate || prior.reportEndDate || '' };
+    }
+
     function updateBankReportedRanges() {
       if (byId('reportType').value !== 'laporan_akun_bank') return;
       const hint = document.querySelector('[data-bank-locked-dates]');
@@ -6379,24 +6433,128 @@
       const taskId = document.querySelector('[data-field="relatedTaskId"]')?.value || '';
       const start = document.querySelector('[data-field="reportStartDate"]');
       const end = document.querySelector('[data-field="reportEndDate"]');
-      const ranges = (state.reportMeta && state.reportMeta.bankReportedRanges || []).filter(function(range) {
-        return range.bankName === bank && (!taskId || range.taskId !== taskId);
-      }).sort(function(a, b) { return b.end.localeCompare(a.end); });
+      const ranges = bankCalendarRanges();
       if (hint) {
         const visible = ranges.slice(0, 5).map(function(range) {
           return range.start.split('-').reverse().join('/') + '–' + range.end.split('-').reverse().join('/');
         });
         hint.textContent = bank ? ranges.length
-          ? 'Tanggal yang sudah dilaporkan untuk bank ini dibekukan: ' + visible.join(', ') +
+          ? 'Tanggal gelap di kalender sudah dilaporkan: ' + visible.join(', ') +
             (ranges.length > 5 ? ' (+' + (ranges.length - 5) + ' rentang lain)' : '') + '.'
-          : 'Belum ada rentang tanggal yang dilaporkan untuk bank ini.' : 'Pilih bank untuk melihat tanggal yang sudah dilaporkan.';
+          : 'Belum ada tanggal yang dibekukan untuk bank ini.' : 'Pilih bank sebelum memilih tanggal laporan.';
       }
-      if (!start || !end || !start.setCustomValidity || !end.setCustomValidity) return;
-      const overlap = start.value && end.value && ranges.find(function(range) {
-        return start.value <= range.end && end.value >= range.start;
+      if (start && end) {
+        const effective = bankCalendarEffectiveRange({ bankName: bank, relatedTaskId: taskId,
+          reportStartDate: start.value, reportEndDate: end.value });
+        const overlap = effective.start && effective.end && ranges.find(function(range) {
+          return effective.start <= range.end && effective.end >= range.start;
+        });
+        const invalid = Boolean(overlap || (effective.start && effective.end && effective.start > effective.end));
+        const error = document.querySelector('[data-bank-calendar-error]');
+        if (error) error.textContent = overlap ? 'Rentang ini melewati tanggal gelap yang sudah dilaporkan.' :
+          invalid ? 'Tanggal akhir harus sama atau setelah tanggal mulai.' : '';
+        end.setAttribute('aria-invalid', String(invalid));
+      }
+      renderBankCalendar();
+    }
+
+    function formatBankCalendarDay(day) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return day;
+      return new Intl.DateTimeFormat('id-ID', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC'
+      }).format(new Date(day + 'T00:00:00Z'));
+    }
+
+    function bankCalendarMarkup(field, year, month, ranges, startValue, selectedValue) {
+      const first = new Date(Date.UTC(year, month - 1, 1));
+      const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      const offset = (first.getUTCDay() + 6) % 7;
+      const label = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(first);
+      const blanks = Array.from({ length: offset }, function() { return '<span aria-hidden="true"></span>'; }).join('');
+      const days = Array.from({ length: daysInMonth }, function(_, index) {
+        const day = year + '-' + pad2(month) + '-' + pad2(index + 1);
+        const reason = bankCalendarDayState(day, field, ranges, startValue);
+        const title = reason === 'reported' ? 'Sudah dilaporkan untuk bank ini' :
+          reason === 'before-start' ? 'Sebelum tanggal mulai' :
+            reason === 'crosses-reported' ? 'Rentang melewati tanggal yang sudah dilaporkan' : formatBankCalendarDay(day);
+        return `<button type="button" class="bank-calendar-day${reason === 'reported' ? ' reported' : ''}${day === selectedValue ? ' selected' : ''}"
+          data-bank-calendar-day="${day}" aria-label="${escapeAttr(formatBankCalendarDay(day) + (reason ? ', ' + title : ''))}"
+          title="${escapeAttr(title)}" ${reason ? 'disabled' : ''}>${index + 1}</button>`;
+      }).join('');
+      return `<div class="bank-calendar-head">
+        <button class="btn btn-ghost btn-mini" type="button" data-bank-calendar-step="-1" aria-label="Bulan sebelumnya">‹</button>
+        <strong>${escapeHtml(label)}</strong>
+        <button class="btn btn-ghost btn-mini" type="button" data-bank-calendar-step="1" aria-label="Bulan berikutnya">›</button>
+      </div><div class="bank-calendar-weekdays" aria-hidden="true"><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span></div>
+      <div class="bank-calendar-days">${blanks}${days}</div>
+      <div class="bank-calendar-legend"><i aria-hidden="true"></i> Tanggal gelap sudah dilaporkan dan tidak dapat dipilih.</div>`;
+    }
+
+    function renderBankCalendar() {
+      ['reportStartDate', 'reportEndDate'].forEach(function(field) {
+        const calendar = document.querySelector('[data-bank-calendar="' + field + '"]');
+        const input = document.querySelector('[data-bank-calendar-input="' + field + '"]');
+        if (!calendar || !input) return;
+        const open = state.bankCalendarField === field;
+        calendar.hidden = !open;
+        input.setAttribute('aria-expanded', String(open));
+        if (open) {
+          const effective = bankCalendarEffectiveRange({
+            bankName: document.querySelector('[data-field="bankName"]')?.value || '',
+            relatedTaskId: document.querySelector('[data-field="relatedTaskId"]')?.value || '',
+            reportStartDate: document.querySelector('[data-field="reportStartDate"]')?.value || '',
+            reportEndDate: document.querySelector('[data-field="reportEndDate"]')?.value || ''
+          });
+          calendar.innerHTML = bankCalendarMarkup(field, state.bankCalendarYear, state.bankCalendarMonth,
+            bankCalendarRanges(), effective.start, input.value);
+        }
       });
-      start.setCustomValidity('');
-      end.setCustomValidity(overlap ? 'Rentang tanggal ini sudah dilaporkan untuk bank yang dipilih.' : '');
+    }
+
+    function toggleBankCalendar(field) {
+      if (!['reportStartDate', 'reportEndDate'].includes(field)) return;
+      if (state.bankCalendarField === field) { state.bankCalendarField = ''; renderBankCalendar(); return; }
+      if (!document.querySelector('[data-field="bankName"]')?.value) {
+        toast('Pilih bank yang dilaporkan sebelum membuka kalender.');
+        return;
+      }
+      state.bankCalendarField = field;
+      const chosen = document.querySelector('[data-field="' + field + '"]')?.value ||
+        document.querySelector('[data-field="reportStartDate"]')?.value || '';
+      state.bankCalendarYear = Number(chosen.slice(0, 4)) || Number(state.reportFormYear) || new Date().getFullYear();
+      state.bankCalendarMonth = Number(chosen.slice(5, 7)) || Number(state.reportFormMonth) || new Date().getMonth() + 1;
+      renderBankCalendar();
+    }
+
+    function shiftBankCalendar(step) {
+      if (!state.bankCalendarField || ![-1, 1].includes(step)) return;
+      const date = new Date(Date.UTC(state.bankCalendarYear, state.bankCalendarMonth - 1 + step, 1));
+      state.bankCalendarYear = date.getUTCFullYear();
+      state.bankCalendarMonth = date.getUTCMonth() + 1;
+      renderBankCalendar();
+    }
+
+    function chooseBankCalendarDay(day) {
+      const field = state.bankCalendarField;
+      if (!field || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+      const start = document.querySelector('[data-field="reportStartDate"]');
+      const effective = bankCalendarEffectiveRange({
+        bankName: document.querySelector('[data-field="bankName"]')?.value || '',
+        relatedTaskId: document.querySelector('[data-field="relatedTaskId"]')?.value || '',
+        reportStartDate: start?.value || '', reportEndDate: document.querySelector('[data-field="reportEndDate"]')?.value || ''
+      });
+      if (bankCalendarDayState(day, field, bankCalendarRanges(), effective.start)) return;
+      const input = document.querySelector('[data-field="' + field + '"]');
+      if (!input) return;
+      input.value = day;
+      if (field === 'reportStartDate') {
+        const end = document.querySelector('[data-field="reportEndDate"]');
+        if (end?.value && (end.value < day || bankCalendarRanges().some(function(range) {
+          return day <= range.end && end.value >= range.start;
+        }))) end.value = '';
+      }
+      state.bankCalendarField = '';
+      updateBankReportedRanges();
     }
 
     function updateInvestorCheckOptions() {
@@ -6534,6 +6692,19 @@
             ${help}
           </div>
         `;
+      }
+
+      if (field.kind === 'date' && byId('reportType').value === 'laporan_akun_bank' &&
+          (field.field === 'reportStartDate' || field.field === 'reportEndDate')) {
+        return `<div class="field bank-date-field">
+          <label for="bank-date-${escapeAttr(field.field)}">${escapeHtml(field.label)} *</label>
+          <div class="bank-date-control">
+            <input id="bank-date-${escapeAttr(field.field)}" data-field="${escapeAttr(field.field)}" data-bank-calendar-input="${escapeAttr(field.field)}" type="text" placeholder="Pilih tanggal dari kalender" readonly required aria-required="true" aria-expanded="false">
+            <button class="btn btn-ghost btn-mini" type="button" data-bank-calendar-open="${escapeAttr(field.field)}" aria-label="Buka kalender ${escapeAttr(field.label)}">Kalender</button>
+          </div>
+          <div class="bank-calendar" data-bank-calendar="${escapeAttr(field.field)}" role="group" aria-label="Kalender ${escapeAttr(field.label)}" hidden></div>
+          ${field.field === 'reportEndDate' ? '<small class="bank-calendar-error" data-bank-calendar-error aria-live="polite"></small>' : ''}
+        </div>`;
       }
 
       if (field.kind === 'revisionRecipient') {
@@ -6822,6 +6993,16 @@
         if (input.closest('.field')?.hidden) return;
         fields[input.dataset.field] = input.value;
       });
+      if (type === 'laporan_akun_bank') {
+        const effective = bankCalendarEffectiveRange(fields);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(effective.start) || !/^\d{4}-\d{2}-\d{2}$/.test(effective.end))
+          throw new Error('Pilih tanggal mulai dan akhir dari kalender laporan bank.');
+        if (effective.start > effective.end)
+          throw new Error('Tanggal akhir laporan bank harus sama atau setelah tanggal mulai.');
+        if (bankCalendarRanges().some(function(range) {
+          return effective.start <= range.end && effective.end >= range.start;
+        })) throw new Error('Rentang tanggal melewati tanggal gelap yang sudah dilaporkan untuk bank ini.');
+      }
       if (AUDIT_SOURCE_TYPES[type] && type !== 'audit_pekanan' && fields.auditStatus === 'kendala') {
         fields.revisionFields = Array.from(document.querySelectorAll('[data-revision-checklist] [data-revision-choice]:checked'))
           .map(function(input) { return input.dataset.revisionChoice; });

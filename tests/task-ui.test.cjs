@@ -78,12 +78,53 @@ test('dashboard timer row opens a safely rendered time history, including comple
 test('report task filter and weekly bank date inputs are present', () => {
   const app = ui();
   assert.match(html, /id="reportTaskTypeFilter"/);
+  app.elements.reportType.value = 'laporan_akun_bank';
   for (const field of ['reportStartDate', 'reportEndDate']) {
     const input = app.REPORT_FORMS.laporan_akun_bank.find(item => item.field === field);
     assert.equal(input.required, true);
-    assert.match(app.renderField(input), new RegExp('data-field="' + field + '" type="date" required'));
+    assert.match(app.renderField(input), new RegExp('data-bank-calendar-input="' + field + '" type="text"[^>]*readonly required'));
+    assert.match(app.renderField(input), new RegExp('data-bank-calendar="' + field + '"'));
     assert.doesNotMatch(app.renderField(input), /data-default-date/);
   }
+});
+
+test('bank calendar darkens reported dates and disables crossing them', () => {
+  const app = ui();
+  const ranges = [{ bankName: 'bri_kendari', start: '2026-11-01', end: '2026-11-10' }];
+  const markup = app.bankCalendarMarkup('reportStartDate', 2026, 11, ranges, '', '');
+  const button = day => markup.match(new RegExp('<button[^>]*data-bank-calendar-day="2026-11-' + day + '"[^>]*>'))[0];
+  assert.match(button('01'), /class="bank-calendar-day reported"/);
+  assert.match(button('01'), /disabled/);
+  assert.match(button('10'), /disabled/);
+  assert.doesNotMatch(button('11'), /disabled/);
+  assert.match(markup, /November 2026|November 2026/i);
+  assert.equal(app.bankCalendarDayState('2026-11-11', 'reportEndDate', ranges, '2026-10-31'), 'crosses-reported');
+  assert.equal(app.bankCalendarDayState('2026-11-01', 'reportStartDate', [], ''), '');
+  app.elements.reportType.value = 'laporan_akun_bank';
+  app.state.reportMeta = { openTasks: [], bankReportedRanges: ranges };
+  app.state.bankCalendarField = 'reportStartDate';
+  const fields = {
+    '[data-field="bankName"]': { value: 'bri_kendari' },
+    '[data-field="relatedTaskId"]': { value: '' },
+    '[data-field="reportStartDate"]': { value: '' },
+    '[data-field="reportEndDate"]': { value: '', setAttribute() {} }
+  };
+  const originalQuery = app.document.querySelector;
+  app.document.querySelector = selector => fields[selector] || originalQuery(selector);
+  app.chooseBankCalendarDay('2026-11-05');
+  assert.equal(fields['[data-field="reportStartDate"]'].value, '');
+  app.chooseBankCalendarDay('2026-11-11');
+  assert.equal(fields['[data-field="reportStartDate"]'].value, '2026-11-11');
+  fields['[data-field="bankName"]'].value = 'mandiri';
+  fields['[data-field="reportStartDate"]'].value = '';
+  app.state.bankCalendarField = 'reportStartDate';
+  app.chooseBankCalendarDay('2026-11-05');
+  assert.equal(fields['[data-field="reportStartDate"]'].value, '2026-11-05');
+  fields['[data-field="bankName"]'].value = 'bri_kendari';
+  fields['[data-field="reportStartDate"]'].value = '2026-10-31';
+  app.state.bankCalendarField = 'reportEndDate';
+  app.chooseBankCalendarDay('2026-11-11');
+  assert.equal(fields['[data-field="reportEndDate"]'].value, '');
 });
 
 test('report task dropdown filters cards by type and keeps paused tasks out of Berjalan', () => {
@@ -441,8 +482,8 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, updateShipmentItemTotal, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers };', context);
-  return { ...context.__ui, elements };
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, updateShipmentItemTotal, bankCalendarMarkup, bankCalendarDayState, chooseBankCalendarDay, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers };', context);
+  return { ...context.__ui, elements, document: context.document };
 }
 
 test('weekly bank task and its audit show one detail button per reported bank', () => {
