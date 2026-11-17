@@ -382,6 +382,45 @@ test('report upload fields and note composer offer clipboard image pasting', () 
   assert.match(pasted[0].name, /^tempel-\d+-1\.png$/);
 });
 
+test('removing one selected report file also removes it from prepared uploads', async () => {
+  const app = ui();
+  app.elements.reportType.value = 'laporan_akun_bank';
+  const first = { name: 'lama <1>.jpg', size: 1024, lastModified: 1 };
+  const second = { name: 'dipakai.jpg', size: 2048, lastModified: 2 };
+  const counter = { innerHTML: '', textContent: '' };
+  const status = { textContent: '' };
+  const input = { dataset: { fileField: 'bankAccountProof' }, files: [first, second], closest() { return field; } };
+  const field = { hidden: false, querySelector(selector) {
+    if (selector === '[data-file-field]') return input;
+    if (selector === '[data-file-count]') return counter;
+    return null;
+  } };
+  const originalQuery = app.document.querySelector;
+  app.document.querySelector = selector => selector === '[data-bank-upload-status]' ? status : originalQuery(selector);
+  app.document.querySelectorAll = selector => selector === '[data-file-field]' ? [input] : [];
+
+  app.updateSelectedFileCount(input);
+  assert.match(counter.innerHTML, /data-remove-report-file="0"/);
+  assert.match(counter.innerHTML, /data-remove-report-file="1"/);
+  assert.match(counter.innerHTML, /lama &lt;1&gt;\.jpg/);
+  assert.doesNotMatch(counter.innerHTML, /lama <1>\.jpg/);
+  await app.refreshBankUploadPreparation();
+  assert.match(counter.innerHTML, /Lihat dipakai\.jpg/);
+
+  app.removeSelectedReportFile({ dataset: { removeReportFile: '0' }, closest() { return field; } });
+  await app.bankUploadPreparation.promise;
+  assert.deepEqual(Array.from(input.files, file => file.name), ['dipakai.jpg']);
+  assert.deepEqual(Array.from(app.bankUploadPreparation.result.entries, entry => entry.file.name), ['dipakai.jpg']);
+  assert.doesNotMatch(counter.innerHTML, /lama &lt;1&gt;\.jpg/);
+  assert.match(counter.innerHTML, /data-remove-report-file="0"/);
+
+  app.removeSelectedReportFile({ dataset: { removeReportFile: '0' }, closest() { return field; } });
+  await app.bankUploadPreparation.promise;
+  assert.equal(input.files.length, 0);
+  assert.equal(counter.textContent, 'Belum ada file dipilih.');
+  assert.equal(app.bankUploadPreparation.result.entries.length, 0);
+});
+
 function ui() {
   const activePointers = new Set();
   const stageClasses = new Set();
@@ -466,6 +505,13 @@ function ui() {
   } }];
   const context = {
     File: class { constructor(parts, name, options) { this.name = name; this.type = options.type; this.size = parts[0].size || 0; } },
+    DataTransfer: class {
+      constructor() { this.files = []; this.items = { add: file => this.files.push(file) }; }
+    },
+    URL: { createObjectURL(file) { return 'blob:' + file.name; }, revokeObjectURL() {} },
+    KpiBankUpload: { async prepare(entries) {
+      return { entries, bytes: entries.reduce((sum, entry) => sum + entry.file.size, 0) };
+    } },
     document: { addEventListener() {}, getElementById(id) { return elements[id]; },
       querySelector(selector) {
         if (selector === '[data-field="relatedTaskId"]') return elements.relatedTaskSelect;
@@ -482,7 +528,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, renderField, updateShipmentItemTotal, bankCalendarMarkup, bankCalendarDayState, chooseBankCalendarDay, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, bankUploadPreparation, renderField, updateShipmentItemTotal, bankCalendarMarkup, bankCalendarDayState, chooseBankCalendarDay, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers, updateSelectedFileCount, removeSelectedReportFile, refreshBankUploadPreparation };', context);
   return { ...context.__ui, elements, document: context.document };
 }
 

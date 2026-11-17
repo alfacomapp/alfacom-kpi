@@ -758,6 +758,24 @@
       overflow-wrap: anywhere;
     }
 
+    .selected-file-list { display: grid; gap: 6px; margin-top: 6px; }
+    .selected-file-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .selected-file-description { flex: 1 1 auto; min-width: 0; }
+    .selected-file-remove {
+      flex: 0 0 26px;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--red);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .selected-file-remove:hover, .selected-file-remove:focus-visible { background: #fee4e2; }
+
     .note-mentions-jump {
       position: relative;
       flex: 0 0 34px;
@@ -3520,6 +3538,8 @@
             ['reportStartDate', 'reportEndDate'].includes(event.target.dataset.field)) updateBankReportedRanges();
       });
       byId('dynamicReportFields').addEventListener('click', function(event) {
+        const removeFileButton = event.target.closest('[data-remove-report-file]');
+        if (removeFileButton) { removeSelectedReportFile(removeFileButton); return; }
         const calendarOpen = event.target.closest('[data-bank-calendar-open], [data-bank-calendar-input]');
         if (calendarOpen) { toggleBankCalendar(calendarOpen.dataset.bankCalendarOpen || calendarOpen.dataset.bankCalendarInput); return; }
         const calendarStep = event.target.closest('[data-bank-calendar-step]');
@@ -7264,13 +7284,9 @@
         if (version !== bankUploadPreparation.version) throw new Error('Pilihan file berubah.');
         bankUploadPreparation.result = result;
         update(result.entries.length + ' file, total ' + (result.bytes / 1048576).toFixed(2) + ' MB.' + (result.compressed ? ' ' + result.compressed + ' file dikompresi dari total ' + (result.originalBytes / 1048576).toFixed(2) + ' MB. Periksa hasil sebelum dikirim.' : ' ' + preparedUploadLimitText()));
-        document.querySelectorAll('[data-file-count]').forEach(function(counter) {
-          const list = result.entries.filter(function(entry) { return entry.field === counter.dataset.fileCount; });
-          counter.innerHTML = list.length ? list.map(function(entry) {
-            const url = URL.createObjectURL(entry.file);
-            bankUploadPreparation.urls.push(url);
-            return '<div><a href="' + escapeAttr(url) + '" target="_blank" rel="noopener">Lihat ' + escapeHtml(entry.file.name) + '</a> · ' + (entry.file.size / 1048576).toFixed(2) + ' MB · <a href="' + escapeAttr(url) + '" download="' + escapeAttr(entry.file.name) + '">Unduh</a></div>';
-          }).join('') : 'Belum ada file dipilih.';
+        document.querySelectorAll('[data-file-field]').forEach(function(input) {
+          const list = result.entries.filter(function(entry) { return entry.field === input.dataset.fileField; });
+          updateSelectedFileCount(input, list);
         });
         return result;
       }).catch(function(error) {
@@ -7416,7 +7432,18 @@
       }
     }
 
-    function updateSelectedFileCount(input) {
+    function removeSelectedReportFile(button) {
+      const field = button.closest('.field');
+      const input = field && field.querySelector('[data-file-field]');
+      const index = Number(button.dataset.removeReportFile);
+      const files = Array.from(input && input.files || []);
+      if (!input || !Number.isInteger(index) || index < 0 || index >= files.length) return;
+      setInputFiles(input, files.filter(function(_, position) { return position !== index; }));
+      updateSelectedFileCount(input);
+      if (usesPreparedReportUploads()) refreshBankUploadPreparation();
+    }
+
+    function updateSelectedFileCount(input, preparedEntries) {
       if (!input || !input.dataset.fileField) {
         return;
       }
@@ -7424,11 +7451,27 @@
       if (config && usesPreparedReportUploads() && config.multiple) {
         reportFileSelections.set(input, Array.from(input.files || []));
       }
-      const count = input.files ? input.files.length : 0;
-      const counter = document.querySelector('[data-file-count="' + input.dataset.fileField + '"]');
-      if (counter) {
-        counter.textContent = count ? count + ' file dipilih.' : 'Belum ada file dipilih.';
-      }
+      const files = Array.from(input.files || []);
+      const field = input.closest && input.closest('.field');
+      const counter = field?.querySelector('[data-file-count]') ||
+        document.querySelector('[data-file-count="' + input.dataset.fileField + '"]');
+      if (!counter) return;
+      if (!files.length) { counter.textContent = 'Belum ada file dipilih.'; return; }
+      counter.innerHTML = '<div>' + files.length + ' file dipilih.</div><div class="selected-file-list">' +
+        files.map(function(file, index) {
+          const prepared = preparedEntries && preparedEntries[index];
+          let details = escapeHtml(file.name) + ' · ' + (file.size / 1048576).toFixed(2) + ' MB';
+          if (prepared) {
+            const url = URL.createObjectURL(prepared.file);
+            bankUploadPreparation.urls.push(url);
+            details = '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener">Lihat ' +
+              escapeHtml(file.name) + '</a> · ' + (prepared.file.size / 1048576).toFixed(2) +
+              ' MB · <a href="' + escapeAttr(url) + '" download="' + escapeAttr(prepared.file.name) + '">Unduh</a>';
+          }
+          return '<div class="selected-file-row"><span class="selected-file-description">' + details +
+            '</span><button class="selected-file-remove" type="button" data-remove-report-file="' + index +
+            '" aria-label="Hapus file ' + escapeAttr(file.name) + '" title="Hapus file">&times;</button></div>';
+        }).join('') + '</div>';
     }
 
     function fillProfile() {
