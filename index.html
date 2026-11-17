@@ -1692,10 +1692,15 @@
     .bank-cash-row .field { min-width: 0; }
     .bank-cash-row .btn { margin-bottom: 1px; }
     .bank-cash-total { font-weight: 800; color: var(--green-dark); }
-    .bank-date-control { display: flex; gap: 8px; min-width: 0; }
+    .bank-report-row { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 10px; min-width: 0; }
+    .bank-report-row > .field { min-width: 0; align-content: start; }
+    .bank-report-row > .field label { display: flex; align-items: end; height: 40px; }
+    .bank-report-row > .field select, .bank-date-control { height: 44px; }
+    .bank-date-control { display: flex; gap: 5px; min-width: 0; }
     .bank-date-control input { min-width: 0; flex: 1 1 auto; cursor: pointer; }
-    .bank-date-control button { flex: 0 0 auto; }
-    .bank-calendar { width: min(100%, 350px); padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 8px 20px rgba(22, 32, 28, .08); }
+    .bank-date-control button { flex: 0 0 44px; width: 44px; height: 44px; padding: 0; font-size: 18px; }
+    .bank-calendar { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: min(350px, calc(100vw - 32px)); max-height: min(380px, calc(100dvh - 80px)); overflow-y: auto; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 8px 20px rgba(22, 32, 28, .08); }
+    .bank-report-row > .bank-date-field:last-child .bank-calendar { left: auto; right: 0; }
     .bank-calendar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
     .bank-calendar-head strong { text-align: center; font-size: 13px; }
     .bank-calendar-weekdays, .bank-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; }
@@ -1705,9 +1710,12 @@
     .bank-calendar-day.selected { border-color: var(--green); background: var(--green); color: #fff; font-weight: 800; }
     .bank-calendar-day.reported, .bank-calendar-day.reported:disabled { border-color: #4f5a54; background: #59645e; color: #fff; cursor: not-allowed; opacity: 1; }
     .bank-calendar-day:disabled:not(.reported) { background: #f0f2f1; color: #9ba59e; cursor: not-allowed; }
-    .bank-calendar-legend { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 11px; color: var(--muted); }
-    .bank-calendar-legend i { width: 13px; height: 13px; border-radius: 3px; background: #59645e; }
     .bank-calendar-error { color: var(--red); }
+    .bank-calendar-error:empty { display: none; }
+    @media (max-width: 600px) {
+      .bank-report-row { grid-template-columns: minmax(0, 1fr); }
+      .bank-report-row > .bank-date-field:last-child .bank-calendar { left: 0; right: auto; }
+    }
     @media (max-width: 600px) {
       .bank-cash-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
       .bank-cash-row .btn { grid-column: 1 / -1; justify-self: start; }
@@ -6285,7 +6293,13 @@
       state.auditBankSeq = 0;
       state.investorCheckSeq = 0;
       state.repeatPhotoSeq = 0;
-      byId('dynamicReportFields').innerHTML = config.map(renderField).join('') + (usesPreparedReportUploads() ? '<div class="field full"><div class="file-hint" data-bank-upload-status role="status" aria-live="polite">' + preparedUploadLimitText() + ' File besar dikompresi otomatis sebelum dikirim. Periksa pratinjau hasil kompresi.</div></div>' : '');
+      const renderedFields = config.map(renderField);
+      if (type === 'laporan_akun_bank') {
+        const bankIndex = config.findIndex(function(field) { return field.field === 'bankName'; });
+        if (bankIndex >= 0) renderedFields.splice(bankIndex, 3,
+          '<div class="bank-report-row">' + renderedFields.slice(bankIndex, bankIndex + 3).join('') + '</div>');
+      }
+      byId('dynamicReportFields').innerHTML = renderedFields.join('') + (usesPreparedReportUploads() ? '<div class="field full"><div class="file-hint" data-bank-upload-status role="status" aria-live="polite">' + preparedUploadLimitText() + ' File besar dikompresi otomatis sebelum dikirim. Periksa pratinjau hasil kompresi.</div></div>' : '');
       Array.prototype.forEach.call(document.querySelectorAll('[data-default-date]'), function(input) {
         if (!input.value) {
           input.value = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -6428,21 +6442,11 @@
 
     function updateBankReportedRanges() {
       if (byId('reportType').value !== 'laporan_akun_bank') return;
-      const hint = document.querySelector('[data-bank-locked-dates]');
       const bank = document.querySelector('[data-field="bankName"]')?.value || '';
       const taskId = document.querySelector('[data-field="relatedTaskId"]')?.value || '';
       const start = document.querySelector('[data-field="reportStartDate"]');
       const end = document.querySelector('[data-field="reportEndDate"]');
       const ranges = bankCalendarRanges();
-      if (hint) {
-        const visible = ranges.slice(0, 5).map(function(range) {
-          return range.start.split('-').reverse().join('/') + '–' + range.end.split('-').reverse().join('/');
-        });
-        hint.textContent = bank ? ranges.length
-          ? 'Tanggal gelap di kalender sudah dilaporkan: ' + visible.join(', ') +
-            (ranges.length > 5 ? ' (+' + (ranges.length - 5) + ' rentang lain)' : '') + '.'
-          : 'Belum ada tanggal yang dibekukan untuk bank ini.' : 'Pilih bank sebelum memilih tanggal laporan.';
-      }
       if (start && end) {
         const effective = bankCalendarEffectiveRange({ bankName: bank, relatedTaskId: taskId,
           reportStartDate: start.value, reportEndDate: end.value });
@@ -6486,8 +6490,7 @@
         <strong>${escapeHtml(label)}</strong>
         <button class="btn btn-ghost btn-mini" type="button" data-bank-calendar-step="1" aria-label="Bulan berikutnya">›</button>
       </div><div class="bank-calendar-weekdays" aria-hidden="true"><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span></div>
-      <div class="bank-calendar-days">${blanks}${days}</div>
-      <div class="bank-calendar-legend"><i aria-hidden="true"></i> Tanggal gelap sudah dilaporkan dan tidak dapat dipilih.</div>`;
+      <div class="bank-calendar-days">${blanks}${days}</div>`;
     }
 
     function renderBankCalendar() {
@@ -6688,7 +6691,6 @@
                 return `<option value="${escapeAttr(option[0])}">${escapeHtml(option[1])}</option>`;
               }).join('')}
             </select>
-            ${field.field === 'bankName' && byId('reportType').value === 'laporan_akun_bank' ? '<small data-bank-locked-dates aria-live="polite"></small>' : ''}
             ${help}
           </div>
         `;
@@ -6700,7 +6702,7 @@
           <label for="bank-date-${escapeAttr(field.field)}">${escapeHtml(field.label)} *</label>
           <div class="bank-date-control">
             <input id="bank-date-${escapeAttr(field.field)}" data-field="${escapeAttr(field.field)}" data-bank-calendar-input="${escapeAttr(field.field)}" type="text" placeholder="Pilih tanggal dari kalender" readonly required aria-required="true" aria-expanded="false">
-            <button class="btn btn-ghost btn-mini" type="button" data-bank-calendar-open="${escapeAttr(field.field)}" aria-label="Buka kalender ${escapeAttr(field.label)}">Kalender</button>
+            <button class="btn btn-ghost btn-mini" type="button" data-bank-calendar-open="${escapeAttr(field.field)}" aria-label="Buka kalender ${escapeAttr(field.label)}" title="Buka kalender">&#128197;</button>
           </div>
           <div class="bank-calendar" data-bank-calendar="${escapeAttr(field.field)}" role="group" aria-label="Kalender ${escapeAttr(field.label)}" hidden></div>
           ${field.field === 'reportEndDate' ? '<small class="bank-calendar-error" data-bank-calendar-error aria-live="polite"></small>' : ''}
