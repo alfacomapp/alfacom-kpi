@@ -1562,7 +1562,18 @@
     .manager-row-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; flex-wrap: wrap; }
     .manager-checks { display: flex; gap: 8px 18px; flex-wrap: wrap; margin-top: 8px; }
     .manager-checks label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+    .manager-checks input[type="checkbox"], .manager-row-pick input[type="checkbox"] { width: 16px; height: 16px; flex: none; padding: 0; }
+    #managerNewDuties { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 10px; align-items: stretch; }
+    #managerNewDuties label { display: flex; align-items: flex-start; min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); line-height: 1.4; cursor: pointer; }
+    #managerNewDuties input { margin: 2px 0 0; }
+    #managerNewDuties span { min-width: 0; overflow-wrap: anywhere; }
     .manager-row select { max-width: 320px; }
+    .manager-running-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+    .manager-running-filters select, .manager-running-filters input { min-width: 0; width: 100%; }
+    .manager-bulk-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 10px 0 14px; }
+    .manager-bulk-actions select { width: min(280px, 100%); min-width: 0; }
+    .manager-row-pick { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+    @media (max-width: 700px) { .manager-running-filters { grid-template-columns: minmax(0, 1fr); } }
     #task_managerPage { display: grid; gap: 16px; }
     #task_managerPage.hidden { display: none; }
     .status-reason { display: block; color: var(--muted); margin-top: 5px; font-size: 12px; white-space: normal; }
@@ -1885,6 +1896,13 @@
       color: var(--muted);
       font-size: 13px;
     }
+
+    #timerExtendForm { width: min(480px, 100%); min-width: 0; max-height: calc(100dvh - 36px); overflow-y: auto; }
+    #timerExtendForm .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #timerExtendForm .field { min-width: 0; }
+    #timerExtendForm input, #timerExtendForm textarea { width: 100%; max-width: 100%; min-width: 0; }
+    #timerExtendForm .inline-actions { flex-wrap: wrap; }
+    @media (max-width: 380px) { #timerExtendForm .form-grid { grid-template-columns: minmax(0, 1fr); } }
 
     .image-viewer {
       position: fixed;
@@ -2974,12 +2992,24 @@
       <section id="task_managerPage" class="page hidden">
         <div class="panel">
           <div class="panel-head"><h3>Task Manager</h3></div>
-          <p class="muted">Atur penanggung jawab tugas berikutnya. Tugas yang sedang berjalan dapat dipindah satu per satu di bawah.</p>
+          <p class="muted">Atur penanggung jawab tugas berikutnya. Tugas yang sedang berjalan dapat dipindah sendiri atau bersama di bawah.</p>
           <div id="managerAssignments" class="manager-assignment-list"></div>
         </div>
         <div class="panel">
           <div class="panel-head"><h3>Tugas berjalan</h3></div>
+          <div class="manager-running-filters">
+            <select id="managerTaskTypeFilter" aria-label="Filter jenis tugas"></select>
+            <select id="managerTaskMonthFilter" aria-label="Filter bulan tugas"></select>
+            <select id="managerTaskYearFilter" aria-label="Filter tahun tugas"></select>
+          </div>
           <input id="managerTaskSearch" type="search" placeholder="Cari nomor atau judul tugas..." aria-label="Cari tugas berjalan">
+          <div class="manager-bulk-actions">
+            <label class="manager-row-pick"><input id="managerSelectVisible" type="checkbox"> Pilih semua hasil filter</label>
+            <span id="managerSelectedCount" class="muted">0 tugas dipilih</span>
+            <button id="managerClearSelection" class="btn btn-mini btn-ghost" type="button">Batalkan pilihan</button>
+            <select id="managerBulkAssignee" aria-label="Penanggung jawab untuk tugas yang dipilih"></select>
+            <button id="managerAssignSelected" class="btn btn-mini btn-primary" type="button" disabled>Pindahkan tugas terpilih</button>
+          </div>
           <div id="managerRunningTasks" class="manager-running-list"></div>
         </div>
         <div class="panel">
@@ -3055,6 +3085,8 @@
       menus: [],
       page: 'dashboard',
       managerData: null,
+      managerSelectedTaskIds: new Set(),
+      managerAssigning: false,
       pendingStatusChange: null,
       pendingTimerTaskId: '',
       dashboard: null,
@@ -3728,7 +3760,29 @@
         const button = event.target.closest('[data-assign-task]');
         if (button) assignManagerTask(button.dataset.assignTask);
       });
+      byId('managerRunningTasks').addEventListener('change', function(event) {
+        const checkbox = event.target.closest('[data-select-task]');
+        if (!checkbox) return;
+        if (checkbox.checked) state.managerSelectedTaskIds.add(checkbox.value);
+        else state.managerSelectedTaskIds.delete(checkbox.value);
+        updateManagerSelectionControls();
+      });
       byId('managerTaskSearch').addEventListener('input', renderManagerRunningTasks);
+      ['managerTaskTypeFilter', 'managerTaskMonthFilter', 'managerTaskYearFilter'].forEach(function(id) {
+        byId(id).addEventListener('change', renderManagerRunningTasks);
+      });
+      byId('managerSelectVisible').addEventListener('change', function(event) {
+        filteredManagerTasks().forEach(function(task) {
+          if (event.target.checked) state.managerSelectedTaskIds.add(task.id);
+          else state.managerSelectedTaskIds.delete(task.id);
+        });
+        renderManagerRunningTasks();
+      });
+      byId('managerClearSelection').addEventListener('click', function() {
+        state.managerSelectedTaskIds.clear(); renderManagerRunningTasks();
+      });
+      byId('managerAssignSelected').addEventListener('click', assignSelectedManagerTasks);
+      byId('managerBulkAssignee').addEventListener('change', updateManagerSelectionControls);
       byId('managerCreateUser').addEventListener('submit', createManagerUser);
       byId('statusReasonForm').addEventListener('submit', confirmManagerStatusChange);
       byId('statusReasonCancel').addEventListener('click', function() { byId('statusReasonDialog').classList.add('hidden'); state.pendingStatusChange = null; });
@@ -3876,6 +3930,7 @@
 
     function showLogin(message) {
       state.managerData = null;
+      state.managerSelectedTaskIds.clear();
       byId('managerAssignments').textContent = '';
       byId('managerRunningTasks').textContent = '';
       byId('managerNewDuties').textContent = '';
@@ -3940,6 +3995,7 @@
     function showApp() {
       if (state.user.Role !== 'manager') {
         state.managerData = null;
+        state.managerSelectedTaskIds.clear();
         byId('managerAssignments').textContent = '';
         byId('managerRunningTasks').textContent = '';
         byId('managerNewDuties').textContent = '';
@@ -6123,6 +6179,10 @@
       api('apiGetTaskManager', state.token).then(function(response) {
         if (state.page !== 'task_manager') return;
         state.managerData = response;
+        const available = new Set(response.tasks.map(function(task) { return task.id; }));
+        state.managerSelectedTaskIds.forEach(function(id) {
+          if (!available.has(id)) state.managerSelectedTaskIds.delete(id);
+        });
         renderTaskManager();
       }).catch(showError);
     }
@@ -6143,18 +6203,80 @@
           escapeAttr(type.key) + '">Simpan penugasan</button></div></div>';
       }).join('');
       byId('managerNewDuties').innerHTML = data.types.map(function(type) {
-        return '<label><input type="checkbox" value="' + escapeAttr(type.key) + '"> ' + escapeHtml(type.label) + '</label>';
+        return '<label><input type="checkbox" value="' + escapeAttr(type.key) + '"><span>' + escapeHtml(type.label) + '</span></label>';
       }).join('');
+      renderManagerTaskFilters();
       renderManagerRunningTasks();
+    }
+
+    function renderManagerTaskFilters() {
+      const data = state.managerData;
+      const typeSelect = byId('managerTaskTypeFilter');
+      const monthSelect = byId('managerTaskMonthFilter');
+      const yearSelect = byId('managerTaskYearFilter');
+      const previous = { type: typeSelect.value, month: monthSelect.value, year: yearSelect.value };
+      const labels = {};
+      const years = new Set();
+      data.tasks.forEach(function(task) {
+        labels[task.type] = task.typeLabel || task.type;
+        const date = displayTaskDate({ startedAt: task.startedAt });
+        if (/^\d{4}-\d{2}-\d{2}$/.test(date)) years.add(date.slice(0, 4));
+      });
+      typeSelect.innerHTML = '<option value="">Semua tugas</option>' + Object.keys(labels).sort(function(a, b) {
+        return labels[a].localeCompare(labels[b], 'id');
+      }).map(function(type) {
+        return '<option value="' + escapeAttr(type) + '">' + escapeHtml(labels[type]) + '</option>';
+      }).join('');
+      monthSelect.innerHTML = '<option value="">Semua bulan</option>' + FORM_MONTH_LABELS.map(function(label, index) {
+        return '<option value="' + (index + 1) + '">' + escapeHtml(label) + '</option>';
+      }).join('');
+      yearSelect.innerHTML = '<option value="">Semua tahun</option>' + Array.from(years).sort().reverse().map(function(year) {
+        return '<option value="' + escapeAttr(year) + '">' + escapeHtml(year) + '</option>';
+      }).join('');
+      if (Array.from(typeSelect.options).some(function(option) { return option.value === previous.type; })) typeSelect.value = previous.type;
+      if (Array.from(monthSelect.options).some(function(option) { return option.value === previous.month; })) monthSelect.value = previous.month;
+      if (Array.from(yearSelect.options).some(function(option) { return option.value === previous.year; })) yearSelect.value = previous.year;
+      const bulk = byId('managerBulkAssignee');
+      const currentTarget = bulk.value;
+      bulk.innerHTML = '<option value="">Pilih tujuan penugasan</option><option value="__unassigned__">Tanpa penanggung jawab</option>' + data.users.map(function(user) {
+        return '<option value="' + escapeAttr(user.Id) + '">' + escapeHtml(user.Name + ' · ' + user.Position) + '</option>';
+      }).join('');
+      if (Array.from(bulk.options).some(function(option) { return option.value === currentTarget; })) bulk.value = currentTarget;
+    }
+
+    function filteredManagerTasks() {
+      const data = state.managerData;
+      if (!data) return [];
+      const search = String(byId('managerTaskSearch').value || '').trim().toLowerCase();
+      const type = byId('managerTaskTypeFilter').value;
+      const month = byId('managerTaskMonthFilter').value;
+      const year = byId('managerTaskYearFilter').value;
+      return data.tasks.filter(function(task) {
+        if (type && task.type !== type) return false;
+        const date = displayTaskDate({ startedAt: task.startedAt });
+        if (month && Number(date.slice(5, 7)) !== Number(month)) return false;
+        if (year && date.slice(0, 4) !== year) return false;
+        return !search || String(task.referenceNumber).includes(search) || String(task.title || '').toLowerCase().includes(search);
+      });
+    }
+
+    function updateManagerSelectionControls() {
+      const visible = filteredManagerTasks();
+      const selected = state.managerSelectedTaskIds;
+      const selectedVisible = visible.filter(function(task) { return selected.has(task.id); }).length;
+      const all = byId('managerSelectVisible');
+      all.checked = visible.length > 0 && selectedVisible === visible.length;
+      all.indeterminate = selectedVisible > 0 && selectedVisible < visible.length;
+      all.disabled = visible.length === 0;
+      byId('managerSelectedCount').textContent = selected.size + ' tugas dipilih';
+      byId('managerAssignSelected').disabled = selected.size === 0 || !byId('managerBulkAssignee').value || state.managerAssigning;
+      byId('managerClearSelection').disabled = selected.size === 0 || state.managerAssigning;
     }
 
     function renderManagerRunningTasks() {
       const data = state.managerData;
       if (!data) return;
-      const search = String(byId('managerTaskSearch').value || '').trim().toLowerCase();
-      const tasks = data.tasks.filter(function(task) {
-        return !search || String(task.referenceNumber).includes(search) || String(task.title || '').toLowerCase().includes(search);
-      });
+      const tasks = filteredManagerTasks();
       byId('managerRunningTasks').innerHTML = tasks.length ? tasks.map(function(task) {
         const selected = task.assigneeUserId || (data.users.find(function(user) { return user.Name === task.assigneeName; }) || {}).Id || '';
         const options = '<option value="">Tanpa penanggung jawab</option>' + data.users.map(function(user) {
@@ -6162,12 +6284,16 @@
             escapeHtml(user.Name + ' · ' + user.Position) + '</option>';
         }).join('');
         return '<div class="manager-row" data-running-task="' + escapeAttr(task.id) + '">' +
-          '<div class="manager-row-head"><strong>No. ' + Number(task.referenceNumber || 0) + ' · ' + escapeHtml(task.title) +
-          '</strong><span class="muted">Saat ini: ' + escapeHtml(task.assigneeName || 'Belum ada') + '</span></div>' +
+          '<div class="manager-row-head"><label class="manager-row-pick"><input data-select-task type="checkbox" value="' +
+          escapeAttr(task.id) + '" ' + (state.managerSelectedTaskIds.has(task.id) ? 'checked' : '') + '><strong>No. ' +
+          Number(task.referenceNumber || 0) + ' · ' + escapeHtml(task.title) + '</strong></label>' +
+          '<span class="muted">' + escapeHtml(formatDateWithDay(task.startedAt)) + ' · Saat ini: ' +
+          escapeHtml(task.assigneeName || 'Belum ada') + '</span></div>' +
           '<div class="inline-actions"><select aria-label="Penanggung jawab tugas No. ' + Number(task.referenceNumber || 0) + '">' +
           options + '</select><button class="btn btn-mini btn-primary" type="button" data-assign-task="' +
           escapeAttr(task.id) + '">Pindahkan tugas</button></div></div>';
       }).join('') : '<div class="empty">Tugas berjalan tidak ditemukan.</div>';
+      updateManagerSelectionControls();
     }
 
     function saveManagerAssignment(key) {
@@ -6181,6 +6307,15 @@
       }).catch(showError);
     }
 
+    function invalidateAssignmentViews() {
+      state.reportMeta = null;
+      state.dashboard = null;
+      try {
+        sessionStorage.removeItem(clientCacheKey('report'));
+        sessionStorage.removeItem(clientCacheKey('dashboard'));
+      } catch (error) {}
+    }
+
     function assignManagerTask(taskId) {
       const row = Array.prototype.find.call(byId('managerRunningTasks').querySelectorAll('[data-running-task]'), function(item) {
         return item.dataset.runningTask === taskId;
@@ -6188,8 +6323,28 @@
       if (!row) return;
       const id = row.querySelector('select').value;
       api('apiAssignExistingTask', state.token, taskId, id).then(function(response) {
+        invalidateAssignmentViews();
         toast(response.message || 'Tugas dipindahkan.'); loadTaskManager();
       }).catch(showError);
+    }
+
+    function assignSelectedManagerTasks() {
+      if (state.managerAssigning || !state.managerSelectedTaskIds.size) return;
+      const target = byId('managerBulkAssignee').value;
+      if (!target) { toast('Pilih tujuan penugasan lebih dulu.'); return; }
+      const ids = Array.from(state.managerSelectedTaskIds);
+      if (ids.length > 1000) { toast('Pilih maksimal 1000 tugas sekaligus.'); return; }
+      state.managerAssigning = true;
+      updateManagerSelectionControls();
+      api('apiAssignExistingTasks', state.token, ids, target === '__unassigned__' ? '' : target).then(function(response) {
+        state.managerSelectedTaskIds.clear();
+        invalidateAssignmentViews();
+        toast(response.message || 'Penugasan diperbarui.');
+        loadTaskManager();
+      }).catch(showError).finally(function() {
+        state.managerAssigning = false;
+        updateManagerSelectionControls();
+      });
     }
 
     function createManagerUser(event) {
@@ -6301,9 +6456,15 @@
         const token = state.token;
         api('apiGetReportMeta', token).then(function(response) {
           if (token !== state.token || state.page !== 'laporan') return;
+          const oldTypes = Array.prototype.map.call(byId('reportType').options, function(option) { return option.value; }).join('|');
+          const newTypes = (response.reportTypes || []).map(function(type) { return type.value; }).join('|');
           state.reportMeta = response;
           saveClientCache('report', response);
-          renderOpenTasks();
+          if (oldTypes !== newTypes) renderReportPage();
+          else {
+            renderOpenTasks();
+            syncCurrentReportTaskOptions();
+          }
         }).catch(function() {
           if (token === state.token && state.page === 'laporan') startTimers();
         });
@@ -6579,6 +6740,28 @@
       updateRevisionFormFields();
       updateBankReportedRanges();
       updateAuditRevisionChecklist();
+    }
+
+    function syncCurrentReportTaskOptions() {
+      const type = byId('reportType').value;
+      const config = (REPORT_FORMS[type] || []).find(function(field) {
+        return field.kind === 'taskSelect' && field.field === 'relatedTaskId';
+      });
+      const select = document.querySelector('[data-field="relatedTaskId"]');
+      if (!config || !select) return;
+      const tasks = reportTasksForCurrentUser().filter(function(task) {
+        return taskMatchesFormPeriod(task) && (!config.match || config.match.indexOf(task.taskType) !== -1);
+      });
+      const oldIds = Array.prototype.map.call(select.options, function(option) { return option.value; }).join('|');
+      const newIds = [''].concat(tasks.map(function(task) { return task.id; })).join('|');
+      if (oldIds === newIds) return;
+      const selected = select.value;
+      select.innerHTML = '<option value="">Pilih tugas</option>' + tasks.map(function(task) {
+        return '<option value="' + escapeAttr(task.id) + '">' +
+          escapeHtml('No. ' + (Number(task.referenceNumber || 0) || '-') + ' - ' + (task.title || task.taskLabel)) + '</option>';
+      }).join('');
+      if (tasks.some(function(task) { return task.id === selected; })) select.value = selected;
+      else select.value = '';
     }
 
     function revisionChecklistOptions(sourceType, location) {

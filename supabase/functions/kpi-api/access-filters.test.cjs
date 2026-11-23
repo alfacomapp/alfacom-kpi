@@ -749,7 +749,12 @@ test('manager moves an active audit task to Supervisor without replacing its rep
   const supervisorReport = supervisorView.execute('apiGetReportMeta', ['test-jwt']);
   assert.equal(supervisorReport.ok, true, supervisorReport.message);
   assert.equal(supervisorReport.openTasks.some(item => item.id === current.Id), true);
-  assert.equal(engine.execute('apiGetReportMeta', ['test-jwt']).openTasks.some(item => item.id === current.Id), false);
+  assert.equal(supervisorReport.reportTypes.some(item => item.value === 'audit_harian'), true);
+  const managerReport = engine.execute('apiGetReportMeta', ['test-jwt']);
+  assert.equal(managerReport.openTasks.some(item => item.id === current.Id), false);
+  assert.equal(managerReport.reportTypes.some(item => item.value === 'audit_harian'), false);
+  assert.equal(engine.execute('apiAssignExistingTask', ['test-jwt', current.Id, manager.Id]).ok, true);
+  assert.equal(engine.execute('apiGetReportMeta', ['test-jwt']).reportTypes.some(item => item.value === 'audit_harian'), true);
 });
 
 test('manager controls future responsibility, timer seconds, and status-change reasons', () => {
@@ -801,6 +806,42 @@ test('unassigned branch task keeps its branch and cash-bank duty stays with Admi
   assert.equal(JSON.parse(unassigned.PayloadJson).assigneeUserId, '');
   assert.equal(engine.execute('apiAssignExistingTask', ['test-jwt', current.Id, supervisor.Id]).ok, false);
   assert.equal(engine.execute('apiAssignExistingTask', ['test-jwt', current.Id, admin.Id]).ok, true);
+});
+
+test('manager transfers selected running tasks together after validating every target', () => {
+  const manager = { ...user('mgr-bulk', 'abu abdillah', 'manager', 'all'),
+    SlaLogin: 'manager', Position: 'Manager' };
+  const supervisor = { ...user('sup-bulk', 'Abu Anis', 'supervisor', 'all'),
+    SlaLogin: 'abuanis', Position: 'Supervisor' };
+  const admin = user('admin-bulk', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const first = task('bulk-1', manager, 'berjalan');
+  const second = task('bulk-2', manager, 'berjalan');
+  const restricted = { ...task('bulk-bank', admin, 'berjalan'),
+    TaskType: 'laporan_keadaan_kas_bank', AssigneeLocation: 'kendari',
+    PayloadJson: JSON.stringify({ ownerOnly: true }) };
+  const { engine, ctx } = engineFor(manager, [manager, supervisor, admin], [], [first, second, restricted]);
+  const before = engine.timerForTest(first, new Date().toISOString(), {}).deadlineAt;
+  const denied = engine.execute('apiAssignExistingTasks',
+    ['test-jwt', [first.Id, restricted.Id], supervisor.Id]);
+  assert.equal(denied.ok, false);
+  assert.equal(ctx.tables.tasks.find(item => item.id === first.Id).record.AssigneeName, manager.Name);
+  const result = engine.execute('apiAssignExistingTasks',
+    ['test-jwt', [first.Id, second.Id], supervisor.Id]);
+  assert.equal(result.ok, true, result.message);
+  assert.equal(result.count, 2);
+  for (const id of [first.Id, second.Id]) {
+    const saved = ctx.tables.tasks.find(item => item.id === id).record;
+    assert.equal(saved.AssigneeName, supervisor.Name);
+    assert.equal(JSON.parse(saved.PayloadJson).assignmentHistory.length, 1);
+  }
+  const moved = ctx.tables.tasks.find(item => item.id === first.Id).record;
+  assert.equal(engine.timerForTest(moved, new Date().toISOString(), {}).deadlineAt, before);
+  assert.equal(engine.execute('apiAssignExistingTasks', ['test-jwt', [first.Id, first.Id], manager.Id]).ok, false);
+  const cards = engine.execute('apiGetDashboard', ['test-jwt', period]).cards;
+  assert.equal(cards.find(card => card.userId === manager.Id).label, 'Manager');
+  assert.equal(cards.find(card => card.userId === supervisor.Id).label, 'Supervisor');
+  const otherSession = engineFor(supervisor, [manager, supervisor, admin], [], [first]);
+  assert.equal(otherSession.engine.execute('apiAssignExistingTasks', ['test-jwt', [first.Id], supervisor.Id]).ok, false);
 });
 
 test('new KPI user is linked to an existing SLA login and gets an individual KPI card', () => {

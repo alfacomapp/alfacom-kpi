@@ -88,6 +88,26 @@ test('report task filter and weekly bank date inputs are present', () => {
   }
 });
 
+test('Task Manager filters running tasks by type and Makassar calendar month', () => {
+  const app = ui();
+  app.state.managerData = { tasks: [
+    { id: 'nov', type: 'audit_harian', title: 'Audit November', referenceNumber: 1,
+      startedAt: '2026-11-30T15:30:00Z' },
+    { id: 'dec', type: 'audit_harian', title: 'Audit Desember', referenceNumber: 2,
+      startedAt: '2026-11-30T16:30:00Z' },
+    { id: 'other', type: 'audit_pekanan', title: 'Audit pekanan', referenceNumber: 3,
+      startedAt: '2026-11-30T17:30:00Z' }
+  ] };
+  app.elements.managerTaskTypeFilter.value = 'audit_harian';
+  app.elements.managerTaskMonthFilter.value = '12';
+  app.elements.managerTaskYearFilter.value = '2026';
+  assert.deepEqual(Array.from(app.filteredManagerTasks(), task => task.id), ['dec']);
+  app.elements.managerTaskSearch.value = '1';
+  assert.equal(app.filteredManagerTasks().length, 0);
+  app.elements.managerTaskMonthFilter.value = '11';
+  assert.deepEqual(Array.from(app.filteredManagerTasks(), task => task.id), ['nov']);
+});
+
 test('bank calendar darkens reported dates and disables crossing them', () => {
   const app = ui();
   const ranges = [{ bankName: 'bri_kendari', start: '2026-11-01', end: '2026-11-10' }];
@@ -474,6 +494,10 @@ function ui() {
     reportTaskTypeFilter: { value: '', innerHTML: '' },
     reportTaskStatusFilter: { value: '' },
     reportTaskNumberFilter: { value: '' },
+    managerTaskSearch: { value: '' },
+    managerTaskTypeFilter: { value: '' },
+    managerTaskMonthFilter: { value: '' },
+    managerTaskYearFilter: { value: '' },
     reportFormMonthFilter: { value: '', innerHTML: '' },
     reportFormYearFilter: { value: '', innerHTML: '' },
     openTasksList: { innerHTML: '', items: [], querySelectorAll(selector) {
@@ -528,7 +552,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, bankUploadPreparation, renderField, updateShipmentItemTotal, bankCalendarMarkup, bankCalendarDayState, chooseBankCalendarDay, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers, updateSelectedFileCount, removeSelectedReportFile, refreshBankUploadPreparation };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, bankUploadPreparation, renderField, updateShipmentItemTotal, bankCalendarMarkup, bankCalendarDayState, chooseBankCalendarDay, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, filteredManagerTasks, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers, updateSelectedFileCount, removeSelectedReportFile, refreshBankUploadPreparation };', context);
   return { ...context.__ui, elements, document: context.document };
 }
 

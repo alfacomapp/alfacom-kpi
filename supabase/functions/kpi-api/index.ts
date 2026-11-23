@@ -358,6 +358,10 @@ const PERIOD_REPORT_TASK_TYPES = new Set([
   'laporan_investor', 'laporan_raport_fee_freelance', 'stok_opname_auditor', 'audit_alat_teknisi'
 ]);
 
+const SELF_INITIATED_REPORT_TYPES = new Set([
+  'kasbon_di_atas_limit', 'stok_opname_raha', 'follow_up_nota_tagihan', 'input_pengiriman'
+]);
+
 function doGet() {
   return responseJson({
     ok: true,
@@ -399,6 +403,7 @@ function doPost(e) {
       'apiGetTaskManager',
       'apiSaveTaskAssignments',
       'apiAssignExistingTask',
+      'apiAssignExistingTasks',
       'apiCreateManagedUser',
       'apiGetReportMeta',
       'apiSubmitReport',
@@ -1801,9 +1806,11 @@ function apiGetTaskManager(token) {
     const tasks = readObjects_('tasks').filter(function(task) { return String(task.Status || 'berjalan') === 'berjalan'; })
       .map(function(task) { const payload = parseJsonSafe_(task.PayloadJson, {}); return {
         id: task.Id, referenceNumber: Number(task.ReferenceNumber || task.__Sequence || 0),
-        title: task.Title, type: task.TaskType, assigneeName: task.AssigneeName || '',
+        title: task.Title, type: task.TaskType,
+        typeLabel: REPORT_TYPES[task.TaskType]?.label || task.TaskType || 'Tugas lain',
+        assigneeName: task.AssigneeName || '',
         assigneeUserId: payload.assigneeUserId || '', location: task.AssigneeLocation || '',
-        startedAt: toIso_(task.StartedAt)
+        startedAt: toIso_(task.StartedAt || task.CreatedAt)
       }; }).sort(function(a, b) { return b.referenceNumber - a.referenceNumber; });
     return ok_({ users: users.map(function(user) { return sanitizeUser_(user); }), types, tasks });
   } catch (error) { return fail_(error); }
@@ -1834,39 +1841,64 @@ function apiSaveTaskAssignments(token, key, userIds) {
 }
 
 function apiAssignExistingTask(token, taskId, assigneeUserId) {
+  return apiAssignExistingTasks(token, [taskId], assigneeUserId);
+}
+
+function apiAssignExistingTasks(token, taskIds, assigneeUserId) {
   try {
     const manager = managerUser_(token);
     const target = assigneeUserId ? getActiveUsers_().find(function(user) { return user.Id === String(assigneeUserId); }) : null;
     if (assigneeUserId && !target) throw new Error('Pengguna tujuan tidak ditemukan.');
-    const task = readObjects_('tasks').find(function(row) { return row.Id === String(taskId || ''); });
-    if (!task || String(task.Status || 'berjalan') !== 'berjalan') throw new Error('Tugas berjalan tidak ditemukan.');
-    if (!isAssignableUserForType_(target, task.TaskType, task.AssigneeLocation))
-      throw new Error('Tugas ini memerlukan pengguna pada lokasi yang sesuai. Laporan kas bank hanya untuk Admin Kendari.');
-    const now = new Date();
-    const previousDeadline = buildTaskTimer_(task, now, getAttendanceMap_()).deadlineAt;
-    updateObjectById_('tasks', task.Id, function(row) {
-      const payload = parseJsonSafe_(row.PayloadJson, {});
-      const history = Array.isArray(payload.assignmentHistory) ? payload.assignmentHistory : [];
-      history.push({ at: now.toISOString(), by: manager.Name, from: row.AssigneeName || '', to: target ? target.Name : '' });
-      payload.assignmentHistory = history;
-      payload.assigneeUserId = target ? target.Id : '';
-      payload.manuallyAssigned = true;
-      if (previousDeadline) {
-        const manual = Array.isArray(payload.manualTimeExtensions) ? payload.manualTimeExtensions : [];
-        payload.assignmentDeadlineAt = new Date(Date.parse(previousDeadline) - manual.reduce(function(sum, entry) {
-          return sum + Math.max(0, Number(entry.addedMs || 0));
-        }, 0)).toISOString();
-        payload.assignmentTransferAt = now.toISOString();
-      }
-      row.AssigneeRole = target ? normalizeRole_(target.Role) : '';
-      row.AssigneeLocation = target && getUserLocation_(target) !== 'all'
-        ? getUserLocation_(target) : normalizeLocation_(row.AssigneeLocation || 'all');
-      row.AssigneeName = target ? target.Name : '';
-      row.PayloadJson = JSON.stringify(payload);
-      row.UpdatedAt = now;
-      return row;
+    if (!Array.isArray(taskIds) || !taskIds.length || taskIds.length > 1000)
+      throw new Error('Pilih 1 sampai 1000 tugas berjalan.');
+    const ids = taskIds.map(function(id) { return String(id || '').trim(); });
+    if (ids.some(function(id) { return !id; }) || new Set(ids).size !== ids.length)
+      throw new Error('Pilihan tugas tidak valid atau berulang.');
+    const tasksById = Object.fromEntries(readObjects_('tasks').map(function(row) { return [row.Id, row]; }));
+    const tasks = ids.map(function(id) { return tasksById[id]; });
+    if (tasks.some(function(task) { return !task || String(task.Status || 'berjalan') !== 'berjalan'; }))
+      throw new Error('Sebagian tugas sudah tidak berjalan. Muat ulang daftar tugas.');
+    const incompatible = tasks.find(function(task) {
+      return !isAssignableUserForType_(target, task.TaskType, task.AssigneeLocation);
     });
-    return ok_({ message: target ? 'Tugas dipindahkan ke ' + target.Name + '.' : 'Penanggung jawab tugas dikosongkan.' });
+    if (incompatible)
+      throw new Error('Tugas No. ' + Number(incompatible.ReferenceNumber || incompatible.__Sequence || 0) +
+        ' memerlukan pengguna pada lokasi yang sesuai. Laporan kas bank hanya untuk Admin Kendari.');
+    const now = new Date();
+    const attendanceMap = getAttendanceMap_();
+    let changed = 0;
+    tasks.forEach(function(task) {
+      const currentPayload = parseJsonSafe_(task.PayloadJson, {});
+      if (Object.prototype.hasOwnProperty.call(currentPayload, 'assigneeUserId') &&
+          String(currentPayload.assigneeUserId || '') === (target ? target.Id : '') &&
+          String(task.AssigneeName || '') === (target ? target.Name : '')) return;
+      const previousDeadline = buildTaskTimer_(task, now, attendanceMap).deadlineAt;
+      updateObjectById_('tasks', task.Id, function(row) {
+        const payload = parseJsonSafe_(row.PayloadJson, {});
+        const history = Array.isArray(payload.assignmentHistory) ? payload.assignmentHistory : [];
+        history.push({ at: now.toISOString(), by: manager.Name, from: row.AssigneeName || '', to: target ? target.Name : '' });
+        payload.assignmentHistory = history;
+        payload.assigneeUserId = target ? target.Id : '';
+        payload.manuallyAssigned = true;
+        if (previousDeadline) {
+          const manual = Array.isArray(payload.manualTimeExtensions) ? payload.manualTimeExtensions : [];
+          payload.assignmentDeadlineAt = new Date(Date.parse(previousDeadline) - manual.reduce(function(sum, entry) {
+            return sum + Math.max(0, Number(entry.addedMs || 0));
+          }, 0)).toISOString();
+          payload.assignmentTransferAt = now.toISOString();
+        }
+        row.AssigneeRole = target ? normalizeRole_(target.Role) : '';
+        row.AssigneeLocation = target && getUserLocation_(target) !== 'all'
+          ? getUserLocation_(target) : normalizeLocation_(row.AssigneeLocation || 'all');
+        row.AssigneeName = target ? target.Name : '';
+        row.PayloadJson = JSON.stringify(payload);
+        row.UpdatedAt = now;
+        return row;
+      });
+      changed += 1;
+    });
+    return ok_({ count: changed, message: changed + ' tugas ' +
+      (target ? 'dipindahkan ke ' + target.Name : 'dikosongkan penanggung jawabnya') + '.' });
   } catch (error) { return fail_(error); }
 }
 
@@ -2405,7 +2437,9 @@ function getVisibleCards_(user, activeUsers) {
     return Boolean(row.SlaLogin) || ['manager', 'supervisor', 'user'].indexOf(normalizeRole_(row.Role)) !== -1;
   }).forEach(function(row) {
     cards.push({ key: 'user:' + row.Id, userId: row.Id,
-      label: (row.Position || ROLE_LABELS[normalizeRole_(row.Role)] || 'User') + ' · ' + row.Name,
+      label: ['manager', 'supervisor'].indexOf(normalizeRole_(row.Role)) !== -1
+        ? ROLE_LABELS[normalizeRole_(row.Role)]
+        : (row.Position || ROLE_LABELS[normalizeRole_(row.Role)] || 'User') + ' · ' + row.Name,
       role: normalizeRole_(row.Role), location: getUserLocation_(row) });
   });
   if ((activeUsers || []).some(function(row) { return normalizeRole_(row.Role) === 'user' && !row.SlaLogin; }))
@@ -2947,9 +2981,8 @@ function getReportTypesForUser_(user, openTasks) {
   const assignedTypes = new Set((openTasks || []).map(function(task) { return task.taskType; }));
   return Object.keys(REPORT_TYPES)
     .filter(function(type) {
-      return (REPORT_TYPES[type].roles.indexOf(user.Role) !== -1 ||
-        (user.Role === 'manager' && REPORT_TYPES[type].roles.indexOf('auditor') !== -1) ||
-        assignedTypes.has(type)) &&
+      return (assignedTypes.has(type) ||
+        SELF_INITIATED_REPORT_TYPES.has(type) && REPORT_TYPES[type].roles.indexOf(user.Role) !== -1) &&
         (type !== 'stok_opname_raha' || getUserLocation_(user) === 'raha');
     })
     .map(function(type) {
@@ -5987,7 +6020,7 @@ function fail_(error) {
   const actions = {
     apiLogout, apiLogActivity, apiGetSession, apiGetDashboard, apiGetTaskTimeHistory, apiFindTaskByNumber,
     apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiReactNote, apiMarkNoteMentionsSeen, apiUpdateTaskStatus,
-    apiExtendTaskDeadline, apiGetTaskManager, apiSaveTaskAssignments, apiAssignExistingTask, apiCreateManagedUser,
+    apiExtendTaskDeadline, apiGetTaskManager, apiSaveTaskAssignments, apiAssignExistingTask, apiAssignExistingTasks, apiCreateManagedUser,
     apiGetReportMeta, apiSubmitReport, apiAddTaskAttachments, apiUpdateProfile, apiUpdateTaskColumnPreferences
   };
   const tableNames = {
