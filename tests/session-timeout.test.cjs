@@ -13,6 +13,7 @@ function sessionFixture() {
   const calls = [];
   const restRows = async (table, query) => {
     if (table === 'users') return [profile];
+    if (table === 'kpi_users') return [];
     if (table === 'kpi_sessions') {
       const hash = query.split('token_hash=eq.')[1];
       return rows.has(hash) ? [rows.get(hash)] : [];

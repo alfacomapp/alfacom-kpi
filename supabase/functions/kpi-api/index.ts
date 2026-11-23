@@ -129,6 +129,8 @@ const KPI_APP = {
 
 const ROLE_LABELS = {
   owner: 'Owner',
+  manager: 'Manager',
+  supervisor: 'Supervisor',
   auditor: 'Auditor',
   admin_kendari: 'Admin Kendari',
   admin_raha: 'Admin Raha',
@@ -393,6 +395,11 @@ function doPost(e) {
       'apiEditNoteComment',
       'apiReactNote',
       'apiUpdateTaskStatus',
+      'apiExtendTaskDeadline',
+      'apiGetTaskManager',
+      'apiSaveTaskAssignments',
+      'apiAssignExistingTask',
+      'apiCreateManagedUser',
       'apiGetReportMeta',
       'apiSubmitReport',
       'apiGetUploadedFile',
@@ -465,7 +472,7 @@ function peranKpiDariSla_(profil, login) {
   const branch = String(profil && profil.hak_akses_cabang || '').trim().toLowerCase();
   const username = String(login || '').trim().toLowerCase();
   if (role === 'direktur') return { role: 'owner', location: 'all' };
-  if (role === 'manager') return { role: 'auditor', location: 'all' };
+  if (role === 'manager') return { role: username === 'abuanis' ? 'supervisor' : 'manager', location: 'all' };
   if (role === 'teknisi' && username === 'alif') return { role: 'admin_raha', location: 'raha' };
   if (role === 'admin_raha' || (role === 'admin' && branch === 'raha'))
     return { role: 'admin_raha', location: 'raha' };
@@ -600,7 +607,7 @@ function apiGetDashboard(token, filters) {
     // Recover scheduled tasks when the daily maintenance request was missed.
     // Period keys keep existing reports and auditor status decisions intact.
     if (ctx.recoverScheduledTasks) ensureKpiTasksAndStatus_(false);
-    if (user.Role === 'auditor') {
+    if (isAuditReviewer_(user.Role)) {
       ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
       ensureAuditorInventoryTasks_(new Date(), readObjects_('tasks'), readObjects_('users'), { Id: 'system', Name: 'System' });
     }
@@ -640,7 +647,7 @@ function apiGetDashboard(token, filters) {
         enriched.payload.auditBankReports = auditBankReportsForCurrentRevision_(task, taskRowsById);
       const sourceId = String(enriched.payload && enriched.payload.sourceTaskId || '');
       const sourceTask = taskRowsById[sourceId];
-      if (sourceTask && enriched.assigneeRole === 'auditor')
+      if (sourceTask && isAuditReviewer_(enriched.assigneeRole))
         enriched.linkedReferenceNumber = Number(sourceTask.ReferenceNumber || sourceTask.__Sequence || 0);
       enriched.submissionHistory = submissionHistoryForTask_(task, reportIndex);
       if (task.TaskType === 'laporan_keadaan_kas_bank' && user.Role !== 'admin_kendari') {
@@ -721,7 +728,8 @@ function apiGetDashboard(token, filters) {
       taskTypes: taskTypes,
       cardTasks: selectedCardTasks.slice().sort(sortTasks_).slice(0, 800),
       tasks: detailTasks.slice(0, 400),
-      canEditTaskStatus: user.Role === 'owner' || user.Role === 'auditor'
+      canEditTaskStatus: user.Role === 'owner' || user.Role === 'auditor' || user.Role === 'manager',
+      canEditTaskTimer: user.Role === 'manager'
     });
   } catch (error) {
     return fail_(error);
@@ -772,7 +780,7 @@ function apiFindTaskByNumber(token, referenceNumber, view) {
     if (enriched.taskType === 'audit_pekanan')
       enriched.payload.auditBankReports = auditBankReportsForCurrentRevision_(task, rowsById);
     enriched.submissionHistory = submissionHistoryForTask_(task, reportIndex);
-    if (user.Role === 'auditor') enriched = attachSourceFilesForAuditor_(enriched, reportIndex);
+    if (isAuditReviewer_(user.Role)) enriched = attachSourceFilesForAuditor_(enriched, reportIndex);
     if (view === 'dashboard') {
       enriched = cashBankTaskForViewer_(enriched, user);
       if (task.TaskType === 'laporan_keadaan_kas_bank' && user.Role !== 'admin_kendari') {
@@ -1190,8 +1198,7 @@ function auditBankReportsForCurrentRevision_(task, rowsById) {
 function revisionAlertsForUser_(user, taskRows, now, attendanceMap) {
   const rowsById = Object.fromEntries(taskRows.map(function(row) { return [String(row.Id || ''), row]; }));
   return taskRows.reduce(function(alerts, row) {
-    if (String(row.Status || 'berjalan') !== 'berjalan' ||
-        normalizeRole_(row.AssigneeRole) !== normalizeRole_(user.Role)) return alerts;
+    if (String(row.Status || 'berjalan') !== 'berjalan') return alerts;
     const task = enrichTask_(row, now, attendanceMap);
     if (isDeprecatedTaskForKpi_(task) || !isReportTaskAssignedToUser_(user, task)) return alerts;
 
@@ -1207,11 +1214,11 @@ function revisionAlertsForUser_(user, taskRows, now, attendanceMap) {
       kind = 'revision';
       revisionRound = Number(payload.revision.count || 0);
       eventAt = payload.revision.startedAt || task.startedAt;
-    } else if (user.Role === 'auditor' && task.taskType === 'audit_revisi' && Number(payload.revisionCount) > 0) {
+    } else if (isAuditReviewer_(user.Role) && task.taskType === 'audit_revisi' && Number(payload.revisionCount) > 0) {
       kind = 'answer';
       revisionRound = Number(payload.revisionCount);
       eventAt = task.startedAt;
-    } else if (user.Role === 'auditor') {
+    } else if (isAuditReviewer_(user.Role)) {
       const answer = sourceRevisionAnswerForAudit_(row, rowsById);
       if (answer) {
         kind = 'answer';
@@ -1239,7 +1246,7 @@ function apiGetReportMeta(token) {
   try {
     const user = requireUser_(token);
     if (ctx.recoverScheduledTasks) ensureKpiTasksAndStatus_(false);
-    if (user.Role === 'auditor') {
+    if (isAuditReviewer_(user.Role)) {
       ensureCurrentLocationAudits_(new Date(), readObjects_('tasks'), { Id: 'system', Name: 'System' });
       ensureAuditorInventoryTasks_(new Date(), readObjects_('tasks'), readObjects_('users'), { Id: 'system', Name: 'System' });
     }
@@ -1257,13 +1264,13 @@ function apiGetReportMeta(token) {
         if (enriched.taskType === 'audit_pekanan')
           enriched.payload.auditBankReports = auditBankReportsForCurrentRevision_(task, reportIndex.tasksById);
         enriched.submissionHistory = submissionHistoryForTask_(task, reportIndex);
-        return user.Role === 'auditor' ? attachSourceFilesForAuditor_(enriched, reportIndex) : enriched;
+        return isAuditReviewer_(user.Role) ? attachSourceFilesForAuditor_(enriched, reportIndex) : enriched;
       })
       .filter(function(task) {
         return task.status === 'berjalan' && !isDeprecatedTaskForKpi_(task) && isReportTaskAssignedToUser_(user, task);
       })
       .sort(sortReportTasksByDeadline_);
-    const reportTypes = getReportTypesForUser_(user).filter(function(type) {
+    const reportTypes = getReportTypesForUser_(user, openTasks).filter(function(type) {
       return (type.value !== 'revisi_audit' && type.value !== 'audit_revisi') ||
         openTasks.some(function(task) { return task.taskType === type.value; });
     });
@@ -1275,8 +1282,8 @@ function apiGetReportMeta(token) {
       bankReportedRanges: user.Role === 'admin_kendari'
         ? bankReportedRanges_(taskRows, reportIndex.reports) : [],
       revisionAlerts: revisionAlertsForUser_(user, taskRows, now, attendanceMap),
-      revisionRecipients: user.Role === 'auditor' ? getActiveUsers_().filter(function(candidate) {
-        return ['admin_kendari', 'admin_raha', 'auditor'].indexOf(normalizeRole_(candidate.Role)) !== -1;
+      revisionRecipients: isAuditReviewer_(user.Role) ? getActiveUsers_().filter(function(candidate) {
+        return ['admin_kendari', 'admin_raha', 'auditor', 'manager', 'supervisor'].indexOf(normalizeRole_(candidate.Role)) !== -1;
       }).map(function(candidate) {
         return { id: candidate.Id, name: candidate.Name,
           role: ROLE_LABELS[normalizeRole_(candidate.Role)] || candidate.Role };
@@ -1645,8 +1652,8 @@ function apiGetUploadedFile(token, fileId) {
 function apiUpdateTaskStatus(token, taskId, kpiStatus, note) {
   try {
     const user = requireUser_(token);
-    if (user.Role !== 'owner' && user.Role !== 'auditor') {
-      throw new Error('Hanya owner dan auditor yang dapat mengubah status KPI.');
+    if (user.Role !== 'owner' && user.Role !== 'auditor' && user.Role !== 'manager') {
+      throw new Error('Hanya Owner, Auditor, dan Manager yang dapat mengubah status KPI.');
     }
 
     const normalizedStatus = normalizeKpiStatus_(kpiStatus);
@@ -1656,10 +1663,23 @@ function apiUpdateTaskStatus(token, taskId, kpiStatus, note) {
     const now = new Date();
 
     updateObjectById_('tasks', String(taskId || ''), function(row) {
+      const previous = normalizeKpiStatus_(row.KpiStatus || 'berjalan');
+      const reason = String(note || '').trim();
+      if (user.Role === 'manager' && previous !== normalizedStatus && (!reason || reason.length > 1000))
+        throw new Error('Isi alasan perubahan status (maksimal 1000 karakter).');
+      const payload = parseJsonSafe_(row.PayloadJson, {});
+      if (user.Role === 'manager' && previous !== normalizedStatus) {
+        const history = Array.isArray(payload.statusChangeHistory) ? payload.statusChangeHistory : [];
+        history.push({ at: now.toISOString(), by: user.Name, from: previous, to: normalizedStatus, reason });
+        payload.statusChangeHistory = history;
+        payload.statusChangeReason = reason;
+        row.PayloadJson = JSON.stringify(payload);
+      }
       row.KpiStatus = normalizedStatus;
       row.Status = normalizedStatus === 'berjalan' ? 'berjalan' : 'selesai';
       row.UpdatedAt = now;
-      row.Notes = String(note || row.Notes || ('Status diubah ' + user.Name + ' menjadi ' + (KPI_LABELS[normalizedStatus] || normalizedStatus)));
+      row.Notes = user.Role === 'manager' ? String(row.Notes || '') :
+        String(note || row.Notes || ('Status diubah ' + user.Name + ' menjadi ' + (KPI_LABELS[normalizedStatus] || normalizedStatus)));
 
       if (normalizedStatus === 'berjalan') {
         row.CompletedAt = '';
@@ -1677,6 +1697,222 @@ function apiUpdateTaskStatus(token, taskId, kpiStatus, note) {
   } catch (error) {
     return fail_(error);
   }
+}
+
+function apiExtendTaskDeadline(token, taskId, seconds, reason) {
+  try {
+    const user = requireUser_(token);
+    if (user.Role !== 'manager') throw new Error('Hanya manager yang dapat menambah waktu tugas.');
+    const addedSeconds = Number(seconds);
+    if (!Number.isSafeInteger(addedSeconds) || addedSeconds < 1 || addedSeconds > 365 * 86400)
+      throw new Error('Tambahan waktu harus 1 detik sampai 365 hari.');
+    const now = new Date();
+    const task = readObjects_('tasks').find(function(row) { return row.Id === String(taskId || ''); });
+    if (!task) throw new Error('Tugas tidak ditemukan.');
+    if (String(task.Status || 'berjalan') !== 'berjalan') throw new Error('Timer tugas selesai tidak dapat ditambah.');
+    const oldDeadline = buildTaskTimer_(task, now, getAttendanceMap_()).deadlineAt;
+    if (!oldDeadline) throw new Error('Tugas ini tidak mempunyai tenggat waktu.');
+    updateObjectById_('tasks', task.Id, function(row) {
+      const payload = parseJsonSafe_(row.PayloadJson, {});
+      const history = Array.isArray(payload.manualTimeExtensions) ? payload.manualTimeExtensions : [];
+      history.push({ at: now.toISOString(), by: user.Name, addedMs: addedSeconds * 1000,
+        previousDeadlineAt: oldDeadline, reason: String(reason || '').trim().slice(0, 500) });
+      payload.manualTimeExtensions = history;
+      row.PayloadJson = JSON.stringify(payload);
+      row.UpdatedAt = now;
+      return row;
+    });
+    return ok_({ message: 'Tenggat waktu ditambah.' });
+  } catch (error) { return fail_(error); }
+}
+
+function managerUser_(token) {
+  const user = requireUser_(token);
+  if (user.Role !== 'manager') throw new Error('Menu Task Manager hanya untuk manager.');
+  return user;
+}
+
+function taskAssignmentKeys_() {
+  return Object.keys(REPORT_TYPES).filter(function(type) {
+    return ['note_tugas', 'revisi_audit', 'audit_revisi'].indexOf(type) === -1;
+  }).reduce(function(keys, type) {
+    const roles = REPORT_TYPES[type].roles;
+    const locations = roles.indexOf('admin_kendari') !== -1 && roles.indexOf('admin_raha') !== -1
+      ? ['kendari', 'raha'] : roles.indexOf('admin_kendari') !== -1 ? ['kendari']
+      : roles.indexOf('admin_raha') !== -1 ? ['raha'] : ['all'];
+    locations.forEach(function(location) { keys.push({ key: type + '|' + location, type,
+      location, label: REPORT_TYPES[type].label + (location === 'all' ? '' : ' · ' + titleCaseLocation_(location)) }); });
+    return keys;
+  }, []);
+}
+
+function assignmentKeyForTask_(type, location) {
+  const keys = taskAssignmentKeys_().map(function(item) { return item.key; });
+  const branchKey = type + '|' + (normalizeLocation_(location) || 'all');
+  return keys.indexOf(branchKey) !== -1 ? branchKey : type + '|all';
+}
+
+function managedAssignmentConfig_() {
+  const manager = readObjects_('users').find(function(row) {
+    return normalizeRole_(row.Role) === 'manager' && String(row.Active).toLowerCase() !== 'false';
+  });
+  return manager && manager.ManagedAssignments && typeof manager.ManagedAssignments === 'object'
+    ? manager.ManagedAssignments : {};
+}
+
+function assigneesForType_(type, location) {
+  const users = getActiveUsers_();
+  const key = assignmentKeyForTask_(type, location);
+  const configured = managedAssignmentConfig_()[key];
+  if (Array.isArray(configured)) return configured.map(function(id) {
+    return users.find(function(user) { return user.Id === id; });
+  }).filter(Boolean);
+  const report = REPORT_TYPES[type];
+  if (!report) return [];
+  return users.filter(function(user) {
+    const role = normalizeRole_(user.Role);
+    const functionalRole = role === 'manager' ? 'auditor' : role;
+    return report.roles.indexOf(functionalRole) !== -1 &&
+      (functionalRole !== 'admin_kendari' && functionalRole !== 'admin_raha' ||
+        getUserLocation_(user) === normalizeLocation_(location));
+  });
+}
+
+function isAssignableUserForType_(user, type, location) {
+  if (!user) return true;
+  if (type === 'laporan_keadaan_kas_bank')
+    return normalizeRole_(user.Role) === 'admin_kendari' && getUserLocation_(user) === 'kendari';
+  const key = assignmentKeyForTask_(type, location);
+  const branch = key.split('|')[1];
+  return branch === 'all' || getUserLocation_(user) === branch;
+}
+
+function apiGetTaskManager(token) {
+  try {
+    managerUser_(token);
+    const users = getActiveUsers_();
+    const config = managedAssignmentConfig_();
+    const types = taskAssignmentKeys_().map(function(item) {
+      const responsible = assigneesForType_(item.type, item.location).map(function(user) {
+        return { id: user.Id, name: user.Name, position: user.Position || ROLE_LABELS[normalizeRole_(user.Role)] || user.Role };
+      });
+      return Object.assign({}, item, { userIds: Array.isArray(config[item.key]) ? config[item.key] : responsible.map(function(user) { return user.id; }), responsible });
+    });
+    const tasks = readObjects_('tasks').filter(function(task) { return String(task.Status || 'berjalan') === 'berjalan'; })
+      .map(function(task) { const payload = parseJsonSafe_(task.PayloadJson, {}); return {
+        id: task.Id, referenceNumber: Number(task.ReferenceNumber || task.__Sequence || 0),
+        title: task.Title, type: task.TaskType, assigneeName: task.AssigneeName || '',
+        assigneeUserId: payload.assigneeUserId || '', location: task.AssigneeLocation || '',
+        startedAt: toIso_(task.StartedAt)
+      }; }).sort(function(a, b) { return b.referenceNumber - a.referenceNumber; });
+    return ok_({ users: users.map(function(user) { return sanitizeUser_(user); }), types, tasks });
+  } catch (error) { return fail_(error); }
+}
+
+function apiSaveTaskAssignments(token, key, userIds) {
+  try {
+    const manager = managerUser_(token);
+    if (!taskAssignmentKeys_().some(function(item) { return item.key === key; })) throw new Error('Jenis tugas tidak dikenal.');
+    if (!Array.isArray(userIds) || userIds.length > 30) throw new Error('Daftar penanggung jawab tidak valid.');
+    const unique = Array.from(new Set(userIds.map(String)));
+    const users = getActiveUsers_();
+    if (!unique.every(function(id) { return users.some(function(user) { return user.Id === id; }); }))
+      throw new Error('Pengguna penanggung jawab tidak ditemukan.');
+    const type = key.split('|')[0];
+    const location = key.split('|')[1];
+    if (!unique.every(function(id) { return isAssignableUserForType_(users.find(function(user) { return user.Id === id; }), type, location); }))
+      throw new Error('Pilih pengguna dengan lokasi yang sesuai. Laporan kas bank hanya untuk Admin Kendari.');
+    updateObjectById_('users', manager.Id, function(row) {
+      const config = Object.assign({}, row.ManagedAssignments || {});
+      config[key] = unique;
+      row.ManagedAssignments = config;
+      row.UpdatedAt = new Date();
+      return row;
+    });
+    return ok_({ message: 'Penugasan berikutnya diperbarui. Tugas yang sudah berjalan dapat dipindah di daftar bawah.' });
+  } catch (error) { return fail_(error); }
+}
+
+function apiAssignExistingTask(token, taskId, assigneeUserId) {
+  try {
+    const manager = managerUser_(token);
+    const target = assigneeUserId ? getActiveUsers_().find(function(user) { return user.Id === String(assigneeUserId); }) : null;
+    if (assigneeUserId && !target) throw new Error('Pengguna tujuan tidak ditemukan.');
+    const task = readObjects_('tasks').find(function(row) { return row.Id === String(taskId || ''); });
+    if (!task || String(task.Status || 'berjalan') !== 'berjalan') throw new Error('Tugas berjalan tidak ditemukan.');
+    if (!isAssignableUserForType_(target, task.TaskType, task.AssigneeLocation))
+      throw new Error('Tugas ini memerlukan pengguna pada lokasi yang sesuai. Laporan kas bank hanya untuk Admin Kendari.');
+    const now = new Date();
+    const previousDeadline = buildTaskTimer_(task, now, getAttendanceMap_()).deadlineAt;
+    updateObjectById_('tasks', task.Id, function(row) {
+      const payload = parseJsonSafe_(row.PayloadJson, {});
+      const history = Array.isArray(payload.assignmentHistory) ? payload.assignmentHistory : [];
+      history.push({ at: now.toISOString(), by: manager.Name, from: row.AssigneeName || '', to: target ? target.Name : '' });
+      payload.assignmentHistory = history;
+      payload.assigneeUserId = target ? target.Id : '';
+      payload.manuallyAssigned = true;
+      if (previousDeadline) {
+        const manual = Array.isArray(payload.manualTimeExtensions) ? payload.manualTimeExtensions : [];
+        payload.assignmentDeadlineAt = new Date(Date.parse(previousDeadline) - manual.reduce(function(sum, entry) {
+          return sum + Math.max(0, Number(entry.addedMs || 0));
+        }, 0)).toISOString();
+        payload.assignmentTransferAt = now.toISOString();
+      }
+      row.AssigneeRole = target ? normalizeRole_(target.Role) : '';
+      row.AssigneeLocation = target && getUserLocation_(target) !== 'all'
+        ? getUserLocation_(target) : normalizeLocation_(row.AssigneeLocation || 'all');
+      row.AssigneeName = target ? target.Name : '';
+      row.PayloadJson = JSON.stringify(payload);
+      row.UpdatedAt = now;
+      return row;
+    });
+    return ok_({ message: target ? 'Tugas dipindahkan ke ' + target.Name + '.' : 'Penanggung jawab tugas dikosongkan.' });
+  } catch (error) { return fail_(error); }
+}
+
+function apiCreateManagedUser(token, input) {
+  try {
+    const manager = managerUser_(token);
+    const data = input || {};
+    const login = String(data.slaLogin || '').trim().toLowerCase();
+    const name = String(data.name || '').trim();
+    const position = String(data.position || '').trim();
+    const role = normalizeRole_(data.role || 'user');
+    const location = normalizeLocation_(data.location || 'all');
+    if (!/^[a-z0-9._-]{2,80}$/.test(login) || !name || name.length > 100 || !position || position.length > 100)
+      throw new Error('Isi login SLA, nama, dan jabatan yang valid.');
+    if (['user', 'supervisor', 'auditor', 'admin_kendari', 'admin_raha', 'sales_director'].indexOf(role) === -1)
+      throw new Error('Peran baru tidak diizinkan.');
+    if (!ctx.validatedNewLogin || ctx.validatedNewLogin !== login)
+      throw new Error('Login tersebut belum terdaftar di Lobby SLA.');
+    if (readObjects_('users').some(function(user) { return String(user.SlaLogin || '').toLowerCase() === login; }))
+      throw new Error('Login SLA sudah mempunyai profil KPI.');
+    const id = makeId_('USR');
+    const menus = Array.isArray(data.menus) ? data.menus.filter(function(menu) {
+      return ['dashboard', 'laporan', 'profil'].indexOf(menu) !== -1;
+    }) : ['dashboard', 'laporan', 'profil'];
+    appendObject_('users', { Id: id, Username: login, SlaLogin: login, Name: name,
+      Position: position, Role: role, Location: location, Menus: menus, Active: true,
+      CreatedAt: new Date(), UpdatedAt: new Date(), CreatedById: manager.Id });
+    const selected = Array.isArray(data.assignmentKeys) ? data.assignmentKeys : [];
+    const allowed = taskAssignmentKeys_().map(function(item) { return item.key; });
+    if (selected.length > allowed.length || !selected.every(function(key) { return allowed.indexOf(key) !== -1; }))
+      throw new Error('Pilihan tugas tidak valid.');
+    if (!selected.every(function(key) { return isAssignableUserForType_({ Role: role, Location: location }, key.split('|')[0], key.split('|')[1]); }))
+      throw new Error('Pilihan tugas harus sesuai dengan lokasi pengguna. Laporan kas bank hanya untuk Admin Kendari.');
+    updateObjectById_('users', manager.Id, function(row) {
+      const config = Object.assign({}, row.ManagedAssignments || {});
+      selected.forEach(function(key) {
+        const type = key.split('|')[0];
+        const branch = key.split('|')[1];
+        const current = Array.isArray(config[key]) ? config[key].slice() : assigneesForType_(type, branch).map(function(user) { return user.Id; });
+        config[key] = Array.from(new Set(current.concat(id)));
+      });
+      row.ManagedAssignments = config;
+      return row;
+    });
+    return ok_({ message: 'Profil KPI ' + name + ' dibuat. Pengguna dapat masuk dengan akun Lobby SLA.', userId: id });
+  } catch (error) { return fail_(error); }
 }
 
 
@@ -1932,6 +2168,8 @@ function sanitizeUser_(user) {
     Name: String(user.Name || ''),
     Role: normalizeRole_(user.Role),
     RoleLabel: ROLE_LABELS[normalizeRole_(user.Role)] || String(user.Role || ''),
+    Position: String(user.Position || ROLE_LABELS[normalizeRole_(user.Role)] || ''),
+    SlaLogin: String(user.SlaLogin || ''),
     Location: getUserLocation_(user),
     Email: String(user.Email || ''),
     Phone: String(user.Phone || ''),
@@ -1940,7 +2178,10 @@ function sanitizeUser_(user) {
 }
 
 function menusForUser_(user) {
-  return ['dashboard', 'laporan', 'profil'];
+  const allowed = ['dashboard', 'laporan', 'profil'];
+  const requested = Array.isArray(user.Menus) ? user.Menus.filter(function(menu) { return allowed.indexOf(menu) !== -1; }) : allowed;
+  if (normalizeRole_(user.Role) === 'manager') return ['dashboard', 'laporan', 'task_manager', 'profil'];
+  return requested.indexOf('profil') === -1 ? requested.concat('profil') : requested;
 }
 
 function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers, currentUserId) {
@@ -2107,6 +2348,10 @@ function getActiveUsers_() {
   });
 }
 
+function isAuditReviewer_(role) {
+  return ['auditor', 'manager', 'supervisor'].indexOf(normalizeRole_(role)) !== -1;
+}
+
 function getAssignableNoteUsers_(sourceUsers) {
   const users = sourceUsers || getActiveUsers_();
   const options = users.map(function(user) {
@@ -2149,20 +2394,29 @@ function noteAssigneeDisplayName_(user) {
 function getVisibleCards_(user, activeUsers) {
   const cards = [
     { key: 'owner', label: 'Owner', role: 'owner', location: 'all' },
-    { key: 'auditor', label: 'Auditor', role: 'auditor', location: 'all' },
     { key: 'kendari', label: 'Admin Kendari', role: 'admin', location: 'kendari' },
     { key: 'raha', label: 'Admin Raha', role: 'admin', location: 'raha' },
     { key: 'sales_director', label: 'Sales Director', role: 'sales_director', location: 'sales' }
   ];
+  if ((activeUsers || []).some(function(row) { return normalizeRole_(row.Role) === 'auditor'; }))
+    cards.splice(1, 0, { key: 'auditor', label: 'Auditor', role: 'auditor', location: 'all' });
 
-  if ((activeUsers || []).some(function(row) { return normalizeRole_(row.Role) === 'user'; })) {
+  (activeUsers || []).filter(function(row) {
+    return Boolean(row.SlaLogin) || ['manager', 'supervisor', 'user'].indexOf(normalizeRole_(row.Role)) !== -1;
+  }).forEach(function(row) {
+    cards.push({ key: 'user:' + row.Id, userId: row.Id,
+      label: (row.Position || ROLE_LABELS[normalizeRole_(row.Role)] || 'User') + ' · ' + row.Name,
+      role: normalizeRole_(row.Role), location: getUserLocation_(row) });
+  });
+  if ((activeUsers || []).some(function(row) { return normalizeRole_(row.Role) === 'user' && !row.SlaLogin; }))
     cards.push({ key: 'user', label: 'User', role: 'user', location: 'all' });
-  }
 
   return cards;
 }
 
 function defaultCardKeyForUser_(user, cards) {
+  const individual = (cards || []).find(function(card) { return card.userId === user.Id; });
+  if (individual) return individual.key;
   const preferredKey = user.Role === 'owner'
     ? 'owner'
     : user.Role === 'auditor'
@@ -2193,6 +2447,7 @@ function buildCardMetric_(card, allTasks) {
 
   return {
     key: card.key,
+    userId: card.userId || '',
     label: card.label,
     role: card.role,
     location: card.location,
@@ -2361,8 +2616,21 @@ function tasksForCard_(allTasks, card) {
       return false;
     }
 
+    const assignedId = String(task.payload && task.payload.assigneeUserId || '');
+    if (card.userId) {
+      if (assignedId) return assignedId === card.userId;
+      const member = getActiveUsers_().find(function(user) { return user.Id === card.userId; });
+      return Boolean(member && normalizeName_(task.assigneeName) === normalizeName_(member.Name));
+    }
+    if (assignedId) {
+      const assigned = getActiveUsers_().find(function(user) { return user.Id === assignedId; });
+      if (assigned && (assigned.SlaLogin || ['manager', 'supervisor', 'user'].indexOf(normalizeRole_(assigned.Role)) !== -1)) return false;
+    }
     if (card.key === 'auditor') {
-      return task.assigneeRole === 'auditor';
+      const manager = getActiveUsers_().find(function(user) {
+        return normalizeRole_(user.Role) === 'manager' && normalizeName_(user.Name) === normalizeName_(task.assigneeName);
+      });
+      return task.assigneeRole === 'auditor' && !manager;
     }
 
     if (card.key === 'owner') {
@@ -2484,6 +2752,7 @@ function enrichTask_(task, now, attendanceMap) {
     completedAt: toIso_(task.CompletedAt),
     completedBy: String(task.CompletedBy || ''),
     notes: String(task.Notes || ''),
+    statusChangeReason: String(payload.statusChangeReason || ''),
     periodKey: String(task.PeriodKey || ''),
     detailText: buildTaskDetailText_(task, payload),
     timer: timer,
@@ -2640,11 +2909,14 @@ function canUserSeeTask_(user, task) {
   if (String(task.taskType || task.TaskType || '') === 'revisi_audit' && payload.assigneeUserId &&
       payload.assigneeUserId !== user.Id && user.Role !== 'owner') return false;
   if (payload.ownerOnly) {
-    if (user.Role === 'owner') return true;
+    if (user.Role === 'owner' || user.Role === 'manager') return true;
     return String(task.taskType || task.TaskType || '') === 'laporan_keadaan_kas_bank' &&
       normalizeRole_(task.assigneeRole || task.AssigneeRole) === user.Role &&
       normalizeLocation_(task.assigneeLocation || task.AssigneeLocation) === getUserLocation_(user);
   }
+  if (user.Role === 'manager') return true;
+  if (Object.prototype.hasOwnProperty.call(payload, 'assigneeUserId'))
+    return payload.assigneeUserId === user.Id || user.Role === 'owner' || user.Role === 'auditor';
 
   if (user.Role === 'owner' || user.Role === 'auditor') {
     return true;
@@ -2656,8 +2928,11 @@ function canUserSeeTask_(user, task) {
 }
 
 function isReportTaskAssignedToUser_(user, task) {
+  if (task.payload && Object.prototype.hasOwnProperty.call(task.payload, 'assigneeUserId'))
+    return Boolean(task.payload.assigneeUserId) && task.payload.assigneeUserId === user.Id;
   if (!canUserSeeTask_(user, task) || normalizeRole_(task.assigneeRole) !== normalizeRole_(user.Role)) {
-    return false;
+    if (!(user.Role === 'manager' && normalizeRole_(task.assigneeRole) === 'auditor' &&
+      normalizeName_(task.assigneeName) === normalizeName_(user.Name))) return false;
   }
   if (isAdminRole_(user.Role) && task.assigneeLocation !== getUserLocation_(user)) {
     return false;
@@ -2668,10 +2943,13 @@ function isReportTaskAssignedToUser_(user, task) {
     assignedName === normalizeName_(ROLE_LABELS[normalizeRole_(user.Role)]);
 }
 
-function getReportTypesForUser_(user) {
+function getReportTypesForUser_(user, openTasks) {
+  const assignedTypes = new Set((openTasks || []).map(function(task) { return task.taskType; }));
   return Object.keys(REPORT_TYPES)
     .filter(function(type) {
-      return REPORT_TYPES[type].roles.indexOf(user.Role) !== -1 &&
+      return (REPORT_TYPES[type].roles.indexOf(user.Role) !== -1 ||
+        (user.Role === 'manager' && REPORT_TYPES[type].roles.indexOf('auditor') !== -1) ||
+        assignedTypes.has(type)) &&
         (type !== 'stok_opname_raha' || getUserLocation_(user) === 'raha');
     })
     .map(function(type) {
@@ -2683,7 +2961,12 @@ function getReportTypesForUser_(user) {
 }
 
 function ensureReportPermission_(user, type) {
-  if (REPORT_TYPES[type].roles.indexOf(user.Role) === -1 ||
+  const assigned = readObjects_('tasks').some(function(task) {
+    return task.TaskType === type && String(task.Status || 'berjalan') === 'berjalan' &&
+      isReportTaskAssignedToUser_(user, enrichTask_(task));
+  });
+  if (!(REPORT_TYPES[type].roles.indexOf(user.Role) !== -1 ||
+      (user.Role === 'manager' && REPORT_TYPES[type].roles.indexOf('auditor') !== -1) || assigned) ||
       (type === 'stok_opname_raha' && getUserLocation_(user) !== 'raha')) {
     throw new Error('Role Anda tidak memiliki akses untuk laporan ini.');
   }
@@ -2701,7 +2984,7 @@ function openReportTask_(user, taskId, taskType) {
 function auditRevisionRecipient_(recipientId) {
   const recipient = getActiveUsers_().find(function(candidate) {
     return candidate.Id === String(recipientId || '') &&
-      ['admin_kendari', 'admin_raha', 'auditor'].indexOf(normalizeRole_(candidate.Role)) !== -1;
+      ['admin_kendari', 'admin_raha', 'auditor', 'manager', 'supervisor'].indexOf(normalizeRole_(candidate.Role)) !== -1;
   });
   if (!recipient) throw new Error('Pilih penerima revisi: Admin Kendari, Admin Raha, atau Auditor.');
   return recipient;
@@ -3598,7 +3881,30 @@ function createTask_(options) {
     task.CompletedBy = options.createdBy && options.createdBy.Name || '';
   }
 
-  appendObject_('tasks', task);
+  const managedType = !options.completeNow && !['note_tugas', 'revisi_audit', 'audit_revisi'].includes(options.taskType);
+  const policyKey = assignmentKeyForTask_(options.taskType, options.assigneeLocation);
+  const policyConfigured = Object.prototype.hasOwnProperty.call(managedAssignmentConfig_(), policyKey);
+  const responsible = managedType ? assigneesForType_(options.taskType, options.assigneeLocation) : [];
+  if (managedType && (policyConfigured || responsible.length)) {
+    const targets = responsible.length ? responsible : [null];
+    targets.forEach(function(user, index) {
+      const assigned = index === 0 ? task : Object.assign({}, task);
+      if (index > 0) {
+        assigned.Id = makeId_('TSK');
+        assigned.PeriodKey = task.PeriodKey ? task.PeriodKey + '|user:' + user.Id : '';
+      }
+      assigned.AssigneeRole = user ? normalizeRole_(user.Role) : '';
+      assigned.AssigneeLocation = user ? (getUserLocation_(user) === 'all'
+        ? normalizeLocation_(options.assigneeLocation || 'all') : getUserLocation_(user)) : '';
+      assigned.AssigneeName = user ? user.Name : '';
+      const assignmentPayload = parseJsonSafe_(assigned.PayloadJson, {});
+      assignmentPayload.assigneeUserId = user ? user.Id : '';
+      assigned.PayloadJson = JSON.stringify(assignmentPayload);
+      appendObject_('tasks', assigned);
+    });
+  } else {
+    appendObject_('tasks', task);
+  }
   return {
     id: task.Id,
     taskType: task.TaskType,
@@ -3661,15 +3967,17 @@ function completeOpenTaskByTypePeriod_(taskType, periodKey, user, report, savedF
   if (relatedTaskId && PERIOD_REPORT_TASK_TYPES.has(taskType)) {
     return completeTaskFromReport_(relatedTaskId, user, report, savedFiles);
   }
-  const existing = readObjects_('tasks').find(function(row) {
+  const candidates = readObjects_('tasks').filter(function(row) {
     return row.TaskType === taskType &&
-      row.PeriodKey === periodKey &&
+      (row.PeriodKey === periodKey || String(row.PeriodKey || '').indexOf(periodKey + '|user:') === 0) &&
       String(row.Status || 'berjalan') === 'berjalan';
   });
+  const existing = candidates.find(function(row) { return canUserCompleteTask_(user, row); });
 
-  if (existing && canUserCompleteTask_(user, existing)) {
+  if (existing) {
     return completeTaskFromReport_(existing.Id, user, report, savedFiles);
   }
+  if (candidates.length) throw new Error('Tugas periode ini tidak ditugaskan kepada Anda.');
 
   const options = Object.assign({}, fallbackOptions || {}, {
     taskType: taskType,
@@ -4161,7 +4469,8 @@ function finishStandaloneAuditRevisionLimit_(review, report) {
 
 function canUserCompleteTask_(user, task) {
   const payload = parseJsonSafe_(task.PayloadJson, {});
-  if (payload.assigneeUserId && payload.assigneeUserId !== user.Id) return false;
+  if (Object.prototype.hasOwnProperty.call(payload, 'assigneeUserId'))
+    return Boolean(payload.assigneeUserId) && payload.assigneeUserId === user.Id;
   if (user.Role === 'owner') {
     return true;
   }
@@ -4170,7 +4479,7 @@ function canUserCompleteTask_(user, task) {
   const location = normalizeLocation_(task.AssigneeLocation);
 
   if (role === 'auditor') {
-    return user.Role === 'auditor';
+    return user.Role === 'auditor' || user.Role === 'manager' && normalizeName_(task.AssigneeName) === normalizeName_(user.Name);
   }
 
   if (isAdminRole_(role)) {
@@ -4287,6 +4596,20 @@ function buildTaskTimeHistory_(task, now, attendanceMap, timer) {
     }
   }
 
+  const manual = Array.isArray(payload.manualTimeExtensions) ? payload.manualTimeExtensions : [];
+  manual.forEach(function(entry) {
+    const at = parseDate_(entry && entry.at);
+    if (at && at <= endAt) events.push({ kind: 'manual_added', at: at.toISOString(),
+      addedMs: Number(entry.addedMs || 0), previousDeadlineAt: entry.previousDeadlineAt || '',
+      deadlineAt: entry.previousDeadlineAt ? new Date(Date.parse(entry.previousDeadlineAt) + Number(entry.addedMs || 0)).toISOString() : '',
+      by: String(entry.by || ''), reason: String(entry.reason || '') });
+  });
+  const assignments = Array.isArray(payload.assignmentHistory) ? payload.assignmentHistory : [];
+  assignments.forEach(function(entry) {
+    const at = parseDate_(entry && entry.at);
+    if (at && at <= endAt) events.push({ kind: 'reassign', at: at.toISOString(),
+      by: String(entry.by || ''), from: String(entry.from || ''), to: String(entry.to || '') });
+  });
   const resets = Array.isArray(payload.timerResetHistory) ? payload.timerResetHistory : [];
   resets.forEach(function(entry) {
     const at = parseDate_(entry && entry.at);
@@ -4300,12 +4623,12 @@ function buildTaskTimeHistory_(task, now, attendanceMap, timer) {
   }
   if (completedAt && completedAt <= now) events.push({ kind: 'complete', at: completedAt.toISOString() });
 
-  const order = { start: 0, resume: 1, reset: 2, pause: 3, added: 4, complete: 5 };
+  const order = { start: 0, resume: 1, reset: 2, pause: 3, added: 4, manual_added: 4, reassign: 4, complete: 5 };
   events.sort(function(a, b) {
     return Date.parse(a.at) - Date.parse(b.at) || order[a.kind] - order[b.kind];
   });
   return { events: events, deadlineAt: activeTimer.deadlineAt || '',
-    totalAddedMs: events.filter(function(event) { return event.kind === 'added'; })
+    totalAddedMs: events.filter(function(event) { return event.kind === 'added' || event.kind === 'manual_added'; })
       .reduce(function(total, event) { return total + event.addedMs; }, 0) };
 }
 
@@ -4328,9 +4651,24 @@ function activeRevision_(payload) {
 }
 
 function taskEffectiveDeadline_(task, startedAt, attendanceMap, pausePolicy) {
+  const base = baseTaskEffectiveDeadline_(task, startedAt, attendanceMap, pausePolicy);
+  if (!base) return null;
+  const payload = parseJsonSafe_(task.PayloadJson, {});
+  const extensions = Array.isArray(payload.manualTimeExtensions) ? payload.manualTimeExtensions : [];
+  const added = extensions.reduce(function(sum, entry) { return sum + Math.max(0, Number(entry.addedMs || 0)); }, 0);
+  return new Date(base.getTime() + added);
+}
+
+function baseTaskEffectiveDeadline_(task, startedAt, attendanceMap, pausePolicy) {
   const start = parseDate_(startedAt || task.StartedAt || task.CreatedAt);
   if (!start) return null;
   const payload = parseJsonSafe_(task.PayloadJson, {});
+  if (payload.assignmentDeadlineAt && payload.assignmentTransferAt) {
+    const transfer = parseDate_(payload.assignmentTransferAt);
+    const deadline = parseDate_(payload.assignmentDeadlineAt);
+    if (transfer && deadline) return calendarDeadlineWithPauses_(transfer, deadline,
+      task.AssigneeName, attendanceMap, pausePolicy);
+  }
   if (activeRevision_(payload)) {
     return effectiveDeadlineAt_(start, 24 * 60 * 60 * 1000, task.AssigneeName, attendanceMap, pausePolicy);
   }
@@ -4770,7 +5108,7 @@ function createPeriodicTasks_(atDate) {
 
 function ensureAuditorInventoryTasks_(now, tasks, users, owner) {
   const auditor = users.find(function(user) {
-    return normalizeRole_(user.Role) === 'auditor' && String(user.Active).toLowerCase() !== 'false';
+    return ['auditor', 'manager'].indexOf(normalizeRole_(user.Role)) !== -1 && String(user.Active).toLowerCase() !== 'false';
   });
   if (auditor) {
     const launchDate = new Date(2026, 10, 3);
@@ -4950,7 +5288,7 @@ function canUserSeeReport_(user, report) {
     return user.Role === 'owner';
   }
 
-  if (user.Role === 'owner' || user.Role === 'auditor') {
+  if (user.Role === 'owner' || isAuditReviewer_(user.Role)) {
     return true;
   }
 
@@ -5345,7 +5683,7 @@ function findPrimaryAssigneeName_(role, location) {
     }
 
     if (normalizedRole === 'auditor') {
-      return rowRole === 'auditor';
+      return rowRole === 'auditor' || rowRole === 'manager';
     }
 
     if (isAdminRole_(normalizedRole)) {
@@ -5649,6 +5987,7 @@ function fail_(error) {
   const actions = {
     apiLogout, apiLogActivity, apiGetSession, apiGetDashboard, apiGetTaskTimeHistory, apiFindTaskByNumber,
     apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiReactNote, apiMarkNoteMentionsSeen, apiUpdateTaskStatus,
+    apiExtendTaskDeadline, apiGetTaskManager, apiSaveTaskAssignments, apiAssignExistingTask, apiCreateManagedUser,
     apiGetReportMeta, apiSubmitReport, apiAddTaskAttachments, apiUpdateProfile, apiUpdateTaskColumnPreferences
   };
   const tableNames = {
@@ -5794,19 +6133,29 @@ async function verifyIdentity(jwt) {
     throw new Error('Profil SLA tidak sesuai.');
   const role = String(profiles[0].role || '').trim().toLowerCase();
   const branch = String(profiles[0].hak_akses_cabang || '').trim().toLowerCase();
+  const linkedProfiles = await restRows('kpi_users', 'select=record&record->>SlaLogin=eq.' + encodeURIComponent(login));
+  const linkedProfile = linkedProfiles.length === 1 && linkedProfiles[0].record;
   let access;
   if (role === 'direktur') access = ['owner', 'all'];
-  else if (role === 'manager') access = ['auditor', 'all'];
+  else if (role === 'manager') access = [login === 'abuanis' ? 'supervisor' : 'manager', 'all'];
+  else if (linkedProfile && String(linkedProfile.Active).toLowerCase() !== 'false')
+    access = [String(linkedProfile.Role || '').toLowerCase(), String(linkedProfile.Location || 'all').toLowerCase()];
   else if (role === 'teknisi' && login === 'alif') access = ['admin_raha', 'raha'];
   else if (role === 'admin_raha' || (role === 'admin' && branch === 'raha')) access = ['admin_raha', 'raha'];
   else if (role === 'admin' && ['', 'semua', 'kendari'].includes(branch)) access = ['admin_kendari', 'kendari'];
   else if (role === 'sales' && login === 'juna' && branch === 'kendari') access = ['sales_director', 'sales'];
-  else throw new Error('Akun SLA ini tidak memiliki akses KPI.');
+  else {
+    const linked = await restRows('kpi_users', 'select=record&record->>SlaLogin=eq.' + encodeURIComponent(login));
+    if (linked.length !== 1 || String(linked[0].record.Active).toLowerCase() === 'false')
+      throw new Error('Akun SLA ini tidak memiliki akses KPI.');
+    access = [String(linked[0].record.Role || '').toLowerCase(),
+      String(linked[0].record.Location || 'all').toLowerCase()];
+  }
   const claims = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
   const expiresAt = Number(claims.exp) * 1000;
   if (claims.sub !== authUser.id || !Number.isFinite(expiresAt) || expiresAt <= Date.now())
     throw new Error('Sesi SLA berakhir.');
-  return { login, role: access[0], location: access[1], expiresAt, authUserId: authUser.id };
+  return { login, displayName: String(profiles[0].username || ''), role: access[0], location: access[1], expiresAt, authUserId: authUser.id };
 }
 async function verifyNotePassword(identity, password) {
   const value = String(password || '');
@@ -5847,12 +6196,23 @@ async function verifyKpiSession(token) {
   const rows = await restRows('kpi_sessions', 'select=auth_user_id,login,role,location,expires_at&token_hash=eq.' + await tokenHash(token));
   if (rows.length !== 1 || Date.parse(rows[0].expires_at) <= Date.now())
     throw new Error('Sesi KPI berakhir setelah 7 jam tanpa aktivitas. Buka kembali dari Lobby SLA.');
-  const profiles = await restRows('users', 'select=username_login,role,hak_akses_cabang&username_login=eq.' + encodeURIComponent(rows[0].login));
-  const access = profiles.length === 1 && kpiAccessForNotification(profiles[0]);
+  const profiles = await restRows('users', 'select=username,username_login,role,hak_akses_cabang&username_login=eq.' + encodeURIComponent(rows[0].login));
+  const linkedProfiles = profiles.length === 1 ? await restRows('kpi_users',
+    'select=record&record->>SlaLogin=eq.' + encodeURIComponent(rows[0].login)) : [];
+  const linkedProfile = linkedProfiles.length === 1 && linkedProfiles[0].record;
+  let access = profiles.length === 1 && kpiAccessForNotification(profiles[0]);
+  if (access && !['manager', 'owner'].includes(access[0]) && linkedProfile &&
+      String(linkedProfile.Active).toLowerCase() !== 'false')
+    access = [String(linkedProfile.Role || '').toLowerCase(), String(linkedProfile.Location || 'all').toLowerCase()];
+  if (!access && profiles.length === 1) {
+    const linked = await restRows('kpi_users', 'select=record&record->>SlaLogin=eq.' + encodeURIComponent(rows[0].login));
+    if (linked.length === 1 && String(linked[0].record.Active).toLowerCase() !== 'false')
+      access = [String(linked[0].record.Role || '').toLowerCase(), String(linked[0].record.Location || 'all').toLowerCase()];
+  }
   if (!access || access[0] !== rows[0].role || access[1] !== rows[0].location)
     throw new Error('Akses KPI akun ini telah berubah. Buka kembali dari Lobby SLA.');
   return { authUserId: rows[0].auth_user_id, login: rows[0].login,
-    role: rows[0].role, location: rows[0].location, expiresAt: Date.parse(rows[0].expires_at) };
+    displayName: String(profiles[0].username || ''), role: rows[0].role, location: rows[0].location, expiresAt: Date.parse(rows[0].expires_at) };
 }
 async function touchKpiSession(token) {
   if (!/^kpi_[0-9a-f]{64}$/.test(token)) throw new Error('Sesi KPI belum aktif. Buka kembali dari Lobby SLA.');
@@ -5879,14 +6239,44 @@ async function deleteExpiredKpiSessions() {
   }).catch(function() {});
 }
 function findKpiUser(rows, identity) {
+  const linked = rows.filter(item => String(item.record.SlaLogin || '').toLowerCase() === identity.login &&
+    String(item.record.Active).toLowerCase() !== 'false');
+  if (linked.length === 1 && String(linked[0].record.Role).toLowerCase() === identity.role) return linked[0].record;
   const matches = rows.filter(item => {
     const row = item.record;
-    return String(row.Active).toLowerCase() !== 'false' &&
+    return !row.SlaLogin && String(row.Active).toLowerCase() !== 'false' &&
       String(row.Role || '').trim().toLowerCase().replace(/\s+/g, '_') === identity.role &&
       String(row.Location || '').trim().toLowerCase() === identity.location;
   });
   if (matches.length !== 1) throw new Error('Akun KPI untuk peran ini belum tersedia atau ambigu.');
   return matches[0].record;
+}
+function prepareKpiIdentity(rows, identity) {
+  const linked = rows.filter(item => String(item.record.SlaLogin || '').toLowerCase() === identity.login);
+  if (linked.length === 1) {
+    if (String(linked[0].record.Active).toLowerCase() === 'false' ||
+        String(linked[0].record.Role || '').toLowerCase() !== identity.role)
+      throw new Error('Profil KPI tidak sesuai dengan login SLA.');
+    return linked[0].record;
+  }
+  if (identity.role === 'supervisor' && identity.login === 'abuanis') {
+    const record = { Id: 'KPI-SLA-abuanis', Username: 'abuanis', SlaLogin: 'abuanis',
+      Name: 'Abu Anis', Position: 'Supervisor', Role: 'supervisor', Location: 'all',
+      Active: true, Menus: ['dashboard', 'laporan', 'profil'], CreatedAt: new Date().toISOString() };
+    rows.push({ id: record.Id, record, revision: 0, seq: 0 });
+    return record;
+  }
+  if (identity.role === 'manager' && (identity.login === 'manager' ||
+      normalizeName_(identity.displayName + ' ' + identity.login).includes('abdillah'))) {
+    const legacy = rows.filter(item => !item.record.SlaLogin &&
+      String(item.record.Role || '').toLowerCase() === 'auditor' &&
+      String(item.record.Name || '').toLowerCase().includes('abdillah'));
+    if (legacy.length === 1) {
+      Object.assign(legacy[0].record, { Role: 'manager', SlaLogin: identity.login, Position: 'Manager' });
+      return legacy[0].record;
+    }
+  }
+  return findKpiUser(rows, identity);
 }
 async function applyChanges(changes) {
   if (!changes.length) return;
@@ -5957,7 +6347,7 @@ function kpiAccessForNotification(profile) {
   const branch = String(profile.hak_akses_cabang || '').trim().toLowerCase();
   const login = String(profile.username_login || '').trim().toLowerCase();
   if (role === 'direktur') return ['owner', 'all'];
-  if (role === 'manager') return ['auditor', 'all'];
+  if (role === 'manager') return [login === 'abuanis' ? 'supervisor' : 'manager', 'all'];
   if (role === 'teknisi' && login === 'alif') return ['admin_raha', 'raha'];
   if (role === 'admin_raha' || (role === 'admin' && branch === 'raha')) return ['admin_raha', 'raha'];
   if (role === 'admin' && ['', 'semua', 'kendari'].includes(branch)) return ['admin_kendari', 'kendari'];
@@ -5988,10 +6378,14 @@ async function sendKpiNoteNotification(noteId) {
     const users = await restRows('kpi_users', 'select=id,record&id=eq.' + encodeURIComponent(job.assignee_id));
     const recipient = users.length === 1 && users[0].record;
     if (!recipient || String(recipient.Active).toLowerCase() === 'false') throw new Error('Penerima tugas KPI tidak aktif.');
-    const profiles = await restRows('users', 'select=username_login,role,hak_akses_cabang,no_wa&role=in.(direktur,manager,admin,admin_raha,sales)');
+    const profiles = await restRows('users', 'select=username_login,role,hak_akses_cabang,no_wa' +
+      (recipient.SlaLogin ? '' : '&role=in.(direktur,manager,admin,admin_raha,sales)'));
     const matches = profiles.filter(profile => {
+      if (recipient.SlaLogin) return String(profile.username_login || '').toLowerCase() === String(recipient.SlaLogin).toLowerCase();
       const access = kpiAccessForNotification(profile);
-      return access && access[0] === String(recipient.Role || '').trim().toLowerCase() && access[1] === String(recipient.Location || '').trim().toLowerCase();
+      return access && (access[0] === String(recipient.Role || '').trim().toLowerCase() ||
+        access[0] === 'manager' && String(recipient.Role || '').trim().toLowerCase() === 'auditor') &&
+        access[1] === String(recipient.Location || '').trim().toLowerCase();
     });
     if (matches.length !== 1) throw new Error('Profil SLA penerima tugas tidak ditemukan atau ambigu.');
     const phone = normalizeKpiWhatsAppPhone(matches[0].no_wa);
@@ -6114,7 +6508,17 @@ Deno.serve(async request => {
       await restRows(KPI_TABLES[key], 'select=id,record,revision,seq&order=seq.asc')]));
     const tables = Object.fromEntries(fetched);
     for (const key of Object.keys(KPI_TABLES)) tables[key] ||= [];
-    const userRecord = findKpiUser(tables.users, identity);
+    const originalTables = structuredClone(tables);
+    const userRecord = prepareKpiIdentity(tables.users, identity);
+    let validatedNewLogin = '';
+    if (action === 'apiCreateManagedUser') {
+      const login = String(args[1] && args[1].slaLogin || '').trim().toLowerCase();
+      if (/^[a-z0-9._-]{2,80}$/.test(login)) {
+        const profiles = await restRows('users', 'select=username_login,role&username_login=eq.' + encodeURIComponent(login));
+        if (profiles.length === 1 && !['direktur', 'manager'].includes(String(profiles[0].role || '').toLowerCase()))
+          validatedNewLogin = login;
+      }
+    }
     const needsAttendance = !['apiGetSession', 'apiLogout', 'apiLogActivity', 'apiUpdateProfile', 'apiUpdateTaskColumnPreferences', 'apiAddTaskAttachments'].includes(action);
     let absensi = [];
     let leaveRequests = [];
@@ -6127,8 +6531,9 @@ Deno.serve(async request => {
       ]);
     }
     const ctx = { jwt, expiresAt: identity.expiresAt, userRecord, notePasswordVerified, tables,
+      validatedNewLogin,
       recoverScheduledTasks: action === 'apiGetDashboard' || action === 'apiGetReportMeta',
-      original: structuredClone(tables), absensi, leaveRequests, uploads: [], maxSeq: 0, version: 0 };
+      original: originalTables, absensi, leaveRequests, uploads: [], maxSeq: 0, version: 0 };
     const engine = createKpiEngine(ctx);
     if (action === 'apiGetUploadedFile') {
       const id = String(args[1] || '');

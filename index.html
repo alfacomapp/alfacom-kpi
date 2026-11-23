@@ -1557,6 +1557,15 @@
     .timer-history-entry { padding: 7px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
     .timer-history-entry strong, .timer-history-entry small { display: block; }
     .timer-history-entry small { color: var(--muted); }
+    .manager-assignment-list, .manager-running-list { display: grid; gap: 10px; max-height: 620px; overflow: auto; padding: 4px; }
+    .manager-row { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+    .manager-row-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; flex-wrap: wrap; }
+    .manager-checks { display: flex; gap: 8px 18px; flex-wrap: wrap; margin-top: 8px; }
+    .manager-checks label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+    .manager-row select { max-width: 320px; }
+    #task_managerPage { display: grid; gap: 16px; }
+    #task_managerPage.hidden { display: none; }
+    .status-reason { display: block; color: var(--muted); margin-top: 5px; font-size: 12px; white-space: normal; }
 
     .report-grid {
       display: grid;
@@ -2712,6 +2721,28 @@
     </form>
   </div>
 
+  <div id="statusReasonDialog" class="info-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="statusReasonTitle">
+    <form id="statusReasonForm" class="info-dialog-card">
+      <h3 id="statusReasonTitle">Alasan perubahan status</h3>
+      <label for="statusReasonInput">Jelaskan alasan perubahan status KPI *</label>
+      <textarea id="statusReasonInput" maxlength="1000" required></textarea>
+      <div class="inline-actions"><button class="btn btn-primary" type="submit">Simpan status</button><button id="statusReasonCancel" class="btn btn-ghost" type="button">Batal</button></div>
+    </form>
+  </div>
+  <div id="timerExtendDialog" class="info-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="timerExtendTitle">
+    <form id="timerExtendForm" class="info-dialog-card">
+      <h3 id="timerExtendTitle">Tambah waktu tugas</h3>
+      <div class="form-grid">
+        <div class="field"><label for="timerAddDays">Hari</label><input id="timerAddDays" type="number" min="0" max="365" value="0"></div>
+        <div class="field"><label for="timerAddHours">Jam</label><input id="timerAddHours" type="number" min="0" max="23" value="0"></div>
+        <div class="field"><label for="timerAddMinutes">Menit</label><input id="timerAddMinutes" type="number" min="0" max="59" value="0"></div>
+        <div class="field"><label for="timerAddSeconds">Detik</label><input id="timerAddSeconds" type="number" min="0" max="59" value="0"></div>
+      </div>
+      <label for="timerAddReason">Keterangan (opsional)</label><textarea id="timerAddReason" maxlength="500"></textarea>
+      <div class="inline-actions"><button class="btn btn-primary" type="submit">Simpan tambahan waktu</button><button id="timerExtendCancel" class="btn btn-ghost" type="button">Batal</button></div>
+    </form>
+  </div>
+
   <div id="imageViewer" class="image-viewer hidden" role="dialog" aria-modal="true" aria-label="Pratinjau gambar">
     <div class="image-viewer-head">
       <span id="imageViewerTitle" class="image-viewer-title">Lampiran gambar</span>
@@ -2940,6 +2971,35 @@
         </div>
       </section>
 
+      <section id="task_managerPage" class="page hidden">
+        <div class="panel">
+          <div class="panel-head"><h3>Task Manager</h3></div>
+          <p class="muted">Atur penanggung jawab tugas berikutnya. Tugas yang sedang berjalan dapat dipindah satu per satu di bawah.</p>
+          <div id="managerAssignments" class="manager-assignment-list"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Tugas berjalan</h3></div>
+          <input id="managerTaskSearch" type="search" placeholder="Cari nomor atau judul tugas..." aria-label="Cari tugas berjalan">
+          <div id="managerRunningTasks" class="manager-running-list"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Tambah pengguna KPI</h3></div>
+          <p class="muted">Gunakan nama login yang sudah terdaftar di Lobby SLA.</p>
+          <form id="managerCreateUser" class="form-stack">
+            <div class="form-grid">
+              <div class="field"><label for="managerNewLogin">Login SLA *</label><input id="managerNewLogin" required></div>
+              <div class="field"><label for="managerNewName">Nama *</label><input id="managerNewName" required></div>
+              <div class="field"><label for="managerNewPosition">Jabatan *</label><input id="managerNewPosition" required></div>
+              <div class="field"><label for="managerNewRole">Peran</label><select id="managerNewRole"><option value="user">User</option><option value="supervisor">Supervisor</option><option value="auditor">Auditor</option><option value="admin_kendari">Admin Kendari</option><option value="admin_raha">Admin Raha</option><option value="sales_director">Sales Director</option></select></div>
+              <div class="field"><label for="managerNewLocation">Lokasi</label><select id="managerNewLocation"><option value="all">Semua</option><option value="kendari">Kendari</option><option value="raha">Raha</option><option value="sales">Sales</option></select></div>
+            </div>
+            <div><strong>Menu yang ditampilkan</strong><div id="managerNewMenus" class="manager-checks"><label><input type="checkbox" value="dashboard" checked> Dashboard</label><label><input type="checkbox" value="laporan" checked> Laporan</label><label><input type="checkbox" value="profil" checked disabled> Profil</label></div></div>
+            <div><strong>Tugas awal</strong><div id="managerNewDuties" class="manager-checks"></div></div>
+            <button class="btn btn-primary" type="submit">Tambah pengguna</button>
+          </form>
+        </div>
+      </section>
+
       <section id="profilPage" class="page hidden">
         <div class="panel">
           <div class="panel-head">
@@ -2994,6 +3054,9 @@
       user: null,
       menus: [],
       page: 'dashboard',
+      managerData: null,
+      pendingStatusChange: null,
+      pendingTimerTaskId: '',
       dashboard: null,
       reportMeta: null,
       selectedCard: '',
@@ -3069,6 +3132,7 @@
     const PAGE_LABELS = {
       dashboard: ['Dashboard', 'Ringkasan KPI, notes, dan tugas berjalan'],
       laporan: ['Laporan', ''],
+      task_manager: ['Task Manager', 'Penanggung jawab dan tugas berjalan'],
       profil: ['Profil', 'Data akun dan password']
     };
 
@@ -3085,6 +3149,7 @@
     const MENU_ICONS = {
       dashboard: '<svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9z"></path><path d="M14 20h6V4h-6v16z"></path><path d="M4 20h6v-3H4v3z"></path></svg>',
       laporan: '<svg viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7V3z"></path><path d="M15 3v5h4"></path><path d="M10 12h6"></path><path d="M10 16h6"></path></svg>',
+      task_manager: '<svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h5M17 13l2 2 3-3"></path></svg>',
       profil: '<svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4z"></path><path d="M4 21a8 8 0 0 1 16 0"></path></svg>'
     };
 
@@ -3655,6 +3720,20 @@
         const button = event.target.closest('[data-task-column]');
         if (button) toggleTaskColumn(button.dataset.taskColumn);
       });
+      byId('managerAssignments').addEventListener('click', function(event) {
+        const button = event.target.closest('[data-save-assignment]');
+        if (button) saveManagerAssignment(button.dataset.saveAssignment);
+      });
+      byId('managerRunningTasks').addEventListener('click', function(event) {
+        const button = event.target.closest('[data-assign-task]');
+        if (button) assignManagerTask(button.dataset.assignTask);
+      });
+      byId('managerTaskSearch').addEventListener('input', renderManagerRunningTasks);
+      byId('managerCreateUser').addEventListener('submit', createManagerUser);
+      byId('statusReasonForm').addEventListener('submit', confirmManagerStatusChange);
+      byId('statusReasonCancel').addEventListener('click', function() { byId('statusReasonDialog').classList.add('hidden'); state.pendingStatusChange = null; });
+      byId('timerExtendForm').addEventListener('submit', saveManagerTimerExtension);
+      byId('timerExtendCancel').addEventListener('click', function() { byId('timerExtendDialog').classList.add('hidden'); state.pendingTimerTaskId = ''; });
       byId('imageViewerClose').addEventListener('click', closeImageViewer);
       byId('imageViewerPrev').addEventListener('click', function() { moveImageViewer(-1); });
       byId('imageViewerNext').addEventListener('click', function() { moveImageViewer(1); });
@@ -3796,6 +3875,10 @@
     }
 
     function showLogin(message) {
+      state.managerData = null;
+      byId('managerAssignments').textContent = '';
+      byId('managerRunningTasks').textContent = '';
+      byId('managerNewDuties').textContent = '';
       byId('loginView').classList.remove('hidden');
       byId('appView').classList.add('hidden');
       byId('slaGatewayStatus').textContent = message || 'Buka aplikasi KPI melalui Lobby SLA.';
@@ -3855,6 +3938,12 @@
     }
 
     function showApp() {
+      if (state.user.Role !== 'manager') {
+        state.managerData = null;
+        byId('managerAssignments').textContent = '';
+        byId('managerRunningTasks').textContent = '';
+        byId('managerNewDuties').textContent = '';
+      }
       startKpiSessionTimer();
       let localColumns = {};
       try {
@@ -4199,7 +4288,7 @@
         button.classList.toggle('active', button.dataset.page === page);
       });
 
-      ['dashboard', 'laporan', 'profil'].forEach(function(name) {
+      ['dashboard', 'laporan', 'task_manager', 'profil'].forEach(function(name) {
         const panel = byId(name + 'Page');
         if (panel) {
           panel.classList.toggle('hidden', name !== page);
@@ -4222,6 +4311,7 @@
       if (page === 'profil') {
         fillProfile();
       }
+      if (page === 'task_manager') loadTaskManager();
     }
 
     function revisionAlertsForCurrentPage(kind) {
@@ -5782,7 +5872,7 @@
             </div>
           </td>
           <td class="${taskColumnClass('penanggung')}" data-label="Penanggung Jawab">${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
-          <td class="${taskColumnClass('status')}" data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.kpiStatus === 'meleset' && task.status === 'selesai' ? 'Meleset (done)' : (task.displayKpiLabel || task.kpiLabel))}</span></td>
+          <td class="${taskColumnClass('status')}" data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.kpiStatus === 'meleset' && task.status === 'selesai' ? 'Meleset (done)' : (task.displayKpiLabel || task.kpiLabel))}</span>${task.statusChangeReason ? '<small class="status-reason">Alasan manager: ' + escapeHtml(task.statusChangeReason) + '</small>' : ''}</td>
           <td class="${taskColumnClass('timer')}" data-label="Timer">${renderTimerCell(task, true)}</td>
           <td class="${taskColumnClass('dibuat')}" data-label="Dibuat">${formatDateWithDay(task.createdAt || task.startedAt)}</td>
           <td class="${taskColumnClass('selesai')}" data-label="Selesai">${task.completedAt ? formatDateWithDay(task.completedAt) : '-'}</td>
@@ -5953,6 +6043,8 @@
         `;
       }
       if (!showHistory || !task.id) return timerText;
+      if (state.dashboard && state.dashboard.canEditTaskTimer && task.status === 'berjalan' && !timer.noDeadline)
+        timerText += '<br><button class="btn btn-mini btn-ghost" type="button" onclick="openTimerExtension(\'' + escapeAttr(task.id) + '\')">+ Tambah waktu</button>';
       const history = state.timerHistoryCache[task.id];
       return timerText + `<details class="timer-history" ${state.timerHistoryOpen[task.id] ? 'open' : ''}>
         <summary data-timer-history-task="${escapeAttr(task.id)}">Riwayat waktu</summary>
@@ -5979,6 +6071,16 @@
           title = 'Waktu bertambah: +' + formatHistoryDuration(event.addedMs);
           detail = 'Deadline ' + formatDate(event.previousDeadlineAt) + ' → ' + formatDate(event.deadlineAt);
         }
+        if (event.kind === 'manual_added') {
+          title = 'Manager menambah waktu: +' + formatHistoryDuration(event.addedMs);
+          detail = 'Oleh ' + String(event.by || 'Manager') + (event.reason ? ' · ' + event.reason : '') +
+            (event.deadlineAt ? ' · Deadline ' + formatDate(event.deadlineAt) : '');
+        }
+        if (event.kind === 'reassign') {
+          title = 'Penanggung jawab dipindah';
+          detail = String(event.from || 'Tanpa penanggung jawab') + ' → ' + String(event.to || 'Tanpa penanggung jawab') +
+            ' · Oleh ' + String(event.by || 'Manager');
+        }
         if (event.kind === 'reset') title = 'Timer direset untuk revisi ' + Number(event.count || 0) + ' (1×24 jam)';
         if (event.kind === 'complete') title = 'Tugas selesai';
         if (!title) return '';
@@ -5988,11 +6090,13 @@
     }
 
     function formatHistoryDuration(ms) {
-      const minutes = Math.max(0, Math.round(Number(ms || 0) / 60000));
+      const seconds = Math.max(0, Math.round(Number(ms || 0) / 1000));
+      const minutes = Math.floor(seconds / 60);
       const days = Math.floor(minutes / 1440);
       const hours = Math.floor((minutes % 1440) / 60);
       const rest = minutes % 60;
-      return [days && days + ' hari', hours && hours + ' jam', rest && rest + ' menit'].filter(Boolean).join(' ') || '0 menit';
+      const remainder = seconds % 60;
+      return [days && days + ' hari', hours && hours + ' jam', rest && rest + ' menit', remainder && remainder + ' detik'].filter(Boolean).join(' ') || '0 detik';
     }
 
     function toggleTimerHistory(summary) {
@@ -6013,14 +6117,154 @@
       });
     }
 
+    function loadTaskManager() {
+      if (!state.user || state.user.Role !== 'manager') return;
+      byId('managerAssignments').innerHTML = '<div class="empty">Memuat penugasan...</div>';
+      api('apiGetTaskManager', state.token).then(function(response) {
+        if (state.page !== 'task_manager') return;
+        state.managerData = response;
+        renderTaskManager();
+      }).catch(showError);
+    }
+
+    function renderTaskManager() {
+      const data = state.managerData;
+      if (!data) return;
+      byId('managerAssignments').innerHTML = data.types.map(function(type) {
+        const responsible = type.responsible.length ? type.responsible.map(function(user) {
+          return escapeHtml(user.name + ' (' + user.position + ')');
+        }).join(', ') : 'Belum ada penanggung jawab';
+        return '<div class="manager-row" data-assignment-key="' + escapeAttr(type.key) + '">' +
+          '<div class="manager-row-head"><strong>' + escapeHtml(type.label) + '</strong><span class="muted">' + responsible + '</span></div>' +
+          '<div class="manager-checks">' + data.users.map(function(user) {
+            return '<label><input type="checkbox" value="' + escapeAttr(user.Id) + '" ' +
+              (type.userIds.indexOf(user.Id) !== -1 ? 'checked' : '') + '> ' + escapeHtml(user.Name + ' · ' + user.Position) + '</label>';
+          }).join('') + '</div><div><button class="btn btn-mini btn-primary" type="button" data-save-assignment="' +
+          escapeAttr(type.key) + '">Simpan penugasan</button></div></div>';
+      }).join('');
+      byId('managerNewDuties').innerHTML = data.types.map(function(type) {
+        return '<label><input type="checkbox" value="' + escapeAttr(type.key) + '"> ' + escapeHtml(type.label) + '</label>';
+      }).join('');
+      renderManagerRunningTasks();
+    }
+
+    function renderManagerRunningTasks() {
+      const data = state.managerData;
+      if (!data) return;
+      const search = String(byId('managerTaskSearch').value || '').trim().toLowerCase();
+      const tasks = data.tasks.filter(function(task) {
+        return !search || String(task.referenceNumber).includes(search) || String(task.title || '').toLowerCase().includes(search);
+      });
+      byId('managerRunningTasks').innerHTML = tasks.length ? tasks.map(function(task) {
+        const selected = task.assigneeUserId || (data.users.find(function(user) { return user.Name === task.assigneeName; }) || {}).Id || '';
+        const options = '<option value="">Tanpa penanggung jawab</option>' + data.users.map(function(user) {
+          return '<option value="' + escapeAttr(user.Id) + '" ' + (selected === user.Id ? 'selected' : '') + '>' +
+            escapeHtml(user.Name + ' · ' + user.Position) + '</option>';
+        }).join('');
+        return '<div class="manager-row" data-running-task="' + escapeAttr(task.id) + '">' +
+          '<div class="manager-row-head"><strong>No. ' + Number(task.referenceNumber || 0) + ' · ' + escapeHtml(task.title) +
+          '</strong><span class="muted">Saat ini: ' + escapeHtml(task.assigneeName || 'Belum ada') + '</span></div>' +
+          '<div class="inline-actions"><select aria-label="Penanggung jawab tugas No. ' + Number(task.referenceNumber || 0) + '">' +
+          options + '</select><button class="btn btn-mini btn-primary" type="button" data-assign-task="' +
+          escapeAttr(task.id) + '">Pindahkan tugas</button></div></div>';
+      }).join('') : '<div class="empty">Tugas berjalan tidak ditemukan.</div>';
+    }
+
+    function saveManagerAssignment(key) {
+      const row = Array.prototype.find.call(byId('managerAssignments').querySelectorAll('[data-assignment-key]'), function(item) {
+        return item.dataset.assignmentKey === key;
+      });
+      if (!row) return;
+      const ids = Array.prototype.map.call(row.querySelectorAll('input[type="checkbox"]:checked'), function(input) { return input.value; });
+      api('apiSaveTaskAssignments', state.token, key, ids).then(function(response) {
+        toast(response.message || 'Penugasan disimpan.'); loadTaskManager();
+      }).catch(showError);
+    }
+
+    function assignManagerTask(taskId) {
+      const row = Array.prototype.find.call(byId('managerRunningTasks').querySelectorAll('[data-running-task]'), function(item) {
+        return item.dataset.runningTask === taskId;
+      });
+      if (!row) return;
+      const id = row.querySelector('select').value;
+      api('apiAssignExistingTask', state.token, taskId, id).then(function(response) {
+        toast(response.message || 'Tugas dipindahkan.'); loadTaskManager();
+      }).catch(showError);
+    }
+
+    function createManagerUser(event) {
+      event.preventDefault();
+      const form = byId('managerCreateUser');
+      const selected = function(scope) {
+        return Array.prototype.map.call(byId(scope).querySelectorAll('input:checked'), function(input) { return input.value; });
+      };
+      const input = { slaLogin: byId('managerNewLogin').value, name: byId('managerNewName').value,
+        position: byId('managerNewPosition').value, role: byId('managerNewRole').value,
+        location: byId('managerNewLocation').value, menus: selected('managerNewMenus'),
+        assignmentKeys: selected('managerNewDuties') };
+      api('apiCreateManagedUser', state.token, input).then(function(response) {
+        toast(response.message || 'Pengguna dibuat.'); form.reset(); loadTaskManager();
+      }).catch(showError);
+    }
+
     function saveTaskStatus(taskId) {
       const select = byId('status-' + taskId);
-      api('apiUpdateTaskStatus', state.token, taskId, select.value, '')
+      if (state.user && state.user.Role === 'manager') {
+        const current = (state.dashboard && state.dashboard.cardTasks || []).find(function(task) { return task.id === taskId; });
+        if (current && current.kpiStatus !== select.value) {
+          state.pendingStatusChange = { taskId: taskId, status: select.value };
+          byId('statusReasonInput').value = '';
+          byId('statusReasonDialog').classList.remove('hidden');
+          byId('statusReasonInput').focus();
+          return;
+        }
+      }
+      submitTaskStatus(taskId, select.value, '').catch(showError);
+    }
+
+    function confirmManagerStatusChange(event) {
+      event.preventDefault();
+      const pending = state.pendingStatusChange;
+      if (!pending) return;
+      const reason = byId('statusReasonInput').value.trim();
+      if (!reason) return;
+      submitTaskStatus(pending.taskId, pending.status, reason).then(function() {
+        byId('statusReasonDialog').classList.add('hidden');
+        state.pendingStatusChange = null;
+      }).catch(showError);
+    }
+
+    function submitTaskStatus(taskId, status, reason) {
+      return api('apiUpdateTaskStatus', state.token, taskId, status, reason)
         .then(function() {
           toast('Status diperbarui.');
           loadDashboard();
-        })
-        .catch(showError);
+        });
+    }
+
+    function openTimerExtension(taskId) {
+      if (!state.user || state.user.Role !== 'manager') return;
+      state.pendingTimerTaskId = taskId;
+      byId('timerExtendForm').reset();
+      byId('timerExtendDialog').classList.remove('hidden');
+      byId('timerAddSeconds').focus();
+    }
+
+    function saveManagerTimerExtension(event) {
+      event.preventDefault();
+      const seconds = ['timerAddDays', 'timerAddHours', 'timerAddMinutes', 'timerAddSeconds'].reduce(function(total, id, index) {
+        return total + Number(byId(id).value || 0) * [86400, 3600, 60, 1][index];
+      }, 0);
+      if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 365 * 86400) {
+        toast('Isi tambahan waktu minimal 1 detik dan maksimal 365 hari.'); return;
+      }
+      const taskId = state.pendingTimerTaskId;
+      api('apiExtendTaskDeadline', state.token, taskId, seconds, byId('timerAddReason').value).then(function(response) {
+        byId('timerExtendDialog').classList.add('hidden');
+        state.pendingTimerTaskId = '';
+        delete state.timerHistoryCache[taskId];
+        toast(response.message || 'Waktu ditambah.'); loadDashboard();
+      }).catch(showError);
     }
 
     function startTimers() {

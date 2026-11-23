@@ -731,6 +731,95 @@ test('missed daily tasks recover for every role without changing auditor-approve
   assert.equal(ctx.tables.tasks.length, count);
 });
 
+test('manager moves an active audit task to Supervisor without replacing its report identity', () => {
+  const manager = user('mgr', 'abu abdillah', 'manager', 'all');
+  const supervisor = user('sup', 'Abu Anis', 'supervisor', 'all');
+  const current = { ...task('audit-live', manager, 'berjalan'), TaskType: 'audit_harian',
+    AssigneeRole: 'auditor', RelatedReportId: 'RPT-OLD', PeriodKey: 'audit_harian:2026-09-15' };
+  const { engine, ctx } = engineFor(manager, [manager, supervisor], [], [current]);
+  assert.equal(engine.execute('apiGetTaskManager', ['test-jwt']).ok, true);
+  assert.equal(engine.execute('apiAssignExistingTask', ['test-jwt', current.Id, supervisor.Id]).ok, true);
+  const moved = ctx.tables.tasks.find(item => item.id === current.Id).record;
+  assert.equal(moved.Id, current.Id);
+  assert.equal(moved.RelatedReportId, 'RPT-OLD');
+  assert.equal(moved.PeriodKey, current.PeriodKey);
+  assert.equal(moved.AssigneeName, supervisor.Name);
+  assert.equal(JSON.parse(moved.PayloadJson).assignmentHistory.length, 1);
+  const supervisorView = engineFor(supervisor, [manager, supervisor], [], [moved]).engine;
+  const supervisorReport = supervisorView.execute('apiGetReportMeta', ['test-jwt']);
+  assert.equal(supervisorReport.ok, true, supervisorReport.message);
+  assert.equal(supervisorReport.openTasks.some(item => item.id === current.Id), true);
+  assert.equal(engine.execute('apiGetReportMeta', ['test-jwt']).openTasks.some(item => item.id === current.Id), false);
+});
+
+test('manager controls future responsibility, timer seconds, and status-change reasons', () => {
+  const manager = user('mgr', 'abu abdillah', 'manager', 'all');
+  const supervisor = user('sup', 'Abu Anis', 'supervisor', 'all');
+  const current = { ...task('timed', manager, 'berjalan'), TaskType: 'audit_harian',
+    AssigneeRole: 'manager', StartedAt: new Date(Date.now() - 3600000).toISOString(),
+    PayloadJson: JSON.stringify({ assigneeUserId: manager.Id }) };
+  const { engine, ctx } = engineFor(manager, [manager, supervisor], [], [current]);
+  const before = engine.timerForTest(current, new Date().toISOString(), {}).deadlineAt;
+  const extended = engine.execute('apiExtendTaskDeadline', ['test-jwt', current.Id, 1, 'Perlu satu detik']);
+  assert.equal(extended.ok, true, extended.message);
+  const after = ctx.tables.tasks.find(item => item.id === current.Id).record;
+  assert.equal(Date.parse(engine.timerForTest(after, new Date().toISOString(), {}).deadlineAt) - Date.parse(before), 1000);
+  assert.equal(engine.timeHistoryForTest(after, new Date().toISOString(), {}).events.some(event =>
+    event.kind === 'manual_added' && event.addedMs === 1000), true);
+  assert.equal(engine.execute('apiUpdateTaskStatus', ['test-jwt', current.Id, 'tepat_waktu', '']).ok, false);
+  assert.equal(engine.execute('apiUpdateTaskStatus', ['test-jwt', current.Id, 'tepat_waktu', 'Alasan toleransi']).ok, true);
+  assert.equal(JSON.parse(ctx.tables.tasks.find(item => item.id === current.Id).record.PayloadJson).statusChangeReason,
+    'Alasan toleransi');
+  assert.equal(engine.execute('apiSaveTaskAssignments', ['test-jwt', 'stok_opname_auditor|all', [supervisor.Id]]).ok, true);
+  const config = ctx.tables.users.find(item => item.id === manager.Id).record.ManagedAssignments;
+  assert.deepEqual(config['stok_opname_auditor|all'], [supervisor.Id]);
+  engine.generateTasksForTest('2026-11-23T02:00:00Z');
+  const assigned = ctx.tables.tasks.find(item => item.record.PeriodKey === 'stok_opname_auditor:all:2026-11-23');
+  assert.equal(assigned.record.AssigneeName, supervisor.Name);
+  assert.equal(engine.execute('apiSaveTaskAssignments', ['test-jwt', 'stok_opname_auditor|all', []]).ok, true);
+  assert.deepEqual(ctx.tables.users.find(item => item.id === manager.Id).record.ManagedAssignments['stok_opname_auditor|all'], []);
+  engine.generateTasksForTest('2026-11-24T02:00:00Z');
+  const unassigned = ctx.tables.tasks.find(item => item.record.PeriodKey === 'stok_opname_auditor:all:2026-11-24');
+  assert.equal(unassigned.record.AssigneeName, '');
+  assert.equal(JSON.parse(unassigned.record.PayloadJson).assigneeUserId, '');
+});
+
+test('unassigned branch task keeps its branch and cash-bank duty stays with Admin Kendari', () => {
+  const manager = user('mgr-bank', 'abu abdillah', 'manager', 'all');
+  const supervisor = user('sup-bank', 'Abu Anis', 'supervisor', 'all');
+  const admin = user('admin-bank', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const current = { ...task('cash-bank-active', admin, 'berjalan'),
+    TaskType: 'laporan_keadaan_kas_bank', AssigneeLocation: 'kendari',
+    PayloadJson: JSON.stringify({ ownerOnly: true }) };
+  const { engine, ctx } = engineFor(manager, [manager, supervisor, admin], [], [current]);
+  assert.equal(engine.execute('apiAssignExistingTask', ['test-jwt', current.Id, supervisor.Id]).ok, false);
+  assert.equal(engine.execute('apiSaveTaskAssignments',
+    ['test-jwt', 'laporan_keadaan_kas_bank|kendari', [supervisor.Id]]).ok, false);
+  assert.equal(engine.execute('apiAssignExistingTask', ['test-jwt', current.Id, '']).ok, true);
+  const unassigned = ctx.tables.tasks.find(item => item.id === current.Id).record;
+  assert.equal(unassigned.AssigneeLocation, 'kendari');
+  assert.equal(JSON.parse(unassigned.PayloadJson).assigneeUserId, '');
+  assert.equal(engine.execute('apiAssignExistingTask', ['test-jwt', current.Id, supervisor.Id]).ok, false);
+  assert.equal(engine.execute('apiAssignExistingTask', ['test-jwt', current.Id, admin.Id]).ok, true);
+});
+
+test('new KPI user is linked to an existing SLA login and gets an individual KPI card', () => {
+  const manager = user('mgr', 'abu abdillah', 'manager', 'all');
+  const { engine, ctx } = engineFor(manager, [manager]);
+  ctx.validatedNewLogin = 'newstaff';
+  const result = engine.execute('apiCreateManagedUser', ['test-jwt', {
+    slaLogin: 'newstaff', name: 'Staf Baru', position: 'Koordinator', role: 'user', location: 'kendari',
+    menus: ['dashboard', 'laporan'], assignmentKeys: ['audit_harian|all']
+  }]);
+  assert.equal(result.ok, true, result.message);
+  const profile = ctx.tables.users.find(item => item.id === result.userId).record;
+  assert.equal(profile.SlaLogin, 'newstaff');
+  assert.deepEqual(Array.from(profile.Menus), ['dashboard', 'laporan']);
+  const cards = engine.execute('apiGetDashboard', ['test-jwt', period]).cards;
+  assert.equal(cards.some(card => card.userId === result.userId && card.label.includes('Koordinator')), true);
+  assert.equal(engine.execute('apiCreateManagedUser', ['test-jwt', { slaLogin: 'missing', name: 'X', position: 'X' }]).ok, false);
+});
+
 test('Sales Director shows cumulative on-time 1-10 file attachments through each date of the chosen month', () => {
   const sales = user('sales-files', 'Sales Director', 'sales_director', 'sales');
   const file = (id) => ({ id, name: id + '.jpg', mimeType: 'image/jpeg', size: 1 });
