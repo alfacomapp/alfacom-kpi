@@ -108,6 +108,17 @@ test('Task Manager filters running tasks by type and Makassar calendar month', (
   assert.deepEqual(Array.from(app.filteredManagerTasks(), task => task.id), ['nov']);
 });
 
+test('dragging KPI cards moves the selected card across its target', () => {
+  const app = ui();
+  const cards = ['owner', 'kendari', 'raha', 'manager'].map(key => ({ key }));
+  assert.deepEqual(Array.from(app.movedKpiCards(cards, 'owner', 'raha'), card => card.key),
+    ['kendari', 'raha', 'owner', 'manager']);
+  assert.deepEqual(Array.from(app.movedKpiCards(cards, 'manager', 'kendari'), card => card.key),
+    ['owner', 'manager', 'kendari', 'raha']);
+  assert.equal(app.movedKpiCards(cards, 'owner', 'owner'), null);
+  assert.deepEqual(cards.map(card => card.key), ['owner', 'kendari', 'raha', 'manager']);
+});
+
 test('bank calendar darkens reported dates and disables crossing them', () => {
   const app = ui();
   const ranges = [{ bankName: 'bri_kendari', start: '2026-11-01', end: '2026-11-10' }];
@@ -552,7 +563,7 @@ function ui() {
     localStorage: { getItem() { return null; } },
     sessionStorage: { getItem() { return null; } }
   };
-  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, bankUploadPreparation, renderField, updateShipmentItemTotal, bankCalendarMarkup, bankCalendarDayState, chooseBankCalendarDay, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, filteredManagerTasks, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers, updateSelectedFileCount, removeSelectedReportFile, refreshBankUploadPreparation };', context);
+  vm.runInNewContext(inlineScript + '\nglobalThis.__ui = { state, REPORT_FORMS, bankUploadPreparation, renderField, updateShipmentItemTotal, bankCalendarMarkup, bankCalendarDayState, chooseBankCalendarDay, revisionChecklistOptions, imagesFromPasteEvent, renderRepeatPhotoRow, renderTaskHistory, renderTaskRow, renderTaskDetail, renderTaskAttachmentCell, renderTaskFileCell, renderTimerCell, renderTimerHistory, taskDeadlineText, sortReportTaskCards, filteredManagerTasks, movedKpiCards, currentDetailTasks, toggleNote, closeNotePasswordDialog, resetImageViewerView, setImageViewerZoom, handleImageViewerWheel, handleImageViewerPointerDown, handleImageViewerPointerMove, endImageViewerPointer, updateAuditBankOptions, handleNoteMentionInput, selectNoteMention, renderNoteMentionText, renderNoteMentionJump, renderNoteReactionControls, renderNoteReactionCounts, taskMatchesFormPeriod, taskMatchesReportPeriod, reportTasksForCurrentUser, renderReportPage, renderRevisionNavigation, jumpToNextRevision, updateTimers, updateSelectedFileCount, removeSelectedReportFile, refreshBankUploadPreparation };', context);
   return { ...context.__ui, elements, document: context.document };
 }
 

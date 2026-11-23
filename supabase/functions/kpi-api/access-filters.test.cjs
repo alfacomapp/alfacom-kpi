@@ -844,6 +844,22 @@ test('manager transfers selected running tasks together after validating every t
   assert.equal(otherSession.engine.execute('apiAssignExistingTasks', ['test-jwt', [first.Id], supervisor.Id]).ok, false);
 });
 
+test('only Manager can persist a KPI card order shared with other users', () => {
+  const manager = { ...user('mgr-order', 'abu abdillah', 'manager', 'all'), SlaLogin: 'manager' };
+  const supervisor = { ...user('sup-order', 'Abu Anis', 'supervisor', 'all'), SlaLogin: 'abuanis' };
+  const { engine, ctx } = engineFor(manager, [manager, supervisor]);
+  const original = engine.execute('apiGetDashboard', ['test-jwt', period]).cards.map(card => card.key);
+  const requested = original.slice().reverse();
+  assert.equal(engine.execute('apiSaveKpiCardOrder', ['test-jwt', requested.concat(requested[0])]).ok, false);
+  assert.equal(engine.execute('apiSaveKpiCardOrder', ['test-jwt', requested]).ok, true);
+  assert.deepEqual(Array.from(engine.execute('apiGetDashboard', ['test-jwt', period]).cards, card => card.key), requested);
+  const updatedUsers = ctx.tables.users.map(item => item.record);
+  const supervisorEngine = engineFor(updatedUsers.find(item => item.Id === supervisor.Id), updatedUsers).engine;
+  assert.deepEqual(Array.from(supervisorEngine.execute('apiGetDashboard', ['test-jwt', period]).cards,
+    card => card.key), requested);
+  assert.equal(supervisorEngine.execute('apiSaveKpiCardOrder', ['test-jwt', original]).ok, false);
+});
+
 test('new KPI user is linked to an existing SLA login and gets an individual KPI card', () => {
   const manager = user('mgr', 'abu abdillah', 'manager', 'all');
   const { engine, ctx } = engineFor(manager, [manager]);

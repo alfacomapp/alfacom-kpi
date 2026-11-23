@@ -1248,6 +1248,12 @@
       transform: translateY(-1px);
     }
 
+    .kpi-card[draggable="true"] { cursor: grab; }
+    .kpi-card[draggable="true"]:active { cursor: grabbing; }
+    .kpi-card.kpi-dragging { opacity: .45; }
+    .kpi-card.kpi-drop-target { outline: 2px dashed var(--green); outline-offset: -4px; }
+    .kpi-reorder-hint { display: inline-block; width: fit-content; margin-top: 3px; padding: 2px 5px; border-radius: 5px; color: var(--muted); font-size: 11px; font-weight: 500; touch-action: none; }
+
     .kpi-card h3 {
       font-size: 15px;
       overflow-wrap: anywhere;
@@ -3092,6 +3098,10 @@
       dashboard: null,
       reportMeta: null,
       selectedCard: '',
+      kpiDragKey: '',
+      kpiTouchDrag: null,
+      kpiCardSaving: false,
+      kpiSuppressClickUntil: 0,
       noteCreatorId: '__all',
       noteAssigneeId: '',
       taskType: '',
@@ -3751,6 +3761,92 @@
         }
         const button = event.target.closest('[data-task-column]');
         if (button) toggleTaskColumn(button.dataset.taskColumn);
+      });
+      byId('kpiCards').addEventListener('dragstart', function(event) {
+        const card = event.target.closest('[data-kpi-key]');
+        if (!card || !state.user || state.user.Role !== 'manager' || state.kpiCardSaving) return;
+        state.kpiDragKey = card.dataset.kpiKey;
+        state.kpiSuppressClickUntil = Date.now() + 1000;
+        card.classList.add('kpi-dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', state.kpiDragKey);
+      });
+      byId('kpiCards').addEventListener('dragover', function(event) {
+        if (!state.kpiDragKey || !state.user || state.user.Role !== 'manager') return;
+        const wrap = byId('kpiCards');
+        const target = event.target.closest('[data-kpi-key]');
+        if (!target || target.dataset.kpiKey === state.kpiDragKey) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        wrap.querySelectorAll('.kpi-drop-target').forEach(function(card) { card.classList.remove('kpi-drop-target'); });
+        target.classList.add('kpi-drop-target');
+        const bounds = wrap.getBoundingClientRect();
+        if (event.clientX > bounds.right - 35) wrap.scrollLeft += 18;
+        if (event.clientX < bounds.left + 35) wrap.scrollLeft -= 18;
+      });
+      byId('kpiCards').addEventListener('drop', function(event) {
+        const target = event.target.closest('[data-kpi-key]');
+        if (!target || !state.kpiDragKey) return;
+        event.preventDefault();
+        const sourceKey = state.kpiDragKey;
+        state.kpiDragKey = '';
+        clearKpiDragStyles();
+        saveKpiCardMove(sourceKey, target.dataset.kpiKey);
+      });
+      byId('kpiCards').addEventListener('dragend', function() {
+        state.kpiDragKey = '';
+        state.kpiSuppressClickUntil = Date.now() + 350;
+        clearKpiDragStyles();
+      });
+      byId('kpiCards').addEventListener('pointerdown', function(event) {
+        const handle = event.target.closest('.kpi-reorder-hint');
+        const card = handle && handle.closest('[data-kpi-key]');
+        if (!card || event.pointerType !== 'touch' || !state.user ||
+            state.user.Role !== 'manager' || state.kpiCardSaving) return;
+        event.preventDefault();
+        state.kpiTouchDrag = { pointerId: event.pointerId, sourceKey: card.dataset.kpiKey, targetKey: '' };
+        state.kpiSuppressClickUntil = Date.now() + 1000;
+        handle.setPointerCapture(event.pointerId);
+        card.classList.add('kpi-dragging');
+      });
+      byId('kpiCards').addEventListener('pointermove', function(event) {
+        const drag = state.kpiTouchDrag;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        event.preventDefault();
+        const wrap = byId('kpiCards');
+        const element = document.elementFromPoint(event.clientX, event.clientY);
+        const target = element && element.closest && element.closest('[data-kpi-key]');
+        wrap.querySelectorAll('.kpi-drop-target').forEach(function(card) { card.classList.remove('kpi-drop-target'); });
+        drag.targetKey = target && target.dataset.kpiKey !== drag.sourceKey ? target.dataset.kpiKey : '';
+        if (drag.targetKey) target.classList.add('kpi-drop-target');
+        const bounds = wrap.getBoundingClientRect();
+        if (event.clientX > bounds.right - 35) wrap.scrollLeft += 18;
+        if (event.clientX < bounds.left + 35) wrap.scrollLeft -= 18;
+      });
+      byId('kpiCards').addEventListener('pointerup', function(event) {
+        const drag = state.kpiTouchDrag;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        event.preventDefault();
+        state.kpiTouchDrag = null;
+        state.kpiSuppressClickUntil = Date.now() + 350;
+        clearKpiDragStyles();
+        if (drag.targetKey) saveKpiCardMove(drag.sourceKey, drag.targetKey);
+      });
+      byId('kpiCards').addEventListener('pointercancel', function(event) {
+        if (!state.kpiTouchDrag || state.kpiTouchDrag.pointerId !== event.pointerId) return;
+        state.kpiTouchDrag = null;
+        clearKpiDragStyles();
+      });
+      byId('kpiCards').addEventListener('keydown', function(event) {
+        if (!event.altKey || !['ArrowLeft', 'ArrowRight'].includes(event.key) ||
+            !state.user || state.user.Role !== 'manager') return;
+        const card = event.target.closest('[data-kpi-key]');
+        const cards = state.dashboard && state.dashboard.cards || [];
+        const index = card && cards.findIndex(function(item) { return item.key === card.dataset.kpiKey; });
+        const next = index + (event.key === 'ArrowLeft' ? -1 : 1);
+        if (index < 0 || next < 0 || next >= cards.length) return;
+        event.preventDefault();
+        saveKpiCardMove(card.dataset.kpiKey, cards[next].key);
       });
       byId('managerAssignments').addEventListener('click', function(event) {
         const button = event.target.closest('[data-save-assignment]');
@@ -5137,6 +5233,7 @@
     function renderKpiCards() {
       const cards = state.dashboard.cards || [];
       const wrap = byId('kpiCards');
+      const canReorder = state.user && state.user.Role === 'manager';
 
       if (!cards.length) {
         wrap.innerHTML = '<div class="empty">Belum ada info KPI.</div>';
@@ -5153,9 +5250,10 @@
         const subTotal = ownerCard ? '' : Number(notes.total || 0);
         const subPerformance = ownerCard ? '' : Number(notes.performance || 0) + '%';
         return `
-          <button class="kpi-card ${card.key === state.selectedCard ? 'active' : ''}" type="button" onclick="selectCard('${escapeAttr(card.key)}')">
+          <button class="kpi-card ${card.key === state.selectedCard ? 'active' : ''}" type="button" data-kpi-key="${escapeAttr(card.key)}" draggable="${canReorder}" ${canReorder ? 'aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"' : ''} onclick="selectCard('${escapeAttr(card.key)}')">
             <div>
               <h3>${escapeHtml(card.label)}</h3>
+              ${canReorder ? '<small class="kpi-reorder-hint">Geser untuk memindah · Alt+←/→</small>' : ''}
             </div>
             <div class="metric-row">
               <div class="metric" title="${ownerCard ? 'Tugas tambahan dari notes' : 'Tugas wajib dan tambahan dari notes'}"><span>Tepat</span><strong>${Number(primary.tepatWaktu || 0)}</strong><small>${subTepat}</small></div>
@@ -5176,6 +5274,7 @@
     }
 
     function selectCard(key) {
+      if (Date.now() < state.kpiSuppressClickUntil) return;
       clearTaskNumberSearch('dashboard');
       state.selectedCard = key;
       state.taskType = '';
@@ -5188,6 +5287,46 @@
         state.dashboard.tasks = [];
       }
       loadDashboard();
+    }
+
+    function clearKpiDragStyles() {
+      byId('kpiCards').querySelectorAll('.kpi-dragging, .kpi-drop-target').forEach(function(card) {
+        card.classList.remove('kpi-dragging', 'kpi-drop-target');
+      });
+    }
+
+    function movedKpiCards(cards, sourceKey, targetKey) {
+      const source = cards.findIndex(function(card) { return card.key === sourceKey; });
+      const target = cards.findIndex(function(card) { return card.key === targetKey; });
+      if (source < 0 || target < 0 || source === target) return null;
+      const reordered = cards.slice();
+      reordered.splice(target, 0, reordered.splice(source, 1)[0]);
+      return reordered;
+    }
+
+    function saveKpiCardMove(sourceKey, targetKey) {
+      if (!state.user || state.user.Role !== 'manager' || !state.dashboard || state.kpiCardSaving) return;
+      const previous = state.dashboard.cards;
+      const reordered = movedKpiCards(previous, sourceKey, targetKey);
+      if (!reordered) return;
+      const wrap = byId('kpiCards');
+      const scrollLeft = wrap.scrollLeft;
+      state.kpiCardSaving = true;
+      state.dashboard.cards = reordered;
+      renderKpiCards();
+      wrap.scrollLeft = scrollLeft;
+      const token = state.token;
+      api('apiSaveKpiCardOrder', token, reordered.map(function(card) { return card.key; })).then(function(response) {
+        if (token !== state.token) return;
+        saveClientCache('dashboard', state.dashboard);
+        toast(response.message || 'Urutan kartu disimpan.');
+      }).catch(function(error) {
+        if (token !== state.token) return;
+        state.dashboard.cards = previous;
+        renderKpiCards();
+        wrap.scrollLeft = scrollLeft;
+        showError(error);
+      }).finally(function() { state.kpiCardSaving = false; });
     }
 
     function renderTaskFilter() {

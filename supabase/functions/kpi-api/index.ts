@@ -391,6 +391,7 @@ function doPost(e) {
       'apiLogout',
       'apiGetSession',
       'apiGetDashboard',
+      'apiSaveKpiCardOrder',
       'apiGetTaskTimeHistory',
       'apiCreateNote',
       'apiUpdateNote',
@@ -1737,6 +1738,23 @@ function managerUser_(token) {
   return user;
 }
 
+function apiSaveKpiCardOrder(token, keys) {
+  try {
+    const manager = managerUser_(token);
+    const available = getVisibleCards_(manager, getActiveUsers_()).map(function(card) { return card.key; });
+    if (!Array.isArray(keys) || keys.length !== available.length || keys.length > 100 ||
+        new Set(keys).size !== keys.length ||
+        !keys.every(function(key) { return typeof key === 'string' && available.indexOf(key) !== -1; }))
+      throw new Error('Urutan kartu KPI tidak valid. Muat ulang halaman dan coba lagi.');
+    updateObjectById_('users', manager.Id, function(row) {
+      row.KpiCardOrder = keys.slice();
+      row.UpdatedAt = new Date();
+      return row;
+    });
+    return ok_({ message: 'Urutan kartu Info KPI disimpan.', cardOrder: keys.slice() });
+  } catch (error) { return fail_(error); }
+}
+
 function taskAssignmentKeys_() {
   return Object.keys(REPORT_TYPES).filter(function(type) {
     return ['note_tugas', 'revisi_audit', 'audit_revisi'].indexOf(type) === -1;
@@ -2445,6 +2463,18 @@ function getVisibleCards_(user, activeUsers) {
   if ((activeUsers || []).some(function(row) { return normalizeRole_(row.Role) === 'user' && !row.SlaLogin; }))
     cards.push({ key: 'user', label: 'User', role: 'user', location: 'all' });
 
+  const manager = (activeUsers || []).find(function(row) {
+    return normalizeRole_(row.Role) === 'manager';
+  });
+  const saved = manager && Array.isArray(manager.KpiCardOrder) ? manager.KpiCardOrder : [];
+  if (saved.length) {
+    const position = new Map(saved.map(function(key, index) { return [key, index]; }));
+    cards.sort(function(a, b) {
+      const aPosition = position.has(a.key) ? position.get(a.key) : saved.length;
+      const bPosition = position.has(b.key) ? position.get(b.key) : saved.length;
+      return aPosition - bPosition;
+    });
+  }
   return cards;
 }
 
@@ -6018,7 +6048,7 @@ function fail_(error) {
   }
 
   const actions = {
-    apiLogout, apiLogActivity, apiGetSession, apiGetDashboard, apiGetTaskTimeHistory, apiFindTaskByNumber,
+    apiLogout, apiLogActivity, apiGetSession, apiGetDashboard, apiSaveKpiCardOrder, apiGetTaskTimeHistory, apiFindTaskByNumber,
     apiCreateNote, apiUpdateNote, apiDeleteNote, apiAddNoteComment, apiEditNoteComment, apiReactNote, apiMarkNoteMentionsSeen, apiUpdateTaskStatus,
     apiExtendTaskDeadline, apiGetTaskManager, apiSaveTaskAssignments, apiAssignExistingTask, apiAssignExistingTasks, apiCreateManagedUser,
     apiGetReportMeta, apiSubmitReport, apiAddTaskAttachments, apiUpdateProfile, apiUpdateTaskColumnPreferences
@@ -6535,7 +6565,7 @@ Deno.serve(async request => {
     const tableKeys = action === 'apiGetSession' || action === 'apiLogout'
       ? ['users'] : action === 'apiMarkNoteMentionsSeen'
         ? ['users', 'notes', 'tasks'] : action === 'apiLogActivity'
-        ? ['users', 'activityLogs'] : ['apiUpdateProfile', 'apiUpdateTaskColumnPreferences'].includes(action)
+        ? ['users', 'activityLogs'] : ['apiUpdateProfile', 'apiUpdateTaskColumnPreferences', 'apiSaveKpiCardOrder'].includes(action)
           ? ['users'] : Object.keys(KPI_TABLES);
     const fetched = await Promise.all(tableKeys.map(async key => [key,
       await restRows(KPI_TABLES[key], 'select=id,record,revision,seq&order=seq.asc')]));
@@ -6552,7 +6582,7 @@ Deno.serve(async request => {
           validatedNewLogin = login;
       }
     }
-    const needsAttendance = !['apiGetSession', 'apiLogout', 'apiLogActivity', 'apiUpdateProfile', 'apiUpdateTaskColumnPreferences', 'apiAddTaskAttachments'].includes(action);
+    const needsAttendance = !['apiGetSession', 'apiLogout', 'apiLogActivity', 'apiUpdateProfile', 'apiUpdateTaskColumnPreferences', 'apiSaveKpiCardOrder', 'apiAddTaskAttachments'].includes(action);
     let absensi = [];
     let leaveRequests = [];
     if (needsAttendance) {
