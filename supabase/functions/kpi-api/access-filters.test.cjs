@@ -546,7 +546,18 @@ test('auditor report cards show direct source files but not unrelated Bank Jago 
   const legacyCard = meta.openTasks.find(item => item.id === legacy.Id);
   const bankCard = meta.openTasks.find(item => item.id === bank.Id);
   assert.ok(Object.values(legacyCard.attachments).flat().some(file => file.id === 'nota-file'));
+  assert.equal(legacyCard.sourceHistory.length, 1);
   assert.equal(Object.values(bankCard.attachments).flat().length, 0);
+
+  const supervisor = user('sup-source', 'Abu Anis', 'supervisor', 'all');
+  const moved = { ...legacy, AssigneeRole: 'supervisor', AssigneeName: supervisor.Name,
+    PayloadJson: JSON.stringify({ assigneeUserId: supervisor.Id }) };
+  const supervisorSession = engineFor(supervisor, [auditor, supervisor], [], [moved]);
+  supervisorSession.ctx.tables.reports.push(ctx.tables.reports[0]);
+  const supervisorCard = supervisorSession.engine.execute('apiGetReportMeta', ['test-jwt'])
+    .openTasks.find(item => item.id === moved.Id);
+  assert.equal(supervisorCard.sourceHistory.length, 1);
+  assert.ok(Object.values(supervisorCard.attachments).flat().some(file => file.id === 'nota-file'));
 });
 
 test('only the comment author can edit a note comment', () => {
@@ -734,9 +745,21 @@ test('missed daily tasks recover for every role without changing auditor-approve
 test('manager moves an active audit task to Supervisor without replacing its report identity', () => {
   const manager = user('mgr', 'abu abdillah', 'manager', 'all');
   const supervisor = user('sup', 'Abu Anis', 'supervisor', 'all');
+  const admin = user('source-admin', 'Admin Kendari', 'admin_kendari', 'kendari');
+  const source = { ...task('source-daily', admin, 'selesai'), TaskType: 'pendapatan_harian',
+    RelatedReportId: 'RPT-OLD' };
   const current = { ...task('audit-live', manager, 'berjalan'), TaskType: 'audit_harian',
-    AssigneeRole: 'auditor', RelatedReportId: 'RPT-OLD', PeriodKey: 'audit_harian:2026-09-15' };
-  const { engine, ctx } = engineFor(manager, [manager, supervisor], [], [current]);
+    AssigneeRole: 'auditor', RelatedReportId: 'RPT-OLD', PeriodKey: 'audit_harian:2026-09-15',
+    PayloadJson: JSON.stringify({ sourceTaskId: source.Id }) };
+  const report = { Id: 'RPT-OLD', TaskType: 'pendapatan_harian', ReporterName: admin.Name,
+    ReportDate: stamp, CreatedAt: stamp, PayloadJson: JSON.stringify({ description: 'Setoran sudah dihitung' }),
+    AttachmentUrlsJson: JSON.stringify({ physicalCash: [{ id: 'cash-photo', name: 'uang.jpg', mimeType: 'image/jpeg' }] }) };
+  const { engine, ctx } = engineFor(manager, [manager, supervisor, admin], [], [current, source]);
+  ctx.tables.reports.push(record(report));
+  const managerCard = engine.execute('apiGetReportMeta', ['test-jwt']).openTasks.find(item => item.id === current.Id);
+  assert.equal(managerCard.sourceHistory.length, 1);
+  assert.equal(managerCard.sourceHistory[0].fields.description, 'Setoran sudah dihitung');
+  assert.ok(Object.values(managerCard.attachments).flat().some(file => file.id === 'cash-photo'));
   assert.equal(engine.execute('apiGetTaskManager', ['test-jwt']).ok, true);
   assert.equal(engine.execute('apiAssignExistingTask', ['test-jwt', current.Id, supervisor.Id]).ok, true);
   const moved = ctx.tables.tasks.find(item => item.id === current.Id).record;
@@ -745,10 +768,16 @@ test('manager moves an active audit task to Supervisor without replacing its rep
   assert.equal(moved.PeriodKey, current.PeriodKey);
   assert.equal(moved.AssigneeName, supervisor.Name);
   assert.equal(JSON.parse(moved.PayloadJson).assignmentHistory.length, 1);
-  const supervisorView = engineFor(supervisor, [manager, supervisor], [], [moved]).engine;
+  const supervisorSession = engineFor(supervisor, [manager, supervisor, admin], [], [moved, source]);
+  supervisorSession.ctx.tables.reports.push(record(report));
+  const supervisorView = supervisorSession.engine;
   const supervisorReport = supervisorView.execute('apiGetReportMeta', ['test-jwt']);
   assert.equal(supervisorReport.ok, true, supervisorReport.message);
-  assert.equal(supervisorReport.openTasks.some(item => item.id === current.Id), true);
+  const supervisorCard = supervisorReport.openTasks.find(item => item.id === current.Id);
+  assert.equal(supervisorCard.sourceHistory.length, managerCard.sourceHistory.length);
+  assert.equal(supervisorCard.sourceHistory[0].fields.description, 'Setoran sudah dihitung');
+  assert.ok(Object.values(supervisorCard.attachments).flat().some(file => file.id === 'cash-photo'));
+  assert.equal(supervisorView.authorizeFile('cash-photo').name, 'uang.jpg');
   assert.equal(supervisorReport.reportTypes.some(item => item.value === 'audit_harian'), true);
   const managerReport = engine.execute('apiGetReportMeta', ['test-jwt']);
   assert.equal(managerReport.openTasks.some(item => item.id === current.Id), false);

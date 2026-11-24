@@ -1413,7 +1413,7 @@ function mergedAttachmentGroups_(previous, added) {
 }
 
 function attachSourceFilesForAuditor_(task, sourceIndex) {
-  if (task.assigneeRole !== 'auditor' || task.taskType === 'audit_bank_jago') return task;
+  if (!isAuditReviewer_(task.assigneeRole) || task.taskType === 'audit_bank_jago') return task;
   const sourceReports = [];
   const direct = sourceIndex.byId[task.relatedReportId];
   if (direct) sourceReports.push(direct);
@@ -1442,6 +1442,13 @@ function attachSourceFilesForAuditor_(task, sourceIndex) {
     history.forEach(function(entry) {
       const sourceReport = sourceIndex.byId[entry.reportId];
       if (sourceReport && !sourceReports.some(function(row) { return row.Id === sourceReport.Id; })) sourceReports.push(sourceReport);
+    });
+  }
+  if (!task.sourceHistory || !task.sourceHistory.length) {
+    task.sourceHistory = sourceReports.map(function(report) {
+      return { reportId: report.Id, submittedAt: toIso_(report.CreatedAt), reporter: report.ReporterName,
+        fields: parseJsonSafe_(report.PayloadJson, {}),
+        attachments: attachmentMetadataGroups_(parseJsonSafe_(report.AttachmentUrlsJson, {})) };
     });
   }
   const sourceDescriptions = sourceReports.sort(function(a, b) {
