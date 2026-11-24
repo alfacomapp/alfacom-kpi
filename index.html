@@ -1908,6 +1908,13 @@
     #timerExtendForm .field { min-width: 0; }
     #timerExtendForm input, #timerExtendForm textarea { width: 100%; max-width: 100%; min-width: 0; }
     #timerExtendForm .inline-actions { flex-wrap: wrap; }
+    #statusReasonForm { width: min(480px, 100%); min-width: 0; max-height: calc(100dvh - 36px); overflow-y: auto; }
+    #statusReasonForm textarea, #statusReasonForm input[type="file"] { width: 100%; min-width: 0; max-width: 100%; }
+    .manager-proof-field { display: grid; gap: 6px; min-width: 0; }
+    .manager-proof-field small { color: var(--muted); }
+    #timerExtendForm input[type="file"] { min-width: 0; }
+    #appInformationDialog .info-dialog-card { width: min(540px, 100%); max-height: calc(100dvh - 36px); overflow-y: auto; }
+    #appInformationText { white-space: pre-line; line-height: 1.6; color: var(--ink); }
     @media (max-width: 380px) { #timerExtendForm .form-grid { grid-template-columns: minmax(0, 1fr); } }
 
     .image-viewer {
@@ -2732,6 +2739,13 @@
       <button id="infoDialogClose" class="btn btn-primary" type="button">OK</button>
     </div>
   </div>
+  <div id="appInformationDialog" class="info-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="appInformationTitle">
+    <div class="info-dialog-card">
+      <h3 id="appInformationTitle">Informasi KPI</h3>
+      <div id="appInformationText"></div>
+      <button id="appInformationClose" class="btn btn-primary" type="button">OK</button>
+    </div>
+  </div>
 
   <div id="notePasswordDialog" class="info-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="notePasswordTitle">
     <form id="notePasswordForm" class="info-dialog-card">
@@ -2750,6 +2764,7 @@
       <h3 id="statusReasonTitle">Alasan perubahan status</h3>
       <label for="statusReasonInput">Jelaskan alasan perubahan status KPI *</label>
       <textarea id="statusReasonInput" maxlength="1000" required></textarea>
+      <div class="manager-proof-field"><label for="statusProofFiles">Bukti screenshot kesalahan sistem *</label><input id="statusProofFiles" type="file" accept="image/*" multiple required><small>Maksimal 5 gambar, total 10 MB.</small></div>
       <div class="inline-actions"><button class="btn btn-primary" type="submit">Simpan status</button><button id="statusReasonCancel" class="btn btn-ghost" type="button">Batal</button></div>
     </form>
   </div>
@@ -2763,6 +2778,7 @@
         <div class="field"><label for="timerAddSeconds">Detik</label><input id="timerAddSeconds" type="number" min="0" max="59" value="0"></div>
       </div>
       <label for="timerAddReason">Keterangan (opsional)</label><textarea id="timerAddReason" maxlength="500"></textarea>
+      <div class="manager-proof-field"><label for="timerProofFiles">Lampirkan file (opsional)</label><input id="timerProofFiles" type="file" multiple><small>Maksimal 5 file, total 10 MB.</small></div>
       <div class="inline-actions"><button class="btn btn-primary" type="submit">Simpan tambahan waktu</button><button id="timerExtendCancel" class="btn btn-ghost" type="button">Batal</button></div>
     </form>
   </div>
@@ -3071,6 +3087,10 @@
 
   <script src="assets/kpi-bank-upload.js?v=2026-10-14-1"></script>
   <script>
+    const DEFAULT_APP_INFORMATION = 'Aturan mainnya sebagai berikut:\n\n' +
+      '• Revisi status hanya untuk kesalahan sistem. Wajib sertakan bukti screenshot dan beri penjelasannya ke ana.\n' +
+      '• Sakit, izin, dan hari Ahad otomatis pause tenggat waktu tugas.\n' +
+      '• Waktu otomatis berjalan setiap hari. Jika terlambat masuk atau terlambat mengirim absen izin/sakit, waktu tetap berjalan.';
     const bankUploadPreparation = { version: 0, promise: null, result: null, urls: [] };
     const reportFileSelections = new WeakMap();
     function preparedUploadLimitText() {
@@ -3104,6 +3124,8 @@
       kpiSuppressClickUntil: 0,
       noteCreatorId: '__all',
       noteAssigneeId: '',
+      appInformation: '',
+      appInformationShown: false,
       taskType: '',
       kpiStatus: '',
       auditStatus: '',
@@ -3414,6 +3436,7 @@
             sessionStorage.setItem('kpi_sla_token', state.token);
             state.user = data.response.user;
             state.menus = data.response.menus || [];
+            state.appInformation = data.response.appInformation || '';
             showApp();
           })
           .catch(function() {
@@ -3502,6 +3525,13 @@
       });
       byId('noteAssigneeSelect').addEventListener('change', function(event) {
         state.noteAssigneeId = event.target.value;
+        if (state.noteAssigneeId === '__information__') {
+          byId('noteInput').value = state.appInformation || DEFAULT_APP_INFORMATION;
+          byId('noteInput').focus();
+        }
+      });
+      byId('appInformationClose').addEventListener('click', function() {
+        byId('appInformationDialog').classList.add('hidden');
       });
       byId('dashboardMonthFilter').addEventListener('change', function(event) {
         state.dashboardMonth = Number(event.target.value) || new Date().getMonth() + 1;
@@ -4008,6 +4038,7 @@
           state.sessionExpiresAt = Date.parse(response.sessionExpiresAt || session.expiresAt);
           state.user = response.user;
           state.menus = response.menus || [];
+          state.appInformation = response.appInformation || '';
           state.page = 'dashboard';
           sessionStorage.setItem('kpi_sla_token', state.token);
           parent.postMessage({ type: 'kpi:sla-accepted', nonce: nonce }, SLA_ORIGIN);
@@ -4025,6 +4056,8 @@
     }
 
     function showLogin(message) {
+      state.appInformationShown = false;
+      byId('appInformationDialog').classList.add('hidden');
       state.managerData = null;
       state.managerSelectedTaskIds.clear();
       byId('managerAssignments').textContent = '';
@@ -4110,6 +4143,12 @@
       setReportSplit(Number(localStorage.getItem('kpi_report_split_' + state.user.Id)) || 55);
       renderShell();
       navigate(state.menus.indexOf(state.page) !== -1 ? state.page : state.menus[0] || 'dashboard');
+      if (!state.appInformationShown) {
+        state.appInformationShown = true;
+        byId('appInformationText').textContent = state.appInformation || DEFAULT_APP_INFORMATION;
+        byId('appInformationDialog').classList.remove('hidden');
+        byId('appInformationClose').focus();
+      }
     }
 
     function renderShell() {
@@ -4674,8 +4713,10 @@
       const options = users.map(function(user) {
         return `<option value="${escapeAttr(user.id)}">${escapeHtml(user.name)}</option>`;
       }).join('');
-      select.innerHTML = '<option value="">Tanpa tugas KPI</option>' + options;
-      select.value = users.some(function(user) {
+      const canEditInformation = state.user && (state.user.Role === 'manager' || state.user.Role === 'owner');
+      select.innerHTML = '<option value="">Tanpa tugas KPI</option>' +
+        (canEditInformation ? '<option value="__information__">Informasi awal aplikasi</option>' : '') + options;
+      select.value = state.noteAssigneeId === '__information__' && canEditInformation ? '__information__' : users.some(function(user) {
         return user.id === state.noteAssigneeId;
       }) ? state.noteAssigneeId : '';
       state.noteAssigneeId = select.value;
@@ -4947,7 +4988,7 @@
       }
 
       list.innerHTML = notes.map(function(note) {
-        const assignment = note.assignedToName
+        const assignment = note.noteType === 'information' ? '<span>Informasi awal aplikasi</span>' : note.assignedToName
           ? `<span>Ditugaskan ke ${escapeHtml(note.assignedToName)}${note.assignedTaskId ? ' &middot; ' + escapeHtml(note.assignedTaskId) : ''}</span>`
           : '<span>Note umum</span>';
         const attachments = renderAttachmentDisclosure(note.attachments);
@@ -4974,13 +5015,13 @@
           <article class="note-item ${note.done ? 'done' : ''}" data-note-id="${escapeAttr(note.id)}">
             <div class="note-meta">
               <span>${escapeHtml(note.createdByName || '-')} &middot; ${formatDate(note.updatedAt || note.createdAt)}</span>
-              <input type="checkbox" ${note.done ? 'checked' : ''} aria-label="Ceklis note" onchange="toggleNote('${escapeAttr(note.id)}', this.checked, this)">
+              ${note.noteType === 'information' ? '' : `<input type="checkbox" ${note.done ? 'checked' : ''} aria-label="Ceklis note" onchange="toggleNote('${escapeAttr(note.id)}', this.checked, this)">`}
             </div>
             <div class="note-meta">${assignment}</div>
             <div class="note-text">${renderNoteMentionText(note.text, note.mentionedUserIds)}</div>
             ${attachments ? `<div>${attachments}</div>` : ''}
             <div class="note-buttons">
-              <button class="btn btn-mini btn-ghost" type="button" onclick="editNote('${escapeAttr(note.id)}')">Edit</button>
+              ${note.noteType !== 'information' || state.user && (state.user.Role === 'manager' || state.user.Role === 'owner') ? `<button class="btn btn-mini btn-ghost" type="button" onclick="editNote('${escapeAttr(note.id)}')">Edit</button>` : ''}
               ${state.user && note.createdById === state.user.Id ? `<button class="btn btn-mini btn-danger" type="button" onclick="deleteNote('${escapeAttr(note.id)}')">Hapus</button>` : ''}
               ${renderNoteReactionControls(note)}
               <button class="btn btn-mini btn-ghost note-comment-toggle" type="button" title="Komentar" aria-label="Komentar" aria-expanded="${commentsOpen ? 'true' : 'false'}" onclick="toggleNoteComments('${escapeAttr(note.id)}')">
@@ -5084,6 +5125,7 @@
           });
         })
         .then(function(response) {
+          if (state.noteAssigneeId === '__information__') state.appInformation = response.appInformation || text;
           byId('noteInput').value = '';
           byId('noteInput').dataset.mentionedUserIds = '[]';
           hideNoteMentionPicker();
@@ -5149,7 +5191,8 @@
         return;
       }
       api('apiUpdateNote', state.token, id, { text: text })
-        .then(function() {
+        .then(function(response) {
+          if (note.noteType === 'information') state.appInformation = response.appInformation || '';
           logActivity('note_edit', { noteId: id });
           loadDashboard();
         })
@@ -5166,7 +5209,8 @@
         return;
       }
       api('apiDeleteNote', state.token, id)
-        .then(function() {
+        .then(function(response) {
+          if (note.noteType === 'information') state.appInformation = response.appInformation || '';
           logActivity('note_delete', { noteId: id });
           loadDashboard();
         })
@@ -6067,7 +6111,7 @@
             </div>
           </td>
           <td class="${taskColumnClass('penanggung')}" data-label="Penanggung Jawab">${escapeHtml(task.assigneeName || '-')}<br><span class="muted">${escapeHtml(titleCase(task.assigneeLocation || ''))}</span></td>
-          <td class="${taskColumnClass('status')}" data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.kpiStatus === 'meleset' && task.status === 'selesai' ? 'Meleset (done)' : (task.displayKpiLabel || task.kpiLabel))}</span>${task.statusChangeReason ? '<small class="status-reason">Alasan manager: ' + escapeHtml(task.statusChangeReason) + '</small>' : ''}</td>
+          <td class="${taskColumnClass('status')}" data-label="Status KPI"><span class="status ${task.displayKpiStatus || task.kpiStatus}">${escapeHtml(task.kpiStatus === 'meleset' && task.status === 'selesai' ? 'Meleset (done)' : (task.displayKpiLabel || task.kpiLabel))}</span>${task.statusChangeReason ? '<small class="status-reason">Alasan manager: ' + escapeHtml(task.statusChangeReason) + '</small>' : ''}${renderAttachmentDisclosureFromFiles(task.statusChangeProof || [], { label: 'Bukti perubahan status', textOnly: isOwnerOnlyTaskFile(task) && !isCurrentUserOwner() })}</td>
           <td class="${taskColumnClass('timer')}" data-label="Timer">${renderTimerCell(task, true)}</td>
           <td class="${taskColumnClass('dibuat')}" data-label="Dibuat">${formatDateWithDay(task.createdAt || task.startedAt)}</td>
           <td class="${taskColumnClass('selesai')}" data-label="Selesai">${task.completedAt ? formatDateWithDay(task.completedAt) : '-'}</td>
@@ -6280,7 +6324,8 @@
         if (event.kind === 'complete') title = 'Tugas selesai';
         if (!title) return '';
         return '<div class="timer-history-entry"><strong>' + escapeHtml(title) + '</strong><small>' +
-          escapeHtml(formatDate(event.at)) + '</small>' + (detail ? '<small>' + escapeHtml(detail) + '</small>' : '') + '</div>';
+          escapeHtml(formatDate(event.at)) + '</small>' + (detail ? '<small>' + escapeHtml(detail) + '</small>' : '') +
+          renderAttachmentDisclosureFromFiles(event.attachments || [], { label: 'Bukti tambahan waktu' }) + '</div>';
       }).join('');
     }
 
@@ -6508,6 +6553,7 @@
         if (current && current.kpiStatus !== select.value) {
           state.pendingStatusChange = { taskId: taskId, status: select.value };
           byId('statusReasonInput').value = '';
+          byId('statusProofFiles').value = '';
           byId('statusReasonDialog').classList.remove('hidden');
           byId('statusReasonInput').focus();
           return;
@@ -6522,14 +6568,26 @@
       if (!pending) return;
       const reason = byId('statusReasonInput').value.trim();
       if (!reason) return;
-      submitTaskStatus(pending.taskId, pending.status, reason).then(function() {
+      const input = byId('statusProofFiles');
+      const files = Array.prototype.slice.call(input.files || []);
+      if (!files.length) { toast('Lampirkan screenshot bukti kesalahan sistem.'); return; }
+      try { validateFileList(files, 5, 10, 'Bukti screenshot'); }
+      catch (error) { showError(error); return; }
+      if (files.some(function(file) { return !String(file.type || '').startsWith('image/'); })) {
+        toast('Bukti perubahan status harus berupa gambar screenshot.'); return;
+      }
+      const button = byId('statusReasonForm').querySelector('button[type="submit"]');
+      button.disabled = true;
+      readFiles(files, 10).then(function(payloads) {
+        return submitTaskStatus(pending.taskId, pending.status, reason, payloads);
+      }).then(function() {
         byId('statusReasonDialog').classList.add('hidden');
         state.pendingStatusChange = null;
-      }).catch(showError);
+      }).catch(showError).finally(function() { button.disabled = false; });
     }
 
-    function submitTaskStatus(taskId, status, reason) {
-      return api('apiUpdateTaskStatus', state.token, taskId, status, reason)
+    function submitTaskStatus(taskId, status, reason, files) {
+      return api('apiUpdateTaskStatus', state.token, taskId, status, reason, files || [])
         .then(function() {
           toast('Status diperbarui.');
           loadDashboard();
@@ -6553,12 +6611,19 @@
         toast('Isi tambahan waktu minimal 1 detik dan maksimal 365 hari.'); return;
       }
       const taskId = state.pendingTimerTaskId;
-      api('apiExtendTaskDeadline', state.token, taskId, seconds, byId('timerAddReason').value).then(function(response) {
+      const files = Array.prototype.slice.call(byId('timerProofFiles').files || []);
+      try { validateFileList(files, 5, 10, 'Lampiran tambahan waktu'); }
+      catch (error) { showError(error); return; }
+      const button = byId('timerExtendForm').querySelector('button[type="submit"]');
+      button.disabled = true;
+      readFiles(files, 10).then(function(payloads) {
+        return api('apiExtendTaskDeadline', state.token, taskId, seconds, byId('timerAddReason').value, payloads);
+      }).then(function(response) {
         byId('timerExtendDialog').classList.add('hidden');
         state.pendingTimerTaskId = '';
         delete state.timerHistoryCache[taskId];
         toast(response.message || 'Waktu ditambah.'); loadDashboard();
-      }).catch(showError);
+      }).catch(showError).finally(function() { button.disabled = false; });
     }
 
     function startTimers() {

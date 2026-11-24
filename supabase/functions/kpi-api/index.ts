@@ -595,12 +595,24 @@ function shouldLogActivity_(action) {
   return ['note_edit', 'note_delete'].indexOf(String(action || '')) !== -1;
 }
 
+function latestAppInformation_() {
+  return readObjects_('notes').filter(function(note) { return note.NoteType === 'information'; })
+    .reduce(function(latest, note) {
+      if (!latest) return note;
+      const latestAt = Date.parse(latest.UpdatedAt || latest.CreatedAt || '') || 0;
+      const noteAt = Date.parse(note.UpdatedAt || note.CreatedAt || '') || 0;
+      return noteAt >= latestAt ? note : latest;
+    }, null);
+}
+
 function apiGetSession(token) {
   try {
     const user = requireUser_(token);
+    const latestInformation = latestAppInformation_();
     return ok_({
       user: user,
-      menus: menusForUser_(user)
+      menus: menusForUser_(user),
+      appInformation: latestInformation ? String(latestInformation.Text || '') : ''
     });
   } catch (error) {
     return fail_(error);
@@ -827,6 +839,9 @@ function apiCreateNote(token, request, assigneeId) {
     const payload = request && typeof request === 'object'
       ? request
       : { text: request, assigneeId: assigneeId, files: {} };
+    const isInformation = String(payload.assigneeId || '') === '__information__';
+    if (isInformation && user.Role !== 'manager' && user.Role !== 'owner')
+      throw new Error('Hanya Manager atau Owner yang dapat mengatur informasi awal aplikasi.');
     const noteText = String(payload.text || '').trim();
     if (!noteText) {
       throw new Error('Isi note belum diisi.');
@@ -838,11 +853,12 @@ function apiCreateNote(token, request, assigneeId) {
     validateNotePhotoFiles_(files);
     const mentionedUserIds = noteMentionIds_(noteText, payload.mentionedUserIds, getActiveUsers_());
     const savedFiles = saveUploadedFileGroups_(files, 'notes/' + noteId);
-    const assignee = getNoteAssignee_(payload.assigneeId);
+    const assignee = isInformation ? null : getNoteAssignee_(payload.assigneeId);
     const task = assignee ? createNoteTask_(noteId, noteText, user, assignee, now, savedFiles) : null;
 
     appendObject_('notes', {
       Id: noteId,
+      NoteType: isInformation ? 'information' : '',
       Text: noteText,
       MentionsJson: JSON.stringify(mentionedUserIds),
       MentionUpdatedAt: toIso_(now),
@@ -860,7 +876,8 @@ function apiCreateNote(token, request, assigneeId) {
     });
 
     touchDataVersion_();
-    return ok_({ message: assignee ? 'Note tersimpan dan menjadi tugas.' : 'Note tersimpan.', noteId: noteId, assigned: Boolean(assignee) });
+    return ok_({ message: isInformation ? 'Informasi awal aplikasi tersimpan.' : assignee ? 'Note tersimpan dan menjadi tugas.' : 'Note tersimpan.',
+      noteId: noteId, assigned: Boolean(assignee), appInformation: isInformation ? noteText : undefined });
   } catch (error) {
     return fail_(error);
   }
@@ -877,6 +894,8 @@ function apiUpdateNote(token, noteId, patch) {
     if (!before) {
       throw new Error('Note tidak ditemukan.');
     }
+    if (before.NoteType === 'information' && user.Role !== 'manager' && user.Role !== 'owner')
+      throw new Error('Hanya Manager atau Owner yang dapat mengubah informasi awal aplikasi.');
 
     const textChanged = typeof updates.text !== 'undefined';
     const doneChanged = typeof updates.done !== 'undefined';
@@ -923,7 +942,8 @@ function apiUpdateNote(token, noteId, patch) {
     }
 
     touchDataVersion_();
-    return ok_({ message: 'Note diperbarui.' });
+    return ok_({ message: 'Note diperbarui.', appInformation: before.NoteType === 'information'
+      ? String((latestAppInformation_() || {}).Text || '') : undefined });
   } catch (error) {
     return fail_(error);
   }
@@ -939,6 +959,8 @@ function apiDeleteNote(token, noteId) {
     if (!note) {
       throw new Error('Note tidak ditemukan.');
     }
+    if (note.NoteType === 'information' && user.Role !== 'manager' && user.Role !== 'owner')
+      throw new Error('Hanya Manager atau Owner yang dapat menghapus informasi awal aplikasi.');
     if (String(note.CreatedById || '') !== user.Id) {
       throw new Error('Hanya pembuat note yang dapat menghapus note ini.');
     }
@@ -947,7 +969,8 @@ function apiDeleteNote(token, noteId) {
     }
     deleteObjectById_('notes', id);
     touchDataVersion_();
-    return ok_({ message: 'Note dihapus.' });
+    return ok_({ message: 'Note dihapus.', appInformation: note.NoteType === 'information'
+      ? String((latestAppInformation_() || {}).Text || '') : undefined });
   } catch (error) {
     return fail_(error);
   }
@@ -1662,7 +1685,27 @@ function apiGetUploadedFile(token, fileId) {
   }
 }
 
-function apiUpdateTaskStatus(token, taskId, kpiStatus, note) {
+function validateManagerActionFiles_(files, imageOnly, required) {
+  const list = files == null ? [] : files;
+  if (!Array.isArray(list) || list.length > 5 || (required && !list.length))
+    throw new Error(required ? 'Lampirkan screenshot bukti kesalahan sistem (maksimal 5 gambar).' : 'Lampiran maksimal 5 file.');
+  let total = 0;
+  list.forEach(function(file) {
+    const mime = String(file && file.mimeType || '').toLowerCase();
+    const data = String(file && file.data || '');
+    const encoded = data.includes(',') ? data.slice(data.lastIndexOf(',') + 1) : data;
+    if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))
+      throw new Error('Data lampiran tidak valid.');
+    if (imageOnly && !mime.startsWith('image/')) throw new Error('Bukti perubahan status harus berupa gambar screenshot.');
+    const size = Math.floor(encoded.length * 3 / 4) - (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0);
+    if (size < 1) throw new Error('Lampiran kosong.');
+    total += size;
+  });
+  if (total > 10 * 1024 * 1024) throw new Error('Total lampiran maksimal 10 MB.');
+  return list;
+}
+
+function apiUpdateTaskStatus(token, taskId, kpiStatus, note, files) {
   try {
     const user = requireUser_(token);
     if (user.Role !== 'owner' && user.Role !== 'auditor' && user.Role !== 'manager') {
@@ -1682,8 +1725,12 @@ function apiUpdateTaskStatus(token, taskId, kpiStatus, note) {
         throw new Error('Isi alasan perubahan status (maksimal 1000 karakter).');
       const payload = parseJsonSafe_(row.PayloadJson, {});
       if (user.Role === 'manager' && previous !== normalizedStatus) {
+        const proofFiles = validateManagerActionFiles_(files, true, true);
+        const savedProof = saveUploadedFileGroups_({ statusProof: proofFiles }, 'manager/status/' + row.Id);
+        row.AttachmentUrlsJson = JSON.stringify(mergedAttachmentGroups_(parseJsonSafe_(row.AttachmentUrlsJson, {}), savedProof));
         const history = Array.isArray(payload.statusChangeHistory) ? payload.statusChangeHistory : [];
-        history.push({ at: now.toISOString(), by: user.Name, from: previous, to: normalizedStatus, reason });
+        history.push({ at: now.toISOString(), by: user.Name, from: previous, to: normalizedStatus, reason,
+          attachments: attachmentMetadataGroups_(savedProof).statusProof || [] });
         payload.statusChangeHistory = history;
         payload.statusChangeReason = reason;
         row.PayloadJson = JSON.stringify(payload);
@@ -1712,7 +1759,7 @@ function apiUpdateTaskStatus(token, taskId, kpiStatus, note) {
   }
 }
 
-function apiExtendTaskDeadline(token, taskId, seconds, reason) {
+function apiExtendTaskDeadline(token, taskId, seconds, reason, files) {
   try {
     const user = requireUser_(token);
     if (user.Role !== 'manager') throw new Error('Hanya manager yang dapat menambah waktu tugas.');
@@ -1725,16 +1772,22 @@ function apiExtendTaskDeadline(token, taskId, seconds, reason) {
     if (String(task.Status || 'berjalan') !== 'berjalan') throw new Error('Timer tugas selesai tidak dapat ditambah.');
     const oldDeadline = buildTaskTimer_(task, now, getAttendanceMap_()).deadlineAt;
     if (!oldDeadline) throw new Error('Tugas ini tidak mempunyai tenggat waktu.');
+    const proofFiles = validateManagerActionFiles_(files, false, false);
     updateObjectById_('tasks', task.Id, function(row) {
+      const savedProof = proofFiles.length ? saveUploadedFileGroups_({ timerProof: proofFiles }, 'manager/timer/' + row.Id) : {};
+      if (proofFiles.length)
+        row.AttachmentUrlsJson = JSON.stringify(mergedAttachmentGroups_(parseJsonSafe_(row.AttachmentUrlsJson, {}), savedProof));
       const payload = parseJsonSafe_(row.PayloadJson, {});
       const history = Array.isArray(payload.manualTimeExtensions) ? payload.manualTimeExtensions : [];
       history.push({ at: now.toISOString(), by: user.Name, addedMs: addedSeconds * 1000,
-        previousDeadlineAt: oldDeadline, reason: String(reason || '').trim().slice(0, 500) });
+        previousDeadlineAt: oldDeadline, reason: String(reason || '').trim().slice(0, 500),
+        attachments: attachmentMetadataGroups_(savedProof).timerProof || [] });
       payload.manualTimeExtensions = history;
       row.PayloadJson = JSON.stringify(payload);
       row.UpdatedAt = now;
       return row;
     });
+    touchDataVersion_();
     return ok_({ message: 'Tenggat waktu ditambah.' });
   } catch (error) { return fail_(error); }
 }
@@ -2284,6 +2337,7 @@ function getNotesForDashboard_(creatorId, sourceNotes, sourceUsers, currentUserI
     .map(function(note) {
       return {
         id: note.Id,
+        noteType: String(note.NoteType || ''),
         text: note.Text,
         mentionedUserIds: parseJsonSafe_(note.MentionsJson, []),
         reactions: noteReactionSummary_(note.ReactionsJson),
@@ -2824,6 +2878,11 @@ function enrichTask_(task, now, attendanceMap) {
     completedBy: String(task.CompletedBy || ''),
     notes: String(task.Notes || ''),
     statusChangeReason: String(payload.statusChangeReason || ''),
+    statusChangeProof: (function() {
+      const entries = Array.isArray(payload.statusChangeHistory) ? payload.statusChangeHistory : [];
+      const latest = entries[entries.length - 1];
+      return latest && Array.isArray(latest.attachments) ? latest.attachments : [];
+    })(),
     periodKey: String(task.PeriodKey || ''),
     detailText: buildTaskDetailText_(task, payload),
     timer: timer,
@@ -4672,7 +4731,8 @@ function buildTaskTimeHistory_(task, now, attendanceMap, timer) {
     if (at && at <= endAt) events.push({ kind: 'manual_added', at: at.toISOString(),
       addedMs: Number(entry.addedMs || 0), previousDeadlineAt: entry.previousDeadlineAt || '',
       deadlineAt: entry.previousDeadlineAt ? new Date(Date.parse(entry.previousDeadlineAt) + Number(entry.addedMs || 0)).toISOString() : '',
-      by: String(entry.by || ''), reason: String(entry.reason || '') });
+      by: String(entry.by || ''), reason: String(entry.reason || ''),
+      attachments: Array.isArray(entry.attachments) ? entry.attachments : [] });
   });
   const assignments = Array.isArray(payload.assignmentHistory) ? payload.assignmentHistory : [];
   assignments.forEach(function(entry) {
@@ -6569,7 +6629,7 @@ Deno.serve(async request => {
     const notePasswordVerified = Boolean(notePatch && Object.prototype.hasOwnProperty.call(notePatch, 'done'));
     if (notePasswordVerified) await verifyNotePassword(identity, notePatch.password);
 
-    const tableKeys = action === 'apiGetSession' || action === 'apiLogout'
+    const tableKeys = action === 'apiGetSession' ? ['users', 'notes'] : action === 'apiLogout'
       ? ['users'] : action === 'apiMarkNoteMentionsSeen'
         ? ['users', 'notes', 'tasks'] : action === 'apiLogActivity'
         ? ['users', 'activityLogs'] : ['apiUpdateProfile', 'apiUpdateTaskColumnPreferences', 'apiSaveKpiCardOrder'].includes(action)

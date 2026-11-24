@@ -62,6 +62,28 @@ function engineFor(currentUser, users, notes = [], tasks = [], leaveRequests = [
   return { engine: createKpiEngine(ctx), ctx };
 }
 
+test('manager information note becomes the next login popup text for every user', () => {
+  const manager = user('mgr-info', 'Manager', 'manager', 'all');
+  const staff = user('staff-info', 'Staf', 'admin_kendari', 'kendari');
+  const { engine, ctx } = engineFor(manager, [manager, staff]);
+  const saved = engine.execute('apiCreateNote', ['test-jwt', {
+    text: 'Aturan baru untuk semua pengguna', assigneeId: '__information__', files: { photos: [] }
+  }]);
+  assert.equal(saved.ok, true, saved.message);
+  assert.equal(saved.assigned, false);
+  assert.equal(ctx.tables.tasks.length, 0);
+  assert.equal(engine.execute('apiGetSession', ['test-jwt']).appInformation, 'Aturan baru untuk semua pengguna');
+  ctx.userRecord = staff;
+  assert.equal(engine.execute('apiGetSession', ['test-jwt']).appInformation, 'Aturan baru untuk semua pengguna');
+  assert.equal(engine.execute('apiCreateNote', ['test-jwt', {
+    text: 'Ubah aturan', assigneeId: '__information__', files: {}
+  }]).ok, false);
+  assert.equal(engine.execute('apiUpdateNote', ['test-jwt', saved.noteId, { text: 'Aturan palsu' }]).ok, false);
+  ctx.userRecord = manager;
+  assert.equal(engine.execute('apiUpdateNote', ['test-jwt', saved.noteId, { text: 'Aturan yang diedit' }]).ok, true);
+  assert.equal(engine.execute('apiGetSession', ['test-jwt']).appInformation, 'Aturan yang diedit');
+});
+
 test('only a note creator can delete the note', () => {
   const auditor = user('aud', 'Auditor A', 'auditor', 'all');
   const admin = user('adm', 'Admin Kendari', 'admin_kendari', 'kendari');
@@ -794,16 +816,23 @@ test('manager controls future responsibility, timer seconds, and status-change r
     PayloadJson: JSON.stringify({ assigneeUserId: manager.Id }) };
   const { engine, ctx } = engineFor(manager, [manager, supervisor], [], [current]);
   const before = engine.timerForTest(current, new Date().toISOString(), {}).deadlineAt;
-  const extended = engine.execute('apiExtendTaskDeadline', ['test-jwt', current.Id, 1, 'Perlu satu detik']);
+  const proof = { name: 'bukti.png', mimeType: 'image/png', size: 1, data: 'data:image/png;base64,YQ==' };
+  const extended = engine.execute('apiExtendTaskDeadline', ['test-jwt', current.Id, 1, 'Perlu satu detik', [proof]]);
   assert.equal(extended.ok, true, extended.message);
   const after = ctx.tables.tasks.find(item => item.id === current.Id).record;
   assert.equal(Date.parse(engine.timerForTest(after, new Date().toISOString(), {}).deadlineAt) - Date.parse(before), 1000);
   assert.equal(engine.timeHistoryForTest(after, new Date().toISOString(), {}).events.some(event =>
-    event.kind === 'manual_added' && event.addedMs === 1000), true);
+    event.kind === 'manual_added' && event.addedMs === 1000 && event.attachments.length === 1), true);
   assert.equal(engine.execute('apiUpdateTaskStatus', ['test-jwt', current.Id, 'tepat_waktu', '']).ok, false);
-  assert.equal(engine.execute('apiUpdateTaskStatus', ['test-jwt', current.Id, 'tepat_waktu', 'Alasan toleransi']).ok, true);
+  assert.equal(engine.execute('apiUpdateTaskStatus', ['test-jwt', current.Id, 'tepat_waktu', 'Kesalahan sistem']).ok, false);
+  assert.equal(engine.execute('apiUpdateTaskStatus', ['test-jwt', current.Id, 'tepat_waktu', 'Kesalahan sistem',
+    [{ ...proof, mimeType: 'application/pdf' }]]).ok, false);
+  assert.equal(engine.execute('apiUpdateTaskStatus', ['test-jwt', current.Id, 'tepat_waktu', 'Kesalahan sistem', [proof]]).ok, true);
   assert.equal(JSON.parse(ctx.tables.tasks.find(item => item.id === current.Id).record.PayloadJson).statusChangeReason,
-    'Alasan toleransi');
+    'Kesalahan sistem');
+  const stored = ctx.tables.tasks.find(item => item.id === current.Id).record;
+  const statusProof = JSON.parse(stored.PayloadJson).statusChangeHistory[0].attachments[0];
+  assert.equal(engine.authorizeFile(statusProof.id).mimeType, 'image/png');
   assert.equal(engine.execute('apiSaveTaskAssignments', ['test-jwt', 'stok_opname_auditor|all', [supervisor.Id]]).ok, true);
   const config = ctx.tables.users.find(item => item.id === manager.Id).record.ManagedAssignments;
   assert.deepEqual(config['stok_opname_auditor|all'], [supervisor.Id]);
